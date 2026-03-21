@@ -88,8 +88,6 @@ interface AIAgentProps {
   pathname?: string;
   /** Enable voice mode (requires expo-av) */
   enableVoice?: boolean;
-  /** Enable live mode (requires expo-av + react-native-view-shot) */
-  enableLive?: boolean;
   /** Called after each step with token usage data */
   onTokenUsage?: (usage: TokenUsage) => void;
   /** Enable SDK debug logging (disabled by default) */
@@ -122,7 +120,6 @@ export function AIAgent({
   router,
   pathname,
   enableVoice = false,
-  enableLive = false,
   onTokenUsage,
   debug = false,
 }: AIAgentProps) {
@@ -144,7 +141,6 @@ export function AIAgent({
   const [mode, setMode] = useState<AgentMode>('text');
   const [isMicActive, setIsMicActive] = useState(false);
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
-  const [isLiveActive, setIsLiveActive] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
 
@@ -156,10 +152,9 @@ export function AIAgent({
   const availableModes: AgentMode[] = useMemo(() => {
     const modes: AgentMode[] = ['text'];
     if (enableVoice) modes.push('voice');
-    if (enableLive) modes.push('live');
     logger.info('AIAgent', `Available modes: ${modes.join(', ')}`);
     return modes;
-  }, [enableVoice, enableLive]);
+  }, [enableVoice]);
 
   // Ref-based resolver for ask_user — stays alive across renders
   const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
@@ -412,7 +407,6 @@ export function AIAgent({
           }}
           isMicActive={isMicActive}
           isSpeakerMuted={isSpeakerMuted}
-          isLiveActive={isLiveActive}
           isAISpeaking={isAISpeaking}
           isVoiceConnected={isVoiceConnected}
           onMicToggle={(active) => {
@@ -441,10 +435,7 @@ export function AIAgent({
               audioOutputRef.current?.unmute();
             }
           }}
-          onLiveToggle={(active) => {
-            logger.info('AIAgent', `Live toggle: ${active ? 'ON' : 'OFF'}`);
-            setIsLiveActive(active);
-          }}
+
         />
       )}
     </AgentContext.Provider>
