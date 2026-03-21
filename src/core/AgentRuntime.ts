@@ -13,6 +13,7 @@ import { logger } from '../utils/logger';
 import { walkFiberTree } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
+import { buildSystemPrompt } from './systemPrompt';
 import type {
   AIProvider,
   AgentConfig,
@@ -23,51 +24,6 @@ import type {
 } from './types';
 
 const DEFAULT_MAX_STEPS = 10;
-
-// ─── System Prompt ─────────────────────────────────────────────
-
-function buildSystemPrompt(language: string): string {
-  const isArabic = language === 'ar';
-
-  return `You are an AI agent that controls a React Native mobile app. You operate in an iterative loop to accomplish user requests.
-
-${isArabic ? 'Respond to the user in Arabic.' : 'Respond to the user in English.'}
-
-<input>
-At every step you receive:
-1. <screen_state>: Current screen name, available screens, and interactive elements indexed for actions.
-2. <agent_history>: Your previous steps and their results.
-3. <user_request>: The user's original request.
-</input>
-
-<screen_state>
-Interactive elements are listed as [index]<type attrs>label</>
-- index: numeric identifier for interaction
-- type: element type (pressable, text-input, switch)
-- label: visible text content of the element
-
-Only elements with [index] are interactive. Use the index to tap or type into them.
-</screen_state>
-
-<tools>
-Available tools:
-- tap(index): Tap an interactive element by its index. This triggers its onPress handler.
-- type(index, text): Type text into a text-input element by its index.
-- navigate(screen, params): Navigate to a specific screen. params is optional JSON object.
-- done(text, success): Complete the task. text is your response to the user.
-- ask_user(question): Ask the user for clarification if needed.
-</tools>
-
-<rules>
-- Only interact with elements that have an [index].
-- After tapping an element, the screen may change. Wait for the next step to see updated elements.
-- If the current screen doesn't have what you need, use navigate() to go to another screen.
-- If you're stuck or need more info, use ask_user().
-- When the task is complete, ALWAYS call done() with a summary.
-- Be efficient — complete tasks in as few steps as possible.
-- If a tap navigates to another screen, the next step will show the new screen's elements.
-</rules>`;
-}
 
 // ─── Agent Runtime ─────────────────────────────────────────────
 
@@ -324,6 +280,106 @@ export class AgentRuntime {
     return result ? `<instructions>\n${result}</instructions>\n\n` : '';
   }
 
+  // ─── Observation System (mirrors PageAgentCore.#handleObservations) ──
+
+  private observations: string[] = [];
+  private lastScreenName: string = '';
+
+  private handleObservations(step: number, maxSteps: number, screenName: string): void {
+    // Screen change detection
+    if (this.lastScreenName && screenName !== this.lastScreenName) {
+      this.observations.push(`Screen navigated to → ${screenName}`);
+    }
+    this.lastScreenName = screenName;
+
+    // Remaining steps warning
+    const remaining = maxSteps - step;
+    if (remaining === 5) {
+      this.observations.push(
+        `⚠️ Only ${remaining} steps remaining. Consider wrapping up or calling done with partial results.`
+      );
+    } else if (remaining === 2) {
+      this.observations.push(
+        `⚠️ Critical: Only ${remaining} steps left! You must finish the task or call done immediately.`
+      );
+    }
+  }
+
+  // ─── User Prompt Assembly (mirrors PageAgentCore.#assembleUserPrompt) ──
+
+  private assembleUserPrompt(
+    step: number,
+    maxSteps: number,
+    contextualMessage: string,
+    screenName: string,
+    screenContent: string,
+  ): string {
+    let prompt = '';
+
+    // 1. <instructions> (optional system/screen instructions)
+    prompt += this.getInstructions(screenName);
+
+    // 2. <agent_state> — user request + step info (mirrors page-agent)
+    prompt += '<agent_state>\n';
+    prompt += '<user_request>\n';
+    prompt += `${contextualMessage}\n`;
+    prompt += '</user_request>\n';
+    prompt += '<step_info>\n';
+    prompt += `Step ${step + 1} of ${maxSteps} max possible steps\n`;
+    prompt += '</step_info>\n';
+    prompt += '</agent_state>\n\n';
+
+    // 3. <agent_history> — structured per-step history (mirrors page-agent)
+    prompt += '<agent_history>\n';
+
+    let stepIndex = 0;
+    for (const event of this.history) {
+      stepIndex++;
+      prompt += `<step_${stepIndex}>\n`;
+      prompt += `Evaluation of Previous Step: ${event.reflection.evaluationPreviousGoal}\n`;
+      prompt += `Memory: ${event.reflection.memory}\n`;
+      prompt += `Next Goal: ${event.reflection.nextGoal}\n`;
+      prompt += `Action Results: ${event.action.output}\n`;
+      prompt += `</step_${stepIndex}>\n`;
+    }
+
+    // Inject system observations
+    for (const obs of this.observations) {
+      prompt += `<sys>${obs}</sys>\n`;
+    }
+    this.observations = [];
+
+    prompt += '</agent_history>\n\n';
+
+    // 4. <screen_state> — dehydrated screen content
+    prompt += '<screen_state>\n';
+    prompt += `Current Screen: ${screenName}\n`;
+    prompt += screenContent + '\n';
+    prompt += '</screen_state>\n';
+
+    return prompt;
+  }
+
+  // ─── Parse Reasoning from AI Text (extract evaluation/memory/next_goal) ──
+
+  private parseReasoning(text?: string): { evaluation: string; memory: string; nextGoal: string } {
+    if (!text) return { evaluation: '', memory: '', nextGoal: '' };
+
+    let evaluation = '';
+    let memory = '';
+    let nextGoal = '';
+
+    // Parse "Evaluation:" or "1." pattern
+    const evalMatch = text.match(/(?:Evaluation|1\.)\s*:?\s*(.+?)(?=(?:Memory|Next Goal|2\.|3\.|\n\n|$))/is);
+    if (evalMatch?.[1]) evaluation = evalMatch[1].trim();
+
+    // Parse "Next Goal:" or "2." pattern
+    const goalMatch = text.match(/(?:Next Goal|2\.)\s*:?\s*(.+?)(?=(?:\n\n|$))/is);
+    if (goalMatch?.[1]) nextGoal = goalMatch[1].trim();
+
+    return { evaluation, memory, nextGoal };
+  }
+
   // ─── Main Execution Loop (mirrors PageAgentCore.execute) ───────
 
   async execute(userMessage: string): Promise<ExecutionResult> {
@@ -333,6 +389,8 @@ export class AgentRuntime {
 
     this.isRunning = true;
     this.history = [];
+    this.observations = [];
+    this.lastScreenName = '';
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
     const stepDelay = this.config.stepDelay ?? 300;
 
@@ -374,13 +432,15 @@ export class AgentRuntime {
           screenContent = await this.config.transformScreenContent(screenContent);
         }
 
-        // 3. Build context message with instructions + screen state
-        const instructionsBlock = this.getInstructions(screenName);
-        const contextMessage = step === 0
-          ? `${instructionsBlock}<user_request>${contextualMessage}</user_request>\n\n<screen_state>\n${screenContent}\n</screen_state>`
-          : `${instructionsBlock}<screen_state>\n${screenContent}\n</screen_state>`;
+        // 3. Handle observations (mirrors page-agent #handleObservations)
+        this.handleObservations(step, maxSteps, screenName);
 
-        // 4. Send to AI provider
+        // 4. Assemble structured user prompt (mirrors page-agent #assembleUserPrompt)
+        const contextMessage = this.assembleUserPrompt(
+          step, maxSteps, contextualMessage, screenName, screenContent,
+        );
+
+        // 5. Send to AI provider
         const systemPrompt = buildSystemPrompt(this.config.language || 'en');
         const tools = this.buildToolsForProvider();
 
@@ -393,7 +453,7 @@ export class AgentRuntime {
           this.history,
         );
 
-        // 5. Process tool calls
+        // 6. Process tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
           logger.warn('AgentRuntime', 'No tool calls in response. Text:', response.text);
           const result: ExecutionResult = {
@@ -405,65 +465,74 @@ export class AgentRuntime {
           return result;
         }
 
-        for (const toolCall of response.toolCalls) {
-          logger.info('AgentRuntime', `Tool: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
+        // 7. Parse reasoning from text response (mirrors page-agent reflection)
+        const reasoning = this.parseReasoning(response.text);
 
-          // Find and execute the tool
-          const tool = this.tools.get(toolCall.name) ||
-            this.buildToolsForProvider().find(t => t.name === toolCall.name);
+        // Only process the FIRST tool call per step (page-agent principle: one action per step).
+        // After one action, the loop re-reads the screen with fresh indexes.
+        // Processing multiple tool calls would cause index drift after UI re-renders.
+        const toolCall = response.toolCalls[0]!;
+        if (response.toolCalls.length > 1) {
+          logger.warn('AgentRuntime', `AI returned ${response.toolCalls.length} tool calls, executing only the first one.`);
+        }
 
-          let output: string;
-          if (tool) {
-            output = await tool.execute(toolCall.args);
-          } else {
-            output = `❌ Unknown tool: ${toolCall.name}`;
-          }
+        logger.info('AgentRuntime', `Tool: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
 
-          logger.info('AgentRuntime', `Result: ${output}`);
+        // Find and execute the tool
+        const tool = this.tools.get(toolCall.name) ||
+          this.buildToolsForProvider().find(t => t.name === toolCall.name);
 
-          // Record step
-          const agentStep: AgentStep = {
-            stepIndex: step,
-            reflection: {
-              evaluationPreviousGoal: step > 0 ? 'Evaluating...' : 'First step',
-              memory: '',
-              nextGoal: '',
-            },
-            action: {
-              name: toolCall.name,
-              input: toolCall.args,
-              output,
-            },
+        let output: string;
+        if (tool) {
+          output = await tool.execute(toolCall.args);
+        } else {
+          output = `❌ Unknown tool: ${toolCall.name}`;
+        }
+
+        logger.info('AgentRuntime', `Result: ${output}`);
+
+        // Record step with reasoning metadata
+        const agentStep: AgentStep = {
+          stepIndex: step,
+          reflection: {
+            evaluationPreviousGoal: reasoning.evaluation || (step > 0 ? 'Evaluating...' : 'First step'),
+            memory: reasoning.memory,
+            nextGoal: reasoning.nextGoal,
+          },
+          action: {
+            name: toolCall.name,
+            input: toolCall.args,
+            output,
+          },
+        };
+        this.history.push(agentStep);
+
+        // Lifecycle: onAfterStep (mirrors page-agent)
+        await this.config.onAfterStep?.(this.history);
+
+        // Check if done
+        if (toolCall.name === 'done') {
+          const result: ExecutionResult = {
+            success: toolCall.args.success !== false,
+            message: toolCall.args.text || output,
+            steps: this.history,
           };
-          this.history.push(agentStep);
+          logger.info('AgentRuntime', `Task completed: ${result.message}`);
+          await this.config.onAfterTask?.(result);
+          return result;
+        }
 
-          // Lifecycle: onAfterStep (mirrors page-agent)
-          await this.config.onAfterStep?.(this.history);
-
-          // Check if done
-          if (toolCall.name === 'done') {
-            const result: ExecutionResult = {
-              success: toolCall.args.success !== false,
-              message: output,
-              steps: this.history,
-            };
-            logger.info('AgentRuntime', `Task completed: ${output}`);
-            await this.config.onAfterTask?.(result);
-            return result;
-          }
-
-          // Check if asking user
-          if (toolCall.name === 'ask_user') {
-            this.lastAskUserQuestion = toolCall.args.question || output;
-            
-            const result: ExecutionResult = {
-              success: true,
-              message: output,
-              steps: this.history,
-            };
-            await this.config.onAfterTask?.(result);
-            return result;
-          }
+        // Check if asking user
+        if (toolCall.name === 'ask_user') {
+          this.lastAskUserQuestion = toolCall.args.question || output;
+          
+          const result: ExecutionResult = {
+            success: true,
+            message: output,
+            steps: this.history,
+          };
+          await this.config.onAfterTask?.(result);
+          return result;
         }
 
         // Step delay (mirrors page-agent stepDelay)
