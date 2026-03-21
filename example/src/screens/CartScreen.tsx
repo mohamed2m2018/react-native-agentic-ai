@@ -18,13 +18,13 @@ export default function CartScreen() {
         'Confirm Order by AI 🤖',
         `Do you want the AI to place your order for $${total}?`,
         [
-          { 
-            text: 'Cancel', 
-            style: 'cancel', 
-            onPress: () => resolve({ success: false, message: 'User denied the checkout.' }) 
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => resolve({ success: false, message: 'User denied the checkout.' })
           },
-          { 
-            text: 'Confirm', 
+          {
+            text: 'Confirm',
             style: 'default',
             onPress: () => {
               clearCart();
