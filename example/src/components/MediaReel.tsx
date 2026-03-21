@@ -3,7 +3,7 @@ import { useState } from 'react';
 // @ts-ignore — expo-video types resolve at build time
 import { useVideoPlayer, VideoView } from 'expo-video';
 
-const FOOD_VIDEO_URL = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+const FOOD_VIDEO_URL = 'https://upload.wikimedia.org/wikipedia/commons/1/1c/Creation_of_a_Papa_Murphy%E2%80%99s_Pizza.webm';
 
 const MOCK_MEDIA = [
   { id: '1', type: 'image' as const, url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=400&fit=crop', title: 'Cheesy Pizza' },
@@ -37,7 +37,6 @@ function VideoCard({ item }: { item: typeof MOCK_MEDIA[1] }) {
         nativeControls={false}
       />
       <View style={styles.overlay}>
-        <Text style={styles.overlayText}>{item.title}</Text>
         {!isPlaying && (
           <View style={styles.playIconContainer}>
             <Text style={styles.playIcon}>▶️</Text>
@@ -62,9 +61,7 @@ export default function MediaReel() {
               onPress={() => {}}
             >
               <Image source={{ uri: item.url }} style={styles.mediaFrame} />
-              <View style={styles.overlay}>
-                <Text style={styles.overlayText}>{item.title}</Text>
-              </View>
+              <View style={styles.overlay}></View>
             </Pressable>
           )
         )}

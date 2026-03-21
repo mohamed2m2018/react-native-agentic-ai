@@ -1,9 +1,10 @@
 /**
  * AgentChatBar — Floating, draggable, compressible chat widget.
+ * Supports three modes: Text, Voice, and Live.
  * Does not block underlying UI natively.
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -14,7 +15,9 @@ import {
   PanResponder,
   useWindowDimensions,
 } from 'react-native';
-import type { ExecutionResult } from '../core/types';
+import type { ExecutionResult, AgentMode } from '../core/types';
+
+// ─── Props ─────────────────────────────────────────────────────
 
 interface AgentChatBarProps {
   onSend: (message: string) => void;
@@ -22,23 +25,340 @@ interface AgentChatBarProps {
   lastResult: ExecutionResult | null;
   language: 'en' | 'ar';
   onDismiss?: () => void;
+  /** Available modes (default: ['text']) */
+  availableModes?: AgentMode[];
+  /** Current active mode */
+  mode?: AgentMode;
+  onModeChange?: (mode: AgentMode) => void;
+  /** Voice controls */
+  onMicToggle?: (active: boolean) => void;
+  onSpeakerToggle?: (muted: boolean) => void;
+  isMicActive?: boolean;
+  isSpeakerMuted?: boolean;
+  /** Live mode indicator */
+  isLiveActive?: boolean;
+  onLiveToggle?: (active: boolean) => void;
+  /** AI is currently speaking */
+  isAISpeaking?: boolean;
+  /** Voice WebSocket is connected */
+  isVoiceConnected?: boolean;
 }
 
-export function AgentChatBar({ onSend, isThinking, lastResult, language, onDismiss }: AgentChatBarProps) {
+// ─── Mode Selector ─────────────────────────────────────────────
+
+function ModeSelector({
+  modes,
+  activeMode,
+  onSelect,
+}: {
+  modes: AgentMode[];
+  activeMode: AgentMode;
+  onSelect: (mode: AgentMode) => void;
+}) {
+  if (modes.length <= 1) return null;
+
+  const labels: Record<AgentMode, { icon: string; label: string }> = {
+    text: { icon: '💬', label: 'Text' },
+    voice: { icon: '🎙️', label: 'Voice' },
+    live: { icon: '🔴', label: 'Live' },
+  };
+
+  return (
+    <View style={modeStyles.container}>
+      {modes.map((mode) => (
+        <Pressable
+          key={mode}
+          style={[
+            modeStyles.tab,
+            activeMode === mode && modeStyles.tabActive,
+          ]}
+          onPress={() => onSelect(mode)}
+          accessibilityLabel={`Switch to ${labels[mode].label} mode`}
+        >
+          <Text style={modeStyles.tabIcon}>{labels[mode].icon}</Text>
+          <Text
+            style={[
+              modeStyles.tabLabel,
+              activeMode === mode && modeStyles.tabLabelActive,
+            ]}
+          >
+            {labels[mode].label}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// ─── Audio Control Button ──────────────────────────────────────
+
+function AudioControlButton({
+  icon,
+  activeIcon,
+  isActive,
+  onPress,
+  label,
+  size = 36,
+}: {
+  icon: string;
+  activeIcon: string;
+  isActive: boolean;
+  onPress: () => void;
+  label: string;
+  size?: number;
+}) {
+  return (
+    <Pressable
+      style={[
+        audioStyles.controlBtn,
+        { width: size, height: size, borderRadius: size / 2 },
+        isActive && audioStyles.controlBtnActive,
+      ]}
+      onPress={onPress}
+      accessibilityLabel={label}
+      hitSlop={8}
+    >
+      <Text style={audioStyles.controlIcon}>{isActive ? activeIcon : icon}</Text>
+    </Pressable>
+  );
+}
+
+// ─── Text Input Row ────────────────────────────────────────────
+
+function TextInputRow({
+  text,
+  setText,
+  onSend,
+  isThinking,
+  isArabic,
+}: {
+  text: string;
+  setText: (t: string) => void;
+  onSend: () => void;
+  isThinking: boolean;
+  isArabic: boolean;
+}) {
+  return (
+    <View style={styles.inputRow}>
+      <TextInput
+        style={[styles.input, isArabic && styles.inputRTL]}
+        placeholder={isArabic ? 'اكتب طلبك...' : 'Ask AI...'}
+        placeholderTextColor="#999"
+        value={text}
+        onChangeText={setText}
+        onSubmitEditing={onSend}
+        returnKeyType="send"
+        editable={!isThinking}
+        multiline={false}
+      />
+      <Pressable
+        style={[styles.sendButton, isThinking && styles.sendButtonDisabled]}
+        onPress={onSend}
+        disabled={isThinking || !text.trim()}
+        accessibilityLabel="Send request to AI Agent"
+      >
+        <Text style={styles.sendButtonText}>
+          {isThinking ? '⏳' : '🚀'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── Voice Controls Row ────────────────────────────────────────
+
+function VoiceControlsRow({
+  isMicActive,
+  isSpeakerMuted,
+  onMicToggle,
+  onSpeakerToggle,
+  isAISpeaking,
+  isVoiceConnected = false,
+  isArabic,
+}: {
+  isMicActive: boolean;
+  isSpeakerMuted: boolean;
+  onMicToggle: (active: boolean) => void;
+  onSpeakerToggle: (muted: boolean) => void;
+  isAISpeaking?: boolean;
+  isVoiceConnected?: boolean;
+  isArabic: boolean;
+}) {
+  const isConnecting = !isVoiceConnected;
+
+  return (
+    <View style={styles.inputRow}>
+      {/* Speaker mute/unmute */}
+      <AudioControlButton
+        icon="🔊"
+        activeIcon="🔇"
+        isActive={isSpeakerMuted}
+        onPress={() => onSpeakerToggle(!isSpeakerMuted)}
+        label={isSpeakerMuted ? 'Unmute speaker' : 'Mute speaker'}
+      />
+
+      {/* Mic button — large center */}
+      <Pressable
+        style={[
+          audioStyles.micButton,
+          isConnecting && audioStyles.micButtonConnecting,
+          isMicActive && audioStyles.micButtonActive,
+          isAISpeaking && audioStyles.micButtonSpeaking,
+        ]}
+        onPress={() => !isConnecting && onMicToggle(!isMicActive)}
+        disabled={isConnecting}
+        accessibilityLabel={
+          isConnecting ? 'Connecting...' :
+          isMicActive ? 'Stop recording' : 'Start recording'
+        }
+      >
+        <Text style={audioStyles.micIcon}>
+          {isConnecting ? '🔄' : isAISpeaking ? '🔊' : isMicActive ? '⏹️' : '🎙️'}
+        </Text>
+        <Text style={audioStyles.micLabel}>
+          {isConnecting
+            ? (isArabic ? 'جاري الاتصال...' : 'Connecting...')
+            : isAISpeaking
+              ? (isArabic ? 'يتحدث...' : 'Speaking...')
+              : isMicActive
+                ? (isArabic ? 'إيقاف' : 'Stop')
+                : (isArabic ? 'تحدث' : 'Talk')}
+        </Text>
+      </Pressable>
+
+      {/* Connection status indicator */}
+      <View style={[
+        audioStyles.statusDot,
+        isVoiceConnected ? audioStyles.statusDotConnected : audioStyles.statusDotConnecting,
+      ]} />
+    </View>
+  );
+}
+
+// ─── Live Controls Row ─────────────────────────────────────────
+
+function LiveControlsRow({
+  isLiveActive,
+  isMicActive,
+  isSpeakerMuted,
+  onLiveToggle,
+  onMicToggle,
+  onSpeakerToggle,
+  isArabic,
+}: {
+  isLiveActive: boolean;
+  isMicActive: boolean;
+  isSpeakerMuted: boolean;
+  onLiveToggle: (active: boolean) => void;
+  onMicToggle: (active: boolean) => void;
+  onSpeakerToggle: (muted: boolean) => void;
+  isArabic: boolean;
+}) {
+  return (
+    <View style={styles.inputRow}>
+      {/* Speaker mute/unmute */}
+      <AudioControlButton
+        icon="🔊"
+        activeIcon="🔇"
+        isActive={isSpeakerMuted}
+        onPress={() => onSpeakerToggle(!isSpeakerMuted)}
+        label={isSpeakerMuted ? 'Unmute speaker' : 'Mute speaker'}
+      />
+
+      {/* Mic toggle */}
+      <AudioControlButton
+        icon="🎙️"
+        activeIcon="❌"
+        isActive={!isMicActive}
+        onPress={() => onMicToggle(!isMicActive)}
+        label={isMicActive ? 'Disable mic' : 'Enable mic'}
+      />
+
+      {/* Live button — large center */}
+      <Pressable
+        style={[
+          audioStyles.liveButton,
+          isLiveActive && audioStyles.liveButtonActive,
+        ]}
+        onPress={() => onLiveToggle(!isLiveActive)}
+        accessibilityLabel={isLiveActive ? 'Stop live mode' : 'Start live mode'}
+      >
+        <View style={[audioStyles.liveDot, isLiveActive && audioStyles.liveDotActive]} />
+        <Text style={audioStyles.liveLabel}>
+          {isLiveActive
+            ? (isArabic ? 'مباشر' : 'LIVE')
+            : (isArabic ? 'ابدأ البث' : 'Go Live')}
+        </Text>
+      </Pressable>
+
+      {/* Speaker mute */}
+      <AudioControlButton
+        icon="🔊"
+        activeIcon="🔇"
+        isActive={isSpeakerMuted}
+        onPress={() => onSpeakerToggle(!isSpeakerMuted)}
+        label={isSpeakerMuted ? 'Unmute' : 'Mute'}
+      />
+    </View>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────
+
+export function AgentChatBar({
+  onSend,
+  isThinking,
+  lastResult,
+  language,
+  onDismiss,
+  availableModes = ['text'],
+  mode = 'text',
+  onModeChange,
+  onMicToggle,
+  onSpeakerToggle,
+  isMicActive = false,
+  isSpeakerMuted = false,
+  isLiveActive = false,
+  onLiveToggle,
+  isAISpeaking,
+  isVoiceConnected,
+}: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const { height } = useWindowDimensions();
   const isArabic = language === 'ar';
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Initial position: Bottom right for FAB, Bottom center for Expanded
-  // For simplicity, we just initialize to a safe generic spot on screen.
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
 
-  // PanResponder for dragging the widget
+  // Pulse animation for live mode
+  useEffect(() => {
+    if (isLiveActive) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+    return undefined;
+  }, [isLiveActive, pulseAnim]);
+
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only trigger drag if moving more than 5px (allows taps to register inside)
         return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
       },
       onPanResponderGrant: () => {
@@ -65,25 +385,35 @@ export function AgentChatBar({ onSend, isThinking, lastResult, language, onDismi
     }
   };
 
-  // ─── Compressed State (FAB) ───
+  // ─── FAB (Compressed) ──────────────────────────────────────
+
   if (!isExpanded) {
+    const fabIcon = isLiveActive ? '🔴' : isThinking ? '⏳' : '🤖';
     return (
-      <Animated.View style={[styles.fabContainer, pan.getLayout()]} {...panResponder.panHandlers}>
-        <Pressable 
-          style={styles.fab} 
+      <Animated.View
+        style={[
+          styles.fabContainer,
+          pan.getLayout(),
+          isLiveActive && { transform: [{ scale: pulseAnim }] },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <Pressable
+          style={[styles.fab, isLiveActive && styles.fabLive]}
           onPress={() => setIsExpanded(true)}
           accessibilityLabel="Open AI Agent Chat"
         >
-          <Text style={styles.fabIcon}>{isThinking ? '⏳' : '🤖'}</Text>
+          <Text style={styles.fabIcon}>{fabIcon}</Text>
         </Pressable>
       </Animated.View>
     );
   }
 
-  // ─── Expanded State (Widget) ───
+  // ─── Expanded Widget ───────────────────────────────────────
+
   return (
     <Animated.View style={[styles.expandedContainer, pan.getLayout()]}>
-      {/* Drag Handle Area */}
+      {/* Drag Handle */}
       <View {...panResponder.panHandlers} style={styles.dragHandleArea} accessibilityLabel="Drag AI Agent">
         <View style={styles.dragGrip} />
         <Pressable onPress={() => setIsExpanded(false)} style={styles.minimizeBtn} accessibilityLabel="Minimize AI Agent">
@@ -91,7 +421,14 @@ export function AgentChatBar({ onSend, isThinking, lastResult, language, onDismi
         </Pressable>
       </View>
 
-      {/* Result message */}
+      {/* Mode Selector */}
+      <ModeSelector
+        modes={availableModes}
+        activeMode={mode}
+        onSelect={(m) => onModeChange?.(m)}
+      />
+
+      {/* Result Bubble */}
       {lastResult && (
         <View style={[styles.resultBubble, lastResult.success ? styles.resultSuccess : styles.resultError]}>
           <Text style={styles.resultText}>{lastResult.message}</Text>
@@ -103,36 +440,47 @@ export function AgentChatBar({ onSend, isThinking, lastResult, language, onDismi
         </View>
       )}
 
-      {/* Input row */}
-      <View style={styles.inputRow}>
-        <TextInput
-          style={[styles.input, isArabic && styles.inputRTL]}
-          placeholder={isArabic ? 'اكتب طلبك...' : 'Ask AI...'}
-          placeholderTextColor="#999"
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={handleSend}
-          returnKeyType="send"
-          editable={!isThinking}
-          multiline={false}
+      {/* Mode-specific input */}
+      {mode === 'text' && (
+        <TextInputRow
+          text={text}
+          setText={setText}
+          onSend={handleSend}
+          isThinking={isThinking}
+          isArabic={isArabic}
         />
-        <Pressable
-          style={[styles.sendButton, isThinking && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={isThinking || !text.trim()}
-          accessibilityLabel="Send request to AI Agent"
-        >
-          <Text style={styles.sendButtonText}>
-            {isThinking ? '⏳' : '🚀'}
-          </Text>
-        </Pressable>
-      </View>
+      )}
+
+      {mode === 'voice' && (
+        <VoiceControlsRow
+          isMicActive={isMicActive}
+          isSpeakerMuted={isSpeakerMuted}
+          onMicToggle={onMicToggle || (() => {})}
+          onSpeakerToggle={onSpeakerToggle || (() => {})}
+          isAISpeaking={isAISpeaking}
+          isVoiceConnected={isVoiceConnected}
+          isArabic={isArabic}
+        />
+      )}
+
+      {mode === 'live' && (
+        <LiveControlsRow
+          isLiveActive={isLiveActive}
+          isMicActive={isMicActive}
+          isSpeakerMuted={isSpeakerMuted}
+          onLiveToggle={onLiveToggle || (() => {})}
+          onMicToggle={onMicToggle || (() => {})}
+          onSpeakerToggle={onSpeakerToggle || (() => {})}
+          isArabic={isArabic}
+        />
+      )}
     </Animated.View>
   );
 }
 
+// ─── Styles ────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  // FAB Styles
   fabContainer: {
     position: 'absolute',
     zIndex: 9999,
@@ -150,11 +498,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
+  fabLive: {
+    backgroundColor: '#8b0000',
+    borderWidth: 2,
+    borderColor: '#ff4444',
+  },
   fabIcon: {
     fontSize: 28,
   },
-
-  // Expanded Styles
   expandedContainer: {
     position: 'absolute',
     zIndex: 9999,
@@ -193,8 +544,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  
-  // Results & Input
   resultBubble: {
     borderRadius: 12,
     padding: 12,
@@ -227,6 +576,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    justifyContent: 'center',
   },
   input: {
     flex: 1,
@@ -254,5 +604,120 @@ const styles = StyleSheet.create({
   },
   sendButtonText: {
     fontSize: 18,
+  },
+});
+
+const modeStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 3,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 4,
+  },
+  tabActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  tabIcon: {
+    fontSize: 14,
+  },
+  tabLabel: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tabLabelActive: {
+    color: '#fff',
+  },
+});
+
+const audioStyles = StyleSheet.create({
+  controlBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  controlBtnActive: {
+    backgroundColor: 'rgba(255, 100, 100, 0.2)',
+  },
+  controlIcon: {
+    fontSize: 16,
+  },
+  micButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 8,
+  },
+  micButtonActive: {
+    backgroundColor: 'rgba(255, 59, 48, 0.3)',
+  },
+  micButtonSpeaking: {
+    backgroundColor: 'rgba(52, 199, 89, 0.3)',
+  },
+  micIcon: {
+    fontSize: 20,
+  },
+  micLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  liveButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 8,
+  },
+  liveButtonActive: {
+    backgroundColor: 'rgba(255, 0, 0, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 0, 0.5)',
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  liveDotActive: {
+    backgroundColor: '#ff0000',
+  },
+  liveLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  micButtonConnecting: {
+    backgroundColor: 'rgba(255, 200, 50, 0.2)',
+    opacity: 0.7,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statusDotConnected: {
+    backgroundColor: '#34C759',
+  },
+  statusDotConnecting: {
+    backgroundColor: '#FFCC00',
   },
 });

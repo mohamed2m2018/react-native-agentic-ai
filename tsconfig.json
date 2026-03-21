@@ -2,15 +2,21 @@
   "compilerOptions": {
     "rootDir": ".",
     "paths": {
-      "@mobileai/react-native": ["./src/index"]
+      "@mobileai/react-native": [
+        "./src/index"
+      ]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
-    "customConditions": ["react-native-strict-api"],
+    "customConditions": [
+      "react-native-strict-api"
+    ],
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": true,
@@ -27,5 +33,13 @@
     "target": "ESNext",
     "verbatimModuleSyntax": true
   },
-  "exclude": ["page-agent-reference", "lib"]
+  "exclude": [
+    "page-agent-reference",
+    "lib",
+    "**/__tests__",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "example"
+  ],
+  "extends": "expo/tsconfig.base"
 }
