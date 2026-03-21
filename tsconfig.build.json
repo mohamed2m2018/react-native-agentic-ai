@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig",
-  "exclude": ["example", "lib", "page-agent-reference"]
+  "exclude": ["example", "lib", "page-agent-reference", "rntl-reference"]
 }

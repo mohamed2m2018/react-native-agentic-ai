@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
@@ -40,7 +40,9 @@
     "prepare": "bob build",
     "typecheck": "tsc",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
-    "test": "jest"
+    "test": "jest",
+    "publish:dual": "bash scripts/publish-dual.sh",
+    "publish:dual:dry": "bash scripts/publish-dual.sh --dry-run"
   },
   "keywords": [
     "react-native",

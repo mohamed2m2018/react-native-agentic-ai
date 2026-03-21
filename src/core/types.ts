@@ -19,7 +19,8 @@ export interface InteractiveElement {
   props: {
     onPress?: (...args: any[]) => void;
     onChangeText?: (text: string) => void;
-    value?: string;
+    onValueChange?: (value: boolean) => void;
+    value?: string | boolean;
     placeholder?: string;
     checked?: boolean;
     disabled?: boolean;

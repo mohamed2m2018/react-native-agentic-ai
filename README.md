@@ -1,8 +1,14 @@
-# @mobileai/react-native
+# MobileAI — React Native AI Agent
 
 > **Autonomous AI agent for React Native** — Your app gets an AI copilot that can see, understand, and interact with your UI. Zero wrappers, zero view rewriting.
 
-[![npm](https://img.shields.io/npm/v/@mobileai/react-native)](https://www.npmjs.com/package/@mobileai/react-native)
+**Two names, one package — install either:**
+
+| | Package | npm |
+|---|---|---|
+| 📦 | `@mobileai/react-native` | [![npm](https://img.shields.io/npm/v/@mobileai/react-native?label=latest)](https://www.npmjs.com/package/@mobileai/react-native) |
+| 📦 | `react-native-agentic-ai` | [![npm](https://img.shields.io/npm/v/react-native-agentic-ai?label=latest)](https://www.npmjs.com/package/react-native-agentic-ai) |
+
 [![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
 [![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
 
@@ -21,6 +27,8 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 
 ```bash
 npm install @mobileai/react-native
+# — or —
+npm install react-native-agentic-ai
 ```
 
 No native modules required. Works with Expo managed workflow out of the box — **no eject needed**.
@@ -29,6 +37,7 @@ No native modules required. Works with Expo managed workflow out of the box — 
 
 ```tsx
 import { AIAgent } from '@mobileai/react-native';
+// or: import { AIAgent } from 'react-native-agentic-ai';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 
 export default function App() {
@@ -68,6 +77,7 @@ Register a **non-UI action** the AI can call — for business logic that isn't a
 
 ```tsx
 import { useAction } from '@mobileai/react-native';
+// or: import { useAction } from 'react-native-agentic-ai';
 
 function CartScreen() {
   const { clearCart, getTotal } = useCart();

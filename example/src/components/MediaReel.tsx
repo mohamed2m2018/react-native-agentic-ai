@@ -30,7 +30,7 @@ export default function MediaReel() {
             style={styles.mediaCard} 
             onPress={() => handlePlayMedia(item)}
             accessibilityLabel={`${item.type === 'video' ? 'Play video' : 'View image'} ${item.title}`}
-            accessibilityRole="imagebutton"
+            accessibilityRole="image"
           >
             <Image source={{ uri: item.url }} style={styles.mediaFrame} />
             <View style={styles.overlay}>

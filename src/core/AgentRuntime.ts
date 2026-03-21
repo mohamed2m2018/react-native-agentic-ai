@@ -68,10 +68,10 @@ export class AgentRuntime {
   // ─── Tool Registration ─────────────────────────────────────
 
   private registerBuiltInTools(): void {
-    // tap — tap an interactive element by index
+    // tap — universal interaction (mirrors RNTL's dispatchEvent pattern)
     this.tools.set('tap', {
       name: 'tap',
-      description: 'Tap an interactive element by its index to trigger its onPress handler.',
+      description: 'Tap an interactive element by its index. Works universally on buttons, switches, and custom components.',
       parameters: {
         index: { type: 'number', description: 'The index of the element to tap', required: true },
       },
@@ -81,17 +81,48 @@ export class AgentRuntime {
         if (!element) {
           return `❌ Element with index ${args.index} not found. Available indexes: ${elements.map(e => e.index).join(', ')}`;
         }
-        if (!element.props.onPress) {
-          return `❌ Element [${args.index}] "${element.label}" does not have an onPress handler.`;
+
+        // Strategy 1: Switch — call onValueChange (like RNTL's fireEvent('valueChange'))
+        if (element.type === 'switch' && element.props.onValueChange) {
+          try {
+            element.props.onValueChange(!element.props.value);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return `✅ Toggled [${args.index}] "${element.label}" to ${!element.props.value}`;
+          } catch (error: any) {
+            return `❌ Error toggling [${args.index}]: ${error.message}`;
+          }
         }
-        try {
-          element.props.onPress();
-          // Wait for UI to update after tap
-          await new Promise(resolve => setTimeout(resolve, 500));
-          return `✅ Tapped [${args.index}] "${element.label}"`;
-        } catch (error: any) {
-          return `❌ Error tapping [${args.index}]: ${error.message}`;
+
+        // Strategy 2: Direct onPress (covers Pressable, Button, custom components)
+        if (element.props.onPress) {
+          try {
+            element.props.onPress();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return `✅ Tapped [${args.index}] "${element.label}"`;
+          } catch (error: any) {
+            return `❌ Error tapping [${args.index}]: ${error.message}`;
+          }
         }
+
+        // Strategy 3: Bubble up Fiber tree (like RNTL's findEventHandler → element.parent)
+        let fiber = element.fiberNode?.return;
+        let bubbleDepth = 0;
+        while (fiber && bubbleDepth < 5) {
+          const parentProps = fiber.memoizedProps || {};
+          if (parentProps.onPress && typeof parentProps.onPress === 'function') {
+            try {
+              parentProps.onPress();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              return `✅ Tapped parent of [${args.index}] "${element.label}"`;
+            } catch (error: any) {
+              return `❌ Error tapping parent of [${args.index}]: ${error.message}`;
+            }
+          }
+          fiber = fiber.return;
+          bubbleDepth++;
+        }
+
+        return `❌ Element [${args.index}] "${element.label}" has no tap handler (no onPress or onValueChange found).`;
       },
     });
 
@@ -581,7 +612,7 @@ export class AgentRuntime {
         // Check if asking user (legacy path — only breaks loop when onAskUser is NOT set)
         if (toolCall.name === 'ask_user' && !this.config.onAskUser) {
           this.lastAskUserQuestion = toolCall.args.question || output;
-          
+
           const result: ExecutionResult = {
             success: true,
             message: output,

@@ -43,9 +43,10 @@ System messages may appear as <sys>...</sys> between steps.
 </input>
 
 <screen_state>
-Interactive elements are listed as [index]<type attrs>label</>
+Interactive elements are listed as [index]<type attrs>label />
 - index: numeric identifier for interaction
 - type: element type (pressable, text-input, switch)
+- attrs: state attributes like value="true", checked="false", role="switch"
 - label: visible text content of the element
 
 Only elements with [index] are interactive. Use the index to tap or type into them.
@@ -54,7 +55,7 @@ Pure text elements without [] are NOT interactive — they are informational con
 
 <tools>
 Available tools:
-- tap(index): Tap an interactive element by its index. This triggers its onPress handler.
+- tap(index): Tap an interactive element by its index. Works universally on buttons, switches, and custom components. For switches, this toggles their state.
 - type(index, text): Type text into a text-input element by its index.
 - navigate(screen, params): Navigate to a specific screen. params is optional JSON object.
 - done(text, success): Complete task. Text is your final response to the user — keep it concise unless the user explicitly asks for detail.

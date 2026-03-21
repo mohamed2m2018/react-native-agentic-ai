@@ -67,7 +67,6 @@ export default function SearchScreen({ navigation }: Props) {
         placeholderTextColor="#999"
         value={query}
         onChangeText={setQuery}
-        autoFocus
         accessibilityLabel="Search input"
       />
 
@@ -121,7 +120,6 @@ export default function SearchScreen({ navigation }: Props) {
               <Pressable 
                 style={styles.loadMoreButton} 
                 onPress={handleLoadMore}
-                disabled={isLoading}
                 accessibilityLabel="Load more items"
               >
                 {isLoading ? (

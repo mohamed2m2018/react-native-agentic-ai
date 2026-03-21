@@ -3,6 +3,7 @@ import { View, Text, TextInput, Switch, ScrollView, Pressable, StyleSheet, Activ
 
 export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
+  const [pin, setPin] = useState('');
   const [form, setForm] = useState({
     // Profile
     fullName: 'Demo User',
@@ -27,6 +28,16 @@ export default function SettingsScreen() {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
+  const handlePinPress = (val: string) => {
+    if (val === 'C') {
+      setPin('');
+    } else if (val === 'DEL') {
+      setPin(prev => prev.slice(0, -1));
+    } else {
+      setPin(prev => (prev.length < 4 ? prev + val : prev));
+    }
+  };
+
   const handleSave = () => {
     setIsSaving(true);
     // Simulate network delay
@@ -49,7 +60,7 @@ export default function SettingsScreen() {
           style={styles.input}
           value={form.fullName}
           onChangeText={(val) => updateForm('fullName', val)}
-          accessibilityLabel="Full Name Input"
+          placeholder="Enter your name"
         />
 
         <Text style={styles.label}>Email Address</Text>
@@ -59,7 +70,7 @@ export default function SettingsScreen() {
           onChangeText={(val) => updateForm('email', val)}
           keyboardType="email-address"
           autoCapitalize="none"
-          accessibilityLabel="Email Input"
+          placeholder="Enter your email"
         />
 
         <Text style={styles.label}>Bio</Text>
@@ -69,7 +80,7 @@ export default function SettingsScreen() {
           onChangeText={(val) => updateForm('bio', val)}
           multiline
           numberOfLines={3}
-          accessibilityLabel="Bio Input"
+          placeholder="Write about yourself"
         />
       </View>
 
@@ -84,8 +95,6 @@ export default function SettingsScreen() {
               key={diet}
               style={[styles.radioItem, form.dietaryPreference === diet && styles.radioItemActive]}
               onPress={() => updateForm('dietaryPreference', diet)}
-              accessibilityLabel={`Select ${diet} dietary preference`}
-              accessibilityState={{ selected: form.dietaryPreference === diet }}
             >
               <Text style={[styles.radioText, form.dietaryPreference === diet && styles.radioTextActive]}>
                 {diet}
@@ -101,8 +110,6 @@ export default function SettingsScreen() {
               key={curr}
               style={[styles.radioItem, form.currency === curr && styles.radioItemActive]}
               onPress={() => updateForm('currency', curr)}
-              accessibilityLabel={`Select currency ${curr}`}
-              accessibilityState={{ selected: form.currency === curr }}
             >
               <Text style={[styles.radioText, form.currency === curr && styles.radioTextActive]}>
                 {curr}
@@ -121,7 +128,6 @@ export default function SettingsScreen() {
           <Switch
             value={form.emailAlerts}
             onValueChange={(val) => updateForm('emailAlerts', val)}
-            accessibilityLabel="Toggle Email Alerts"
             trackColor={{ true: '#1a1a2e' }}
           />
         </View>
@@ -131,7 +137,6 @@ export default function SettingsScreen() {
           <Switch
             value={form.pushNotifications}
             onValueChange={(val) => updateForm('pushNotifications', val)}
-            accessibilityLabel="Toggle Push Notifications"
             trackColor={{ true: '#1a1a2e' }}
           />
         </View>
@@ -141,7 +146,6 @@ export default function SettingsScreen() {
           <Switch
             value={form.orderUpdates}
             onValueChange={(val) => updateForm('orderUpdates', val)}
-            accessibilityLabel="Toggle Order Updates"
             trackColor={{ true: '#1a1a2e' }}
           />
         </View>
@@ -151,7 +155,6 @@ export default function SettingsScreen() {
           <Switch
             value={form.smsPromos}
             onValueChange={(val) => updateForm('smsPromos', val)}
-            accessibilityLabel="Toggle SMS Promos"
             trackColor={{ true: '#1a1a2e' }}
           />
         </View>
@@ -166,9 +169,29 @@ export default function SettingsScreen() {
           <Switch
             value={form.twoFactorAuth}
             onValueChange={(val) => updateForm('twoFactorAuth', val)}
-            accessibilityLabel="Toggle Two-Factor Authentication"
             trackColor={{ true: '#1a1a2e' }}
           />
+        </View>
+
+        {/* Custom Input: On-Screen Keypad for PIN */}
+        <Text style={styles.label}>Account PIN (Custom Input)</Text>
+        <View style={styles.pinDisplay}>
+          {[0, 1, 2, 3].map((index) => (
+            <View key={index} style={[styles.pinDot, pin.length > index && styles.pinDotFilled]}>
+              <Text style={styles.pinText}>{pin.length > index ? pin[index] : ''}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.numpad}>
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', 'DEL'].map((num) => (
+            <Pressable
+              key={num}
+              style={styles.numButton}
+              onPress={() => handlePinPress(num)}
+            >
+              <Text style={styles.numText}>{num}</Text>
+            </Pressable>
+          ))}
         </View>
       </View>
 
@@ -254,4 +277,11 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.7 },
   saveButtonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  pinDisplay: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 20, marginTop: 10 },
+  pinDot: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#dee2e6', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8f9fa' },
+  pinDotFilled: { borderColor: '#1a1a2e', backgroundColor: '#1a1a2e' },
+  pinText: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  numpad: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, paddingHorizontal: 20 },
+  numButton: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#f8f9fa', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#dee2e6' },
+  numText: { fontSize: 20, fontWeight: '600', color: '#1a1a2e' },
 });
