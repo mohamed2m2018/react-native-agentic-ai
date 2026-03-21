@@ -39,6 +39,8 @@ interface AgentChatBarProps {
   isAISpeaking?: boolean;
   /** Voice WebSocket is connected */
   isVoiceConnected?: boolean;
+  /** Full session cleanup (stop mic, audio, WebSocket, live mode) */
+  onStopSession?: () => void;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -171,6 +173,7 @@ function VoiceControlsRow({
   isAISpeaking,
   isVoiceConnected = false,
   isArabic,
+  onStopSession,
 }: {
   isMicActive: boolean;
   isSpeakerMuted: boolean;
@@ -179,6 +182,7 @@ function VoiceControlsRow({
   isAISpeaking?: boolean;
   isVoiceConnected?: boolean;
   isArabic: boolean;
+  onStopSession?: () => void;
 }) {
   const isConnecting = !isVoiceConnected;
 
@@ -201,7 +205,15 @@ function VoiceControlsRow({
           isMicActive && audioStyles.micButtonActive,
           isAISpeaking && audioStyles.micButtonSpeaking,
         ]}
-        onPress={() => !isConnecting && onMicToggle(!isMicActive)}
+        onPress={() => {
+          if (isMicActive) {
+            // Stop button: full session cleanup
+            onStopSession?.();
+          } else if (!isConnecting) {
+            // Talk button: start mic
+            onMicToggle(true);
+          }
+        }}
         disabled={isConnecting}
         accessibilityLabel={
           isConnecting ? 'Connecting...' :
@@ -249,6 +261,7 @@ export function AgentChatBar({
   isSpeakerMuted = false,
   isAISpeaking,
   isVoiceConnected,
+  onStopSession,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -359,6 +372,7 @@ export function AgentChatBar({
           isAISpeaking={isAISpeaking}
           isVoiceConnected={isVoiceConnected}
           isArabic={isArabic}
+          onStopSession={onStopSession}
         />
       )}
 

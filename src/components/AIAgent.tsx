@@ -22,6 +22,7 @@ import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
 import { AgentOverlay } from './AgentOverlay';
 import { logger } from '../utils/logger';
+import { buildVoiceSystemPrompt } from '../core/systemPrompt';
 import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
@@ -241,12 +242,15 @@ export function AIAgent({
       logger.info('AIAgent', 'Creating VoiceService...');
       const runtimeTools = runtime.getTools();
       logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
+      // Build the full voice system prompt (screen format + tool descriptions + guardrails)
+      // This gives voice mode the same screen understanding as text mode
+      const voicePrompt = buildVoiceSystemPrompt(language, instructions?.system);
       voiceServiceRef.current = new VoiceService({
         apiKey,
-        systemPrompt: instructions?.system,
+        systemPrompt: voicePrompt,
         tools: runtimeTools,
       });
-      logger.info('AIAgent', 'VoiceService created with tools');
+      logger.info('AIAgent', 'VoiceService created with full voice system prompt and tools');
     }
 
     // Create AudioOutputService if not exists
@@ -332,7 +336,29 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, runtime]);
+  }, [mode, apiKey, runtime, language, instructions]);
+
+  // ─── Stop Voice Session (full cleanup) ─────────────────────
+
+  const stopVoiceSession = useCallback(() => {
+    logger.info('AIAgent', '🛑 Stopping voice session (full cleanup)...');
+    // 1. Stop mic input
+    audioInputRef.current?.stop();
+    // 2. Stop audio output (clear queued chunks)
+    audioOutputRef.current?.stop();
+    // 3. Stop live mode (screen context streaming)
+    runtime.stopLiveMode();
+    // 4. Disconnect WebSocket
+    voiceServiceRef.current?.disconnect();
+    voiceServiceRef.current = null;
+    // 5. Reset state
+    setIsMicActive(false);
+    setIsAISpeaking(false);
+    setIsVoiceConnected(false);
+    // 6. Switch back to text mode (triggers cleanup effect naturally)
+    setMode('text');
+    logger.info('AIAgent', '🛑 Voice session fully stopped');
+  }, [runtime]);
 
   // ─── Execute ──────────────────────────────────────────────────
 
@@ -408,6 +434,7 @@ export function AIAgent({
           isMicActive={isMicActive}
           isSpeakerMuted={isSpeakerMuted}
           isAISpeaking={isAISpeaking}
+          onStopSession={stopVoiceSession}
           isVoiceConnected={isVoiceConnected}
           onMicToggle={(active) => {
             if (active && !isVoiceConnected) {
