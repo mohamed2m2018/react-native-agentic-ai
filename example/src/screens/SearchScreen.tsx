@@ -1,17 +1,30 @@
-import { useState, useMemo, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, TextInput, Image, Pressable, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { useCart } from '../CartContext';
 import { ALL_MENU_ITEMS } from '../menuData';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 type Props = NativeStackScreenProps<any>;
 
-const PAGE_SIZE = 10;
-const FAKE_NETWORK_DELAY = 800;
+const PAGE_SIZE = 6;
+const FAKE_NETWORK_DELAY = 1000;
+
+// Fake food images for visual richness
+const FOOD_IMAGES: Record<string, string> = {
+  Pizzas: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=200',
+  Burgers: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=200',
+  Drinks: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=200',
+  Desserts: 'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=200',
+  Salads: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=200',
+  Sushi: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=200',
+  Breakfast: 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=200',
+  Tacos: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=200',
+};
 
 export default function SearchScreen({ navigation }: Props) {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const { addToCart } = useCart();
 
@@ -25,22 +38,13 @@ export default function SearchScreen({ navigation }: Props) {
 
     setIsLoading(true);
     setPage(1);
-    
+
     const timer = setTimeout(() => {
       setIsLoading(false);
     }, FAKE_NETWORK_DELAY);
 
     return () => clearTimeout(timer);
   }, [query]);
-
-  // Handle fake load more
-  const handleLoadMore = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setPage(p => p + 1);
-      setIsLoading(false);
-    }, FAKE_NETWORK_DELAY);
-  };
 
   const allFilteredResults = useMemo(() => {
     if (!query.trim()) return [];
@@ -59,6 +63,55 @@ export default function SearchScreen({ navigation }: Props) {
 
   const hasMore = visibleResults.length < allFilteredResults.length;
 
+  // Lazy loading: auto-load next page when user scrolls near bottom
+  const handleEndReached = useCallback(() => {
+    if (!hasMore || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setPage(p => p + 1);
+      setIsLoadingMore(false);
+    }, FAKE_NETWORK_DELAY);
+  }, [hasMore, isLoadingMore]);
+
+  const renderItem = useCallback(({ item }: { item: typeof ALL_MENU_ITEMS[0] }) => (
+    <Pressable
+      style={styles.card}
+      onPress={() =>
+        navigation.navigate('HomeTab', {
+          screen: 'DishDetail',
+          params: { dish: item },
+        })
+      }
+    >
+      <Image
+        source={{ uri: FOOD_IMAGES[item.category] || FOOD_IMAGES.Pizzas }}
+        style={styles.cardImage}
+      />
+      <View style={styles.cardInfo}>
+        <Text style={styles.itemName}>{item.name}</Text>
+        <Text style={styles.itemCategory}>{item.category}</Text>
+        <Text style={styles.itemPrice}>${item.price}</Text>
+      </View>
+      <Pressable
+        style={styles.addButton}
+        onPress={() => addToCart(item.name, item.price, 1)}
+      >
+        <Text style={styles.addButtonText}>Add</Text>
+      </Pressable>
+    </Pressable>
+  ), [navigation, addToCart]);
+
+  const renderFooter = useCallback(() => {
+    if (!hasMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#1a1a2e" />
+        <Text style={styles.footerText}>Loading more dishes...</Text>
+      </View>
+    );
+  }, [hasMore]);
+
   return (
     <View style={styles.container}>
       <TextInput
@@ -67,7 +120,6 @@ export default function SearchScreen({ navigation }: Props) {
         placeholderTextColor="#999"
         value={query}
         onChangeText={setQuery}
-        accessibilityLabel="Search input"
       />
 
       {query.trim() === '' ? (
@@ -75,9 +127,9 @@ export default function SearchScreen({ navigation }: Props) {
           <Text style={styles.emptyEmoji}>🔍</Text>
           <Text style={styles.emptyText}>Search across all categories</Text>
         </View>
-      ) : isLoading && page === 1 ? (
+      ) : isLoading ? (
         <View style={styles.empty}>
-          <ActivityIndicator size="large" color="#1a1a2e" accessibilityLabel="Loading search results" />
+          <ActivityIndicator size="large" color="#1a1a2e" />
           <Text style={styles.loadingText}>Searching...</Text>
         </View>
       ) : visibleResults.length === 0 ? (
@@ -89,47 +141,15 @@ export default function SearchScreen({ navigation }: Props) {
           data={visibleResults}
           keyExtractor={item => `${item.category}-${item.name}`}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.card}
-              onPress={() =>
-                navigation.navigate('HomeTab', {
-                  screen: 'DishDetail',
-                  params: { dish: item },
-                })
-              }
-              accessibilityLabel={`View ${item.name}`}
-            >
-              <Text style={styles.cardEmoji}>{item.emoji || '🍽️'}</Text>
-              <View style={styles.cardInfo}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemCategory}>{item.category}</Text>
-                <Text style={styles.itemPrice}>${item.price}</Text>
-              </View>
-              <Pressable
-                style={styles.addButton}
-                onPress={() => addToCart(item.name, item.price, 1)}
-                accessibilityLabel={`Add ${item.name} to cart`}
-              >
-                <Text style={styles.addButtonText}>Add</Text>
-              </Pressable>
-            </Pressable>
-          )}
-          ListFooterComponent={() => (
-            hasMore ? (
-              <Pressable 
-                style={styles.loadMoreButton} 
-                onPress={handleLoadMore}
-                accessibilityLabel="Load more items"
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#1a1a2e" />
-                ) : (
-                  <Text style={styles.loadMoreText}>Load More</Text>
-                )}
-              </Pressable>
-            ) : null
-          )}
+          renderItem={renderItem}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={isLoadingMore ? renderFooter : undefined}
+          ListHeaderComponent={
+            <Text style={styles.resultCount}>
+              {visibleResults.length} of {allFilteredResults.length} results
+            </Text>
+          }
         />
       )}
     </View>
@@ -152,11 +172,13 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 48 },
   emptyText: { fontSize: 16, color: '#6c757d' },
   loadingText: { fontSize: 14, color: '#6c757d', marginTop: 12 },
-  list: { padding: 16, gap: 12, paddingBottom: 40 },
+  resultCount: { fontSize: 13, color: '#6c757d', marginBottom: 8 },
+  list: { padding: 16, paddingBottom: 40 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 16,
+    padding: 12,
+    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     elevation: 2,
@@ -165,7 +187,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
-  cardEmoji: { fontSize: 32, marginRight: 12 },
+  cardImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: '#e9ecef',
+    marginRight: 12,
+  },
   cardInfo: { flex: 1, gap: 2 },
   itemName: { fontSize: 16, fontWeight: '600', color: '#1a1a2e' },
   itemCategory: { fontSize: 12, color: '#6c757d' },
@@ -177,18 +205,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   addButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  loadMoreButton: {
-    padding: 16,
-    marginVertical: 12,
-    backgroundColor: '#e9ecef',
-    borderRadius: 12,
+  footerLoader: {
+    padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    height: 52,
+    gap: 8,
   },
-  loadMoreText: {
-    color: '#1a1a2e',
-    fontSize: 16,
-    fontWeight: '600',
+  footerText: {
+    color: '#6c757d',
+    fontSize: 13,
   },
 });
