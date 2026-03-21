@@ -408,10 +408,10 @@ export class AgentRuntime {
     for (const event of this.history) {
       stepIndex++;
       prompt += `<step_${stepIndex}>\n`;
-      prompt += `Evaluation of Previous Step: ${event.reflection.evaluationPreviousGoal}\n`;
+      prompt += `Previous Goal Eval: ${event.reflection.previousGoalEval}\n`;
       prompt += `Memory: ${event.reflection.memory}\n`;
-      prompt += `Next Goal: ${event.reflection.nextGoal}\n`;
-      prompt += `Action Results: ${event.action.output}\n`;
+      prompt += `Plan: ${event.reflection.plan}\n`;
+      prompt += `Action Result: ${event.action.output}\n`;
       prompt += `</step_${stepIndex}>\n`;
     }
 
@@ -432,27 +432,7 @@ export class AgentRuntime {
     return prompt;
   }
 
-  // ─── Parse Reasoning from AI Text (extract evaluation/memory/next_goal) ──
-
-  private parseReasoning(text?: string): { evaluation: string; memory: string; nextGoal: string } {
-    if (!text) return { evaluation: '', memory: '', nextGoal: '' };
-
-    let evaluation = '';
-    let memory = '';
-    let nextGoal = '';
-
-    // Parse "Evaluation:" or "1." pattern
-    const evalMatch = text.match(/(?:Evaluation|1\.)\s*:?\s*(.+?)(?=(?:Memory|Next Goal|2\.|3\.|\n\n|$))/is);
-    if (evalMatch?.[1]) evaluation = evalMatch[1].trim();
-
-    // Parse "Next Goal:" or "2." pattern
-    const goalMatch = text.match(/(?:Next Goal|2\.)\s*:?\s*(.+?)(?=(?:\n\n|$))/is);
-    if (goalMatch?.[1]) nextGoal = goalMatch[1].trim();
-
-    return { evaluation, memory, nextGoal };
-  }
-
-  // ─── Main Execution Loop (mirrors PageAgentCore.execute) ───────
+  // ─── Main Execution Loop ──────────────────────────────────────
 
   async execute(userMessage: string): Promise<ExecutionResult> {
     if (this.isRunning) {
@@ -538,12 +518,15 @@ export class AgentRuntime {
           return result;
         }
 
-        // 7. Parse reasoning from text response (mirrors page-agent reflection)
-        const reasoning = this.parseReasoning(response.text);
+        // 7. Structured reasoning from provider (no regex parsing needed)
+        const { reasoning } = response;
+        logger.info('AgentRuntime', `🧠 Plan: ${reasoning.plan}`);
+        if (reasoning.memory) {
+          logger.debug('AgentRuntime', `💾 Memory: ${reasoning.memory}`);
+        }
 
-        // Only process the FIRST tool call per step (page-agent principle: one action per step).
+        // Only process the FIRST tool call per step (one action per step).
         // After one action, the loop re-reads the screen with fresh indexes.
-        // Processing multiple tool calls would cause index drift after UI re-renders.
         const toolCall = response.toolCalls[0]!;
         if (response.toolCalls.length > 1) {
           logger.warn('AgentRuntime', `AI returned ${response.toolCalls.length} tool calls, executing only the first one.`);
@@ -568,14 +551,10 @@ export class AgentRuntime {
 
         logger.info('AgentRuntime', `Result: ${output}`);
 
-        // Record step with reasoning metadata
+        // Record step with structured reasoning
         const agentStep: AgentStep = {
           stepIndex: step,
-          reflection: {
-            evaluationPreviousGoal: reasoning.evaluation || (step > 0 ? 'Evaluating...' : 'First step'),
-            memory: reasoning.memory,
-            nextGoal: reasoning.nextGoal,
-          },
+          reflection: reasoning,
           action: {
             name: toolCall.name,
             input: toolCall.args,

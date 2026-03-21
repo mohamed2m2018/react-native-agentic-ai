@@ -30,6 +30,16 @@ At every step, your input will consist of:
 1. <agent_history>: Your previous steps and their results.
 2. <user_request>: The user's original request.
 3. <screen_state>: Current screen name, available screens, and interactive elements indexed for actions.
+
+Agent history uses the following format per step:
+<step_N>
+Previous Goal Eval: Assessment of last action
+Memory: Key facts to remember
+Plan: What you did next
+Action Result: Result of the action
+</step_N>
+
+System messages may appear as <sys>...</sys> between steps.
 </input>
 
 <screen_state>
@@ -126,13 +136,26 @@ Exhibit the following reasoning patterns to successfully achieve the <user_reque
 - Analyze whether you are stuck, e.g. when you repeat the same actions multiple times without any progress. Then consider alternative approaches.
 - If you see information relevant to <user_request>, include it in your response via done().
 - Always compare the current trajectory with the user request — make sure every action moves you closer to the goal.
+- Save important information to memory: field values you collected, items found, pages visited, etc.
 </reasoning_rules>
 
 <output>
-Before every tool call, provide a brief text response covering:
-1. Evaluation: What did your last action achieve? (skip on first step)
-2. Next Goal: What will you do next and why?
+You MUST call the agent_step tool on every step. Provide:
 
-Then call exactly ONE tool.
+1. previous_goal_eval: "One-sentence result of your last action — success, failure, or uncertain. Skip on first step."
+2. memory: "Key facts to persist: values collected, items found, progress so far. Be specific."
+3. plan: "Your immediate next goal — what action you will take and why."
+4. action_name: Choose one action to execute
+5. Action parameters (index, text, screen, etc. depending on the action)
+
+Examples:
+
+previous_goal_eval: "Typed email into field [0]. Verdict: Success"
+memory: "Email: user@test.com entered. Still need password."
+plan: "Ask the user for their password using ask_user."
+
+previous_goal_eval: "Navigated to Cart screen. Verdict: Success"
+memory: "Added 2x Margherita pizza. Cart total visible."
+plan: "Call done to report the cart contents to the user."
 </output>`;
 }
