@@ -231,6 +231,20 @@ export class AgentRuntime {
         return `❓ ${args.question}`;
       },
     });
+
+    // capture_screenshot — on-demand visual capture (for image/video content questions)
+    this.tools.set('capture_screenshot', {
+      name: 'capture_screenshot',
+      description: 'Capture a screenshot of the current screen. Use when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone.',
+      parameters: {},
+      execute: async () => {
+        const screenshot = await this.captureScreenshot();
+        if (screenshot) {
+          return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
+        }
+        return '❌ Screenshot capture failed. react-native-view-shot may not be installed.';
+      },
+    });
   }
 
   // ─── Action Registration (useAction hook) ──────────────────
@@ -358,50 +372,14 @@ export class AgentRuntime {
     }
   }
 
-  // ─── Live Mode (continuous screen context streaming) ──────
-
-  private liveIntervalId: ReturnType<typeof setInterval> | null = null;
+  // ─── Screen Context for Voice Mode ──────────────────────
 
   /**
-   * Start live mode: periodically push DOM + screenshot to VoiceService.
-   * This keeps the AI aware of what's on screen during a voice conversation.
-   *
-   * @param voiceService - Active VoiceService instance with an open connection
-   * @param intervalMs - How often to push screen context (default: 2000ms)
+   * Get current screen context as formatted text.
+   * Used by voice mode: sent once at connect + after each tool call.
+   * Follows page-agent pattern: tree in user prompt, not system instructions.
    */
-  public startLiveMode(
-    voiceService: { sendScreenContext: (dom: string, screenshot?: string) => void; isConnected: boolean },
-    intervalMs = 2000
-  ): void {
-    this.stopLiveMode(); // Prevent duplicate intervals
-
-    logger.info('AgentRuntime', `Live mode started (interval: ${intervalMs}ms)`);
-
-    // Push immediately, then on interval
-    this.pushScreenContext(voiceService);
-
-    this.liveIntervalId = setInterval(() => {
-      if (!voiceService.isConnected) {
-        this.stopLiveMode();
-        return;
-      }
-      this.pushScreenContext(voiceService);
-    }, intervalMs);
-  }
-
-  /** Stop live mode screen context streaming. */
-  public stopLiveMode(): void {
-    if (this.liveIntervalId) {
-      clearInterval(this.liveIntervalId);
-      this.liveIntervalId = null;
-      logger.info('AgentRuntime', 'Live mode stopped');
-    }
-  }
-
-  /** Push current screen DOM + optional screenshot to voice service. */
-  private async pushScreenContext(
-    voiceService: { sendScreenContext: (dom: string, screenshot?: string) => void }
-  ): Promise<void> {
+  public getScreenContext(): string {
     try {
       const walkResult = walkFiberTree(this.rootRef, this.getWalkConfig());
       const screenName = this.getCurrentScreenName();
@@ -412,19 +390,15 @@ export class AgentRuntime {
         walkResult.interactives,
       );
 
-      // Wrap in structured tags so the voice model understands the format
-      // This matches the <screen_format> section in the voice system prompt
-      const wrappedContext = `<screen_update>
+      return `<screen_update>
 Current Screen: ${screenName}
 Available Screens: ${this.getRouteNames().join(', ')}
 
 ${screen.elementsText}
 </screen_update>`;
-
-      const screenshot = await this.captureScreenshot();
-      voiceService.sendScreenContext(wrappedContext, screenshot);
     } catch (error: any) {
-      logger.error('AgentRuntime', `Live context push failed: ${error.message}`);
+      logger.error('AgentRuntime', `getScreenContext failed: ${error.message}`);
+      return '<screen_update>Error reading screen</screen_update>';
     }
   }
 

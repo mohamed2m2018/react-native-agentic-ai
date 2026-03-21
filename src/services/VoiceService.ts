@@ -150,37 +150,27 @@ export class VoiceService {
     this.ws!.send(JSON.stringify(message));
   }
 
-  /** Send DOM + optional screenshot as context during live conversation.
+  /** Send DOM tree as passive context during live conversation.
    *
-   * Uses `realtimeInput` (not `clientContent`) to avoid mixing input modes.
-   * Gemini docs: "Avoid mixing clientContent and realtimeInput within
-   * the same active conversation to prevent unpredictable behavior."
+   * Uses `clientContent` with `turnComplete: false` to inject context
+   * WITHOUT triggering a model response. This is the "incremental content
+   * updates" pattern from the Gemini docs for establishing session context.
+   *
+   * Called once at connect + after each tool call (not on a timer).
+   * Screenshots are handled separately via the capture_screenshot tool.
    */
-  sendScreenContext(domText: string, screenshotBase64?: string): void {
+  sendScreenContext(domText: string): void {
     if (!this.isConnected) return;
 
-    // Send DOM text as realtime text input
-    const textMessage = {
-      realtimeInput: {
-        text: domText,
+    const message = {
+      clientContent: {
+        turns: [{ role: 'user', parts: [{ text: domText }] }],
+        turnComplete: false, // Passive context — don't trigger a response
       },
     };
-    this.ws!.send(JSON.stringify(textMessage));
 
-    // Send screenshot as realtime video input (max 1fps per docs)
-    if (screenshotBase64) {
-      const videoMessage = {
-        realtimeInput: {
-          video: {
-            mimeType: 'image/jpeg',
-            data: screenshotBase64,
-          },
-        },
-      };
-      this.ws!.send(JSON.stringify(videoMessage));
-    }
-
-    logger.debug('VoiceService', `📤 Screen context sent (text: ${domText.length} chars, screenshot: ${screenshotBase64 ? 'yes' : 'no'})`);
+    this.ws!.send(JSON.stringify(message));
+    logger.debug('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
   }
 
   // ─── Send Function Response ────────────────────────────────
