@@ -1,54 +1,54 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../App';
+import type { HomeStackParamList } from '../App';
+import { useCart } from '../CartContext';
+import { CATEGORIES } from '../menuData';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+type Props = NativeStackScreenProps<HomeStackParamList, 'Home'>;
+
+const CATEGORY_EMOJIS: Record<string, string> = {
+  Pizzas: '🍕',
+  Burgers: '🍔',
+  Drinks: '🥤',
+  Desserts: '🍰',
+};
 
 export default function HomeScreen({ navigation }: Props) {
+  const { cart, getTotal } = useCart();
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>🍽️ FoodApp</Text>
       <Text style={styles.subtitle}>What are you craving?</Text>
 
       <View style={styles.categories}>
-        <Pressable
-          style={styles.card}
-          onPress={() => navigation.navigate('Menu', { category: 'Pizzas' })}
-        >
-          <Text style={styles.cardEmoji}>🍕</Text>
-          <Text style={styles.cardText}>Pizzas</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.card}
-          onPress={() => navigation.navigate('Menu', { category: 'Burgers' })}
-        >
-          <Text style={styles.cardEmoji}>🍔</Text>
-          <Text style={styles.cardText}>Burgers</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.card}
-          onPress={() => navigation.navigate('Menu', { category: 'Drinks' })}
-        >
-          <Text style={styles.cardEmoji}>🥤</Text>
-          <Text style={styles.cardText}>Drinks</Text>
-        </Pressable>
+        {CATEGORIES.map(cat => (
+          <Pressable
+            key={cat}
+            style={styles.card}
+            onPress={() => navigation.navigate('Menu', { category: cat })}
+          >
+            <Text style={styles.cardEmoji}>{CATEGORY_EMOJIS[cat] || '🍽️'}</Text>
+            <Text style={styles.cardText}>{cat}</Text>
+          </Pressable>
+        ))}
       </View>
 
-      <Pressable
-        style={styles.cartButton}
-        onPress={() => navigation.navigate('Cart')}
-      >
-        <Text style={styles.cartButtonText}>🛒 View Cart</Text>
-      </Pressable>
-    </View>
+      {cart.length > 0 && (
+        <View style={styles.cartBanner}>
+          <Text style={styles.cartBannerText}>
+            🛒 {cart.length} item{cart.length !== 1 ? 's' : ''} · ${getTotal()}
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: '#f8f9fa' },
-  title: { fontSize: 32, fontWeight: 'bold', marginTop: 40, color: '#1a1a2e' },
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  content: { padding: 24 },
+  title: { fontSize: 32, fontWeight: 'bold', marginTop: 20, color: '#1a1a2e' },
   subtitle: { fontSize: 16, color: '#6c757d', marginTop: 4, marginBottom: 32 },
   categories: { gap: 16 },
   card: {
@@ -66,12 +66,12 @@ const styles = StyleSheet.create({
   },
   cardEmoji: { fontSize: 36 },
   cardText: { fontSize: 20, fontWeight: '600', color: '#1a1a2e' },
-  cartButton: {
-    marginTop: 32,
+  cartBanner: {
+    marginTop: 24,
     backgroundColor: '#1a1a2e',
     borderRadius: 16,
-    padding: 18,
+    padding: 16,
     alignItems: 'center',
   },
-  cartButtonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  cartBannerText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

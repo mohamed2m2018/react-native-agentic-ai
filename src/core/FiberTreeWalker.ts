@@ -267,7 +267,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   let currentIndex = 0;
   const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
 
-  function processNode(node: any, depth: number = 0): string {
+  function processNode(node: any, depth: number = 0, isInsideInteractive: boolean = false): string {
     if (!node) return '';
 
     const props = node.memoizedProps || {};
@@ -275,28 +275,27 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // ── Security Constraints ──
     if (props.aiIgnore === true) return '';
     if (matchesRefList(node, config?.interactiveBlacklist)) {
-      // Blacklisted nodes themselves aren't interactive, but we still walk children for structure
       let childText = '';
       let currentChild = node.child;
       while (currentChild) {
-        childText += processNode(currentChild, depth);
+        childText += processNode(currentChild, depth, isInsideInteractive);
         currentChild = currentChild.sibling;
       }
       return childText;
     }
 
-    // Process all children first
+    // Interactive check — skip if already inside an interactive ancestor (dedup nested TextInput layers)
+    const isWhitelisted = matchesRefList(node, config?.interactiveWhitelist);
+    const elementType = getElementType(node);
+    const shouldInclude = !isInsideInteractive && (hasWhitelist ? isWhitelisted : (elementType && !isDisabled(node)));
+
+    // Process children — if this node IS interactive, children won't register as separate interactives
     let childrenText = '';
     let currentChild = node.child;
     while (currentChild) {
-      childrenText += processNode(currentChild, depth + 1);
+      childrenText += processNode(currentChild, depth + 1, isInsideInteractive || !!shouldInclude);
       currentChild = currentChild.sibling;
     }
-
-    // Interactive Check
-    const isWhitelisted = matchesRefList(node, config?.interactiveWhitelist);
-    const elementType = getElementType(node);
-    const shouldInclude = hasWhitelist ? isWhitelisted : (elementType && !isDisabled(node));
 
     const indent = '  '.repeat(depth);
 
@@ -307,13 +306,12 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         label = props.placeholder;
       }
 
-      // Record interactive element
       interactives.push({
         index: currentIndex,
         type: resolvedType,
         label: label || `[${resolvedType}]`,
         fiberNode: node,
-        props: { ...props }, // snapshot
+        props: { ...props },
       });
 
       const elementOutput = `${indent}[${currentIndex}]<${resolvedType}>${label ? label + ' ' : ''}${childrenText.trim() ? childrenText.trim() : ''}</>\n`;

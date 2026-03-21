@@ -121,25 +121,35 @@ export class AgentRuntime {
       },
     });
 
-    // navigate — navigate to a screen
+    // navigate — navigate to a screen (supports React Navigation + Expo Router)
     this.tools.set('navigate', {
       name: 'navigate',
       description: 'Navigate to a specific screen in the app.',
       parameters: {
-        screen: { type: 'string', description: 'Screen name to navigate to', required: true },
+        screen: { type: 'string', description: 'Screen name or path to navigate to', required: true },
         params: { type: 'string', description: 'Optional JSON params object', required: false },
       },
       execute: async (args) => {
+        // Expo Router path: use router.push()
+        if (this.config.router) {
+          try {
+            const path = args.screen.startsWith('/') ? args.screen : `/${args.screen}`;
+            this.config.router.push(path);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return `✅ Navigated to "${path}"`;
+          } catch (error: any) {
+            return `❌ Navigation error: ${error.message}`;
+          }
+        }
+
+        // React Navigation path: use navRef.navigate()
         if (!this.navRef) {
           return '❌ Navigation ref not available.';
         }
-        // Per React Navigation docs: must check isReady() before navigate
-        // https://reactnavigation.org/docs/navigating-without-navigation-prop#handling-initialization
         if (!this.navRef.isReady()) {
-          // Wait a bit and retry — navigator may still be mounting
           await new Promise(resolve => setTimeout(resolve, 1000));
           if (!this.navRef.isReady()) {
-            return '❌ Navigation is not ready yet. The navigator may not have finished mounting.';
+            return '❌ Navigation is not ready yet.';
           }
         }
         try {
@@ -166,14 +176,21 @@ export class AgentRuntime {
       },
     });
 
-    // ask_user — ask for clarification
+    // ask_user — ask for clarification (mirrors page-agent: blocks until user responds)
     this.tools.set('ask_user', {
       name: 'ask_user',
-      description: 'Ask the user for clarification or more information.',
+      description: 'Ask the user a question and wait for their answer. Use this if you need more information or clarification.',
       parameters: {
         question: { type: 'string', description: 'Question to ask the user', required: true },
       },
       execute: async (args) => {
+        if (this.config.onAskUser) {
+          // Page-agent pattern: block until user responds, then continue the loop
+          this.config.onStatusUpdate?.('Waiting for your answer...');
+          const answer = await this.config.onAskUser(args.question);
+          return `User answered: ${answer}`;
+        }
+        // Legacy fallback: break the loop (context will be lost)
         return `❓ ${args.question}`;
       },
     });
@@ -192,27 +209,82 @@ export class AgentRuntime {
 
   // ─── Navigation Helpers ────────────────────────────────────
 
+  /**
+   * Recursively collect ALL screen names from the navigation state tree.
+   * This handles tabs, drawers, and nested stacks.
+   */
   private getRouteNames(): string[] {
     try {
       if (!this.navRef?.isReady?.()) return [];
       const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
-      if (state?.routeNames) return state.routeNames;
-      if (state?.routes) return state.routes.map((r: any) => r.name);
-      return [];
+      if (!state) return [];
+      return this.collectRouteNames(state);
     } catch {
       return [];
     }
   }
 
+  private collectRouteNames(state: any): string[] {
+    const names: string[] = [];
+    if (state?.routes) {
+      for (const route of state.routes) {
+        names.push(route.name);
+        // Recurse into nested navigator states
+        if (route.state) {
+          names.push(...this.collectRouteNames(route.state));
+        }
+      }
+    }
+    return [...new Set(names)];
+  }
+
+  /**
+   * Recursively find the deepest active screen name.
+   * For tabs: follows active tab → active screen inside that tab.
+   */
   private getCurrentScreenName(): string {
+    // Expo Router: use pathname
+    if (this.config.pathname) {
+      const segments = this.config.pathname.split('/').filter(Boolean);
+      return segments[segments.length - 1] || 'Unknown';
+    }
+
     try {
       if (!this.navRef?.isReady?.()) return 'Unknown';
       const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
       if (!state) return 'Unknown';
-      const route = state.routes[state.index];
-      return route?.name || 'Unknown';
+      return this.getDeepestScreenName(state);
     } catch {
       return 'Unknown';
+    }
+  }
+
+  private getDeepestScreenName(state: any): string {
+    if (!state?.routes || state.index == null) return 'Unknown';
+    const route = state.routes[state.index];
+    if (!route) return 'Unknown';
+    // If this route has a nested state, recurse deeper
+    if (route.state) {
+      return this.getDeepestScreenName(route.state);
+    }
+    return route.name || 'Unknown';
+  }
+
+  /** Maps a tool call to a user-friendly status label for the loading overlay. */
+  private getToolStatusLabel(toolName: string, args: Record<string, any>): string {
+    switch (toolName) {
+      case 'tap':
+        return `Tapping element ${args.index ?? ''}...`;
+      case 'type':
+        return `Typing into field...`;
+      case 'navigate':
+        return `Navigating to ${args.screen || 'screen'}...`;
+      case 'done':
+        return 'Wrapping up...';
+      case 'ask_user':
+        return 'Asking you a question...';
+      default:
+        return `Running ${toolName}...`;
     }
   }
 
@@ -441,6 +513,7 @@ export class AgentRuntime {
         );
 
         // 5. Send to AI provider
+        this.config.onStatusUpdate?.('Analyzing screen...');
         const systemPrompt = buildSystemPrompt(this.config.language || 'en');
         const tools = this.buildToolsForProvider();
 
@@ -477,6 +550,10 @@ export class AgentRuntime {
         }
 
         logger.info('AgentRuntime', `Tool: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
+
+        // Dynamic status update based on tool being executed
+        const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
+        this.config.onStatusUpdate?.(statusLabel);
 
         // Find and execute the tool
         const tool = this.tools.get(toolCall.name) ||
@@ -522,8 +599,8 @@ export class AgentRuntime {
           return result;
         }
 
-        // Check if asking user
-        if (toolCall.name === 'ask_user') {
+        // Check if asking user (legacy path — only breaks loop when onAskUser is NOT set)
+        if (toolCall.name === 'ask_user' && !this.config.onAskUser) {
           this.lastAskUserQuestion = toolCall.args.question || output;
           
           const result: ExecutionResult = {
