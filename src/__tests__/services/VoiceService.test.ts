@@ -238,9 +238,7 @@ describe('VoiceService', () => {
       service.sendText('What is on screen?');
 
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
-      expect(lastMsg.clientContent.turns[0].role).toBe('USER');
-      expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('What is on screen?');
-      expect(lastMsg.clientContent.turnComplete).toBe(true);
+      expect(lastMsg.realtimeInput.text).toBe('What is on screen?');
     });
   });
 
@@ -257,15 +255,16 @@ describe('VoiceService', () => {
 
       service.sendScreenContext('<screen>...</screen>', 'base64screenshot');
 
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
-      expect(lastMsg.clientContent.turns[0].parts).toHaveLength(2);
-      expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('<screen>...</screen>');
-      expect(lastMsg.clientContent.turns[0].parts[1].inlineData).toEqual({
+      // Text is sent as a separate realtimeInput message
+      const textMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 2]);
+      expect(textMsg.realtimeInput.text).toBe('<screen>...</screen>');
+
+      // Screenshot is sent as a separate realtimeInput video message
+      const videoMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      expect(videoMsg.realtimeInput.video).toEqual({
         mimeType: 'image/jpeg',
         data: 'base64screenshot',
       });
-      // turnComplete should be false (more audio may follow)
-      expect(lastMsg.clientContent.turnComplete).toBe(false);
     });
 
     it('sends DOM only when no screenshot', async () => {
@@ -281,7 +280,7 @@ describe('VoiceService', () => {
       service.sendScreenContext('<screen>...</screen>');
 
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
-      expect(lastMsg.clientContent.turns[0].parts).toHaveLength(1);
+      expect(lastMsg.realtimeInput.text).toBe('<screen>...</screen>');
     });
   });
 
