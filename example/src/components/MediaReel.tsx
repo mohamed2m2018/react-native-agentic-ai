@@ -16,8 +16,9 @@ function VideoCard({ item }: { item: typeof MOCK_MEDIA[1] }) {
   const player = useVideoPlayer(item.url, (p: any) => {
     p.loop = true;
     p.muted = true;
+    p.play();
   });
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -37,9 +38,11 @@ function VideoCard({ item }: { item: typeof MOCK_MEDIA[1] }) {
       />
       <View style={styles.overlay}>
         <Text style={styles.overlayText}>{item.title}</Text>
-        <View style={styles.playIconContainer}>
-          <Text style={styles.playIcon}>{isPlaying ? '⏸️' : '▶️'}</Text>
-        </View>
+        {!isPlaying && (
+          <View style={styles.playIconContainer}>
+            <Text style={styles.playIcon}>▶️</Text>
+          </View>
+        )}
       </View>
     </Pressable>
   );
