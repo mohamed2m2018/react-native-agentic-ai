@@ -242,8 +242,8 @@ export function AIAgent({
       logger.info('AIAgent', 'Creating VoiceService...');
       const runtimeTools = runtime.getTools();
       logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
-      // Build the full voice system prompt (screen format + tool descriptions + guardrails)
-      // This gives voice mode the same screen understanding as text mode
+      // Use voice-adapted system prompt — same core rules as text mode
+      // but without agent-loop directives that trigger autonomous actions
       const voicePrompt = buildVoiceSystemPrompt(language, instructions?.system);
       voiceServiceRef.current = new VoiceService({
         apiKey,
@@ -300,10 +300,12 @@ export function AIAgent({
               logger.info('AIAgent', '🎙️ Mic auto-started after connection');
             }
           });
-          // Send initial screen context (tree) so the model knows what's on screen
+          // Send initial screen context so the model knows what's on screen.
+          // sendScreenContext uses turnComplete: false (passive context)
+          // so the model should NOT act on it until the user speaks.
           const initialContext = runtime.getScreenContext();
           voiceServiceRef.current?.sendScreenContext(initialContext);
-          logger.info('AIAgent', '📡 Initial screen context sent to voice model');
+          logger.info('AIAgent', '📡 Initial screen context sent (passive, turnComplete=false)');
         }
       },
       onTranscript: (text, isFinal, role) => {
@@ -314,6 +316,7 @@ export function AIAgent({
         // Execute the tool via AgentRuntime and send result back to Gemini
         const result = await runtime.executeTool(toolCall.name, toolCall.args);
         logger.info('AIAgent', `Voice tool result: ${result}`);
+
         voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, { result });
 
         // After tool execution, push updated screen context

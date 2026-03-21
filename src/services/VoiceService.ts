@@ -171,8 +171,9 @@ export class VoiceService {
       },
     };
 
-    this.ws!.send(JSON.stringify(message));
     logger.debug('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
+    logger.debug('VoiceService', `📤 Raw Screen Context Payload: ${JSON.stringify(message).substring(0, 500)}...`);
+    this.ws!.send(JSON.stringify(message));
   }
 
   // ─── Send Function Response ────────────────────────────────
@@ -197,6 +198,14 @@ export class VoiceService {
 
   // ─── Internal: Setup ───────────────────────────────────────
 
+  /**
+   * Builds and sends the setup message, replicating text mode's agent_step
+   * compound tool so the model uses structured reasoning + actions.
+   *
+   * The agent_step tool flattens reasoning fields (previous_goal_eval,
+   * memory, plan) + action_name enum + all action parameters into a single
+   * function — matching GeminiProvider.buildAgentStepDeclaration exactly.
+   */
   private sendSetup(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
@@ -209,12 +218,6 @@ export class VoiceService {
       },
     };
 
-    if (this.config.language) {
-      setup.generationConfig.speechConfig = {
-        languageCode: this.config.language === 'ar' ? 'ar-SA' : 'en-US',
-      };
-    }
-
     // Add system instruction if provided
     if (this.config.systemPrompt) {
       setup.systemInstruction = {
@@ -222,38 +225,55 @@ export class VoiceService {
       };
     }
 
-    // Add tool declarations for function calling
+    // Add individual tool declarations for function calling
+    // NOTE: We use individual tools (tap, type, navigate, done, ask_user)
+    // instead of the compound agent_step used in text mode.
+    // The native audio model in real-time can call simple tools but struggles
+    // with the complex agent_step schema (it speaks about calling tools
+    // instead of actually calling them).
     if (this.config.tools?.length) {
-      setup.tools = [{
-        functionDeclarations: this.config.tools.map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: {
-            type: 'OBJECT',
-            properties: Object.fromEntries(
-              Object.entries(tool.parameters).map(([key, param]) => [
-                key,
-                {
-                  type: param.type.toUpperCase(),
-                  description: param.description,
-                },
-              ])
-            ),
-            required: Object.entries(tool.parameters)
-              .filter(([, param]) => param.required)
-              .map(([key]) => key),
-          },
-        })),
-      }];
+      const validTools = this.config.tools.filter(t => t.name !== 'capture_screenshot');
+      if (validTools.length > 0) {
+        setup.tools = [{
+          functionDeclarations: validTools.map(tool => {
+            const hasParams = Object.keys(tool.parameters || {}).length > 0;
+            const functionDecl: any = {
+              name: tool.name,
+              description: tool.description,
+            };
+
+            if (hasParams) {
+              functionDecl.parameters = {
+                type: 'OBJECT',
+                properties: Object.fromEntries(
+                  Object.entries(tool.parameters).map(([key, param]) => [
+                    key,
+                    {
+                      type: param.type.toUpperCase(),
+                      description: param.description,
+                    },
+                  ])
+                ),
+                required: Object.entries(tool.parameters)
+                  .filter(([, param]) => param.required)
+                  .map(([key]) => key),
+              };
+            }
+            return functionDecl;
+          }),
+        }];
+      }
     }
 
-    // Enable transcription
-    setup.inputAudioTranscription = {};
-    setup.outputAudioTranscription = {};
-
     const setupMessage = { setup };
-    logger.info('VoiceService', `Sending setup (model: ${model}, tools: ${this.config.tools?.length || 0})`);
-    this.ws.send(JSON.stringify(setupMessage));
+    logger.info('VoiceService', `Sending setup (model: ${model}, ${this.config.tools?.length || 0} tools)`);
+    try {
+      const payload = JSON.stringify(setupMessage);
+      logger.info('VoiceService', `📤 Raw Setup Payload: ${payload}`);
+      this.ws.send(payload);
+    } catch (err: any) {
+      logger.error('VoiceService', `❌ Error stringifying setup message: ${err.message}`);
+    }
   }
 
   // ─── Internal: Message Handling ────────────────────────────
@@ -274,6 +294,7 @@ export class VoiceService {
       // Handle JSON text messages
       const message = JSON.parse(event.data);
       logger.info('VoiceService', `📥 JSON message keys: ${Object.keys(message).join(', ')}`);
+      logger.info('VoiceService', `📥 Raw JSON Message: ${event.data.substring(0, 1000)}`);
       this.processMessage(message);
     } catch (error: any) {
       logger.error('VoiceService', `Error handling message: ${error.message}`);
@@ -375,7 +396,7 @@ export class VoiceService {
     // Tool calls from the model
     if (message.toolCall?.functionCalls) {
       for (const fn of message.toolCall.functionCalls) {
-        logger.info('VoiceService', `Tool call: ${fn.name}(${JSON.stringify(fn.args)})`);
+        logger.info('VoiceService', `🎯 Tool call: ${fn.name}(${JSON.stringify(fn.args)})`);
         this.callbacks.onToolCall?.({
           name: fn.name,
           args: fn.args || {},
