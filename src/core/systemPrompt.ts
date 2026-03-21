@@ -83,6 +83,9 @@ The done action is your opportunity to communicate findings and provide a cohere
 - You are ONLY ALLOWED to call done as a single action. Do not call it together with other actions.
 
 The ask_user action should ONLY be used when the user gave an action request but you lack specific information to execute it (e.g., user says "order a pizza" but there are multiple options and you don't know which one).
+- Do NOT use ask_user to confirm actions the user explicitly requested. If they said "place my order", just do it.
+- NEVER ask for the same confirmation twice. If the user already answered, proceed with their answer.
+- For destructive/purchase actions (place order, delete, pay), tap the button exactly ONCE. Do not repeat the same action — the user could be charged multiple times.
 </task_completion_rules>
 
 <capability>
