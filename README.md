@@ -147,6 +147,7 @@ export default function App() {
       apiKey="YOUR_GEMINI_API_KEY" 
       
       // ✅ Production WAY: Route through your secure backend proxy
+      // (See "Security & Production Setup" section below for detailed explanation)
       // proxyUrl="https://api.yourdomain.com/gemini-proxy"
       // proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
       
@@ -190,7 +191,7 @@ export default function RootLayout() {
       // ⚠️ Prototyping ONLY
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!}
       
-      // ✅ Production WAY
+      // ✅ Production WAY (See Security section below for detailed explanation)
       // proxyUrl="https://api.yourdomain.com/gemini-proxy"
       
       navRef={navRef}
