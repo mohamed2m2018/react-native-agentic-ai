@@ -64,7 +64,7 @@ export default function MenuScreen({ route, navigation }: Props) {
       style={styles.card}
       onPress={() => navigation.navigate('DishDetail', { dish: item })}
     >
-      <Text style={styles.cardEmoji}>{item.emoji || '🍽️'}</Text>
+      <View style={styles.cardBullet}><Text style={styles.cardBulletText}>${item.price}</Text></View>
       <View style={styles.cardInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
         <Text style={styles.itemDesc}>{item.description}</Text>
@@ -140,7 +140,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
-  cardEmoji: { fontSize: 32, marginRight: 12 },
+  cardBullet: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1a1a2e', justifyContent: 'center' as const, alignItems: 'center' as const, marginRight: 12 },
+  cardBulletText: { color: '#fff', fontSize: 12, fontWeight: '700' as const },
   cardInfo: { flex: 1, gap: 4 },
   itemName: { fontSize: 18, fontWeight: '600', color: '#1a1a2e' },
   itemDesc: { fontSize: 14, color: '#6c757d' },

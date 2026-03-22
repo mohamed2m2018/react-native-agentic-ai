@@ -54,7 +54,7 @@ function HomeStackNavigator() {
       <HomeStack.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: '🍽️ FoodApp' }}
+        options={{ title: 'FoodApp' }}
       />
       <HomeStack.Screen
         name="Menu"
@@ -95,7 +95,7 @@ function MainTabs() {
         component={HomeStackNavigator}
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="H" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -105,17 +105,17 @@ function MainTabs() {
           title: 'Search',
           ...HEADER_STYLE,
           headerShown: true,
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🔍" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="S" focused={focused} />,
         }}
       />
       <Tab.Screen
         name="Cart"
         component={CartScreen}
         options={{
-          title: '🛒 Cart',
+          title: 'Cart',
           ...HEADER_STYLE,
           headerShown: true,
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🛒" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="C" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -125,7 +125,7 @@ function MainTabs() {
           title: 'Profile',
           ...HEADER_STYLE,
           headerShown: true,
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="P" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -135,7 +135,7 @@ function MainTabs() {
           title: 'Settings',
           ...HEADER_STYLE,
           headerShown: true,
-          tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="G" focused={focused} />,
         }}
       />
     </Tab.Navigator>
