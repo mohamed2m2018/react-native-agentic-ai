@@ -263,6 +263,25 @@ export interface KnowledgeRetriever {
  */
 export type KnowledgeBaseConfig = KnowledgeEntry[] | KnowledgeRetriever;
 
+// ─── Chat Bar Theme ──────────────────────────────────────────
+
+/** Color customization for the floating chat bar / popup. */
+export interface ChatBarTheme {
+  /** Primary accent color — FAB background, send button, active tab indicator.
+   *  Default: '#1a1a2e' */
+  primaryColor?: string;
+  /** Expanded popup background color. Default: 'rgba(26, 26, 46, 0.95)' */
+  backgroundColor?: string;
+  /** Text and icon color. Default: '#ffffff' */
+  textColor?: string;
+  /** User input field background. Default: 'rgba(255, 255, 255, 0.1)' */
+  inputBackgroundColor?: string;
+  /** Success result bubble background. Default: 'rgba(40, 167, 69, 0.2)' */
+  successColor?: string;
+  /** Error result bubble background. Default: 'rgba(220, 53, 69, 0.2)' */
+  errorColor?: string;
+}
+
 // ─── Provider Interface ──────────────────────────────────────
 
 /** Structured reasoning returned per step via the agent_step tool. */
