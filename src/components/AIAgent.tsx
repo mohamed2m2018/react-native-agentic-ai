@@ -51,7 +51,7 @@ interface AIAgentProps {
   /** Callback when agent completes */
   onResult?: (result: ExecutionResult) => void;
 
-  // ── Security (mirrors page-agent.js) ──────────────────────
+  // ── Security ──────────────────────
 
   /** Refs of elements the AI must NOT interact with */
   interactiveBlacklist?: React.RefObject<any>[];
@@ -184,7 +184,7 @@ export function AIAgent({
     pathname,
     onStatusUpdate: setStatusText,
     onTokenUsage,
-    // Page-agent pattern: block the agent loop until user responds
+    // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
         askUserResolverRef.current = resolve;

@@ -114,7 +114,7 @@
     }
   },
   "workspaces": [
-    "example"
+    "example-react-navigation"
   ],
   "react-native-builder-bob": {
     "source": "src",
@@ -144,9 +144,8 @@
   "jest": {
     "preset": "react-native",
     "modulePathIgnorePatterns": [
-      "<rootDir>/example/node_modules",
-      "<rootDir>/lib/",
-      "<rootDir>/rntl-reference"
+      "<rootDir>/example-react-navigation/node_modules",
+      "<rootDir>/lib/"
     ]
   },
   "create-react-native-library": {

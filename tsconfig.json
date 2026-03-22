@@ -34,7 +34,6 @@
     "verbatimModuleSyntax": true
   },
   "exclude": [
-    "page-agent-reference",
     "lib",
     "**/__tests__",
     "**/*.test.ts",

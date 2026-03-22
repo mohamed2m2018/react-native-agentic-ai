@@ -1,5 +1,5 @@
 /**
- * Core types for the page-agent-style React Native AI SDK.
+ * Core types for the React Native AI SDK.
  */
 
 // ─── Agent Modes ──────────────────────────────────────────────
@@ -63,25 +63,25 @@ export interface AgentConfig {
   model?: string;
 
 
-  /** Maximum steps per task (page-agent default: 40) */
+  /** Maximum steps per task */
   maxSteps?: number;
 
-  // ─── Element Gating (mirrors page-agent interactiveBlacklist/Whitelist) ──
+  // ─── Element Gating ──
 
   /**
    * React refs of elements the AI must NOT interact with.
-   * Mirrors page-agent.js `interactiveBlacklist: Element[]`.
+   * Refs of elements the AI must NOT interact with.
    * The Fiber walker skips any node whose ref matches one in this list.
    */
   interactiveBlacklist?: React.RefObject<any>[];
 
   /**
    * If set, the AI can ONLY interact with these elements.
-   * Mirrors page-agent.js `interactiveWhitelist: Element[]`.
+   * If set, AI can ONLY interact with these elements.
    */
   interactiveWhitelist?: React.RefObject<any>[];
 
-  // ─── Lifecycle Hooks (mirrors page-agent onBefore/AfterStep/Task) ───────
+  // ─── Lifecycle Hooks ───────
 
   /** Called before each agent step. */
   onBeforeStep?: (stepCount: number) => Promise<void> | void;
@@ -95,25 +95,25 @@ export interface AgentConfig {
   /** Called after task completes (success or failure). */
   onAfterTask?: (result: ExecutionResult) => Promise<void> | void;
 
-  // ─── Content Masking (mirrors page-agent transformPageContent) ──────────
+  // ─── Content Masking ──────────
 
   /**
    * Transform dehydrated screen text before sending to LLM.
    * Use to mask sensitive data (credit cards, PII, etc).
-   * Mirrors page-agent.js `transformPageContent`.
+   * Transform screen content before the LLM sees it (for data masking).
    */
   transformScreenContent?: (content: string) => Promise<string> | string;
 
-  // ─── Custom Tools (mirrors page-agent customTools) ─────────────────────
+  // ─── Custom Tools ─────────────────────
 
   /**
    * Override or remove built-in tools.
    * Set tool to `null` to remove it (e.g., `{ navigate: null }`).
-   * Mirrors page-agent.js `customTools: Record<string, Tool | null>`.
+   * Override or remove built-in tools (null = remove).
    */
   customTools?: Record<string, ToolDefinition | null>;
 
-  // ─── Instructions (mirrors page-agent instructions) ────────────────────
+  // ─── Instructions ────────────────────
 
   /** Instructions to guide the agent's behavior. */
   instructions?: {
@@ -122,12 +122,12 @@ export interface AgentConfig {
     /**
      * Dynamic per-screen instructions callback.
      * Called before each step to get instructions for the current screen.
-     * Mirrors page-agent.js `getPageInstructions(url)`.
+     * Per-screen instructions callback.
      */
     getScreenInstructions?: (screenName: string) => string | undefined | null;
   };
 
-  /** Delay between steps in ms (page-agent default: 400ms). */
+  /** Delay between steps in ms. */
   stepDelay?: number;
 
   // ─── Status Updates ──────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ export interface AgentConfig {
 
   /**
    * Callback for when agent needs user input (ask_user tool).
-   * Mirrors page-agent: the agent loop blocks until the user responds.
+   * The agent loop blocks until the user responds.
    * If not set, ask_user tool will break the loop (legacy behavior).
    * @example onAskUser: (q) => new Promise(resolve => showPrompt(q, resolve))
    */

@@ -1,8 +1,8 @@
 /**
- * System prompt for the AI agent — adapted from page-agent reference.
+ * System prompt for the AI agent.
  *
  * Separated into its own file for maintainability.
- * The prompt uses XML-style tags (matching page-agent's structure)
+ * The prompt uses XML-style tags
  * to give the LLM clear, structured instructions.
  */
 
