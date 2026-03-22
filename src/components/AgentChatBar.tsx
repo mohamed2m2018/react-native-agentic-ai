@@ -4,7 +4,7 @@
  * Does not block underlying UI natively.
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -14,6 +14,8 @@ import {
   Animated,
   PanResponder,
   ScrollView,
+  Keyboard,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import type { ExecutionResult, AgentMode } from '../core/types';
@@ -385,9 +387,33 @@ export function AgentChatBar({
   const isArabic = language === 'ar';
 
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
 
+  // ─── Keyboard Handling ──────────────────────────────────────
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      Animated.timing(keyboardOffset, {
+        toValue: -e.endCoordinates.height,
+        duration: Platform.OS === 'ios' ? e.duration || 250 : 200,
+        useNativeDriver: false,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      Animated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
+    });
 
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardOffset]);
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
@@ -439,7 +465,7 @@ export function AgentChatBar({
   // ─── Expanded Widget ───────────────────────────────────────
 
   return (
-    <Animated.View style={[styles.expandedContainer, pan.getLayout()]}>
+    <Animated.View style={[styles.expandedContainer, pan.getLayout(), { transform: [{ translateY: keyboardOffset }] }]}>
       {/* Drag Handle */}
       <View {...panResponder.panHandlers} style={styles.dragHandleArea} accessibilityLabel="Drag AI Agent">
         <View style={styles.dragGrip} />
