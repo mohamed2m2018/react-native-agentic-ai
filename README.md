@@ -32,6 +32,8 @@
 - 🧭 **Auto-navigation** — Navigates between screens to complete multi-step tasks.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
+- 🧠 **Knowledge base** — Give the AI domain knowledge (policies, FAQs, product info) it can query on demand. Static array or bring your own retriever.
+- 💡 **Knowledge-only mode** — Set `enableUIControl={false}` for a lightweight AI assistant with no UI interaction — single LLM call, ~70% fewer tokens.
 
 
 ### 🎤 Voice Mode (Live Agent)
