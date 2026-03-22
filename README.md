@@ -382,9 +382,9 @@ function CartScreen() {
 ## 🔒 Security & Production Setup
 
 ### 1. API Key Protection (Backend Proxy)
-> **CRITICAL:** Never ship `apiKey` in your production mobile app bundle. React Native code can be decompiled, exposing your keys to massive billing abuse.
+> **Important:** It is highly recommended to avoid shipping the `apiKey` directly in your production app bundle. Since mobile app code can be extracted, keeping your keys on a backend server helps prevent unauthorized usage.
 
-The safest architecture (aligning with Vercel AI SDK and LangChain standards) is to use a **Backend Proxy**.
+The safest architecture is to use a **Backend Proxy**.
 
 **A. How to configure the SDK for production:**
 ```tsx
