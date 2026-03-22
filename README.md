@@ -18,6 +18,8 @@
 [![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
 [![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
 
+> **Two modes: AI Agent** (automates your UI) **or AI Assistant** (answers questions). Same SDK, one prop. Or use both — full UI control with domain knowledge built in.
+
 > Wrap your navigation with `<AIAgent>`. The AI reads your app's **rendered UI structure** automatically — every button, every input, every label — and acts on it. **Structure-first, not screenshot-first** — fast, accurate, and lightweight. Screenshots are used optionally to understand visual content like images and colors.
 
 ## ✨ Features
