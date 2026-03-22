@@ -2,6 +2,8 @@
 
 > **Autonomous AI agent for React Native** — Your app gets an AI copilot that can see, understand, and interact with your UI. Zero wrappers, zero view rewriting.
 
+> If this helped you, consider giving it a ⭐ on [GitHub](https://github.com/mohamed2m2018/react-native-agentic-ai) — it helps others find this project!
+
 **Two names, one package — install either:**
 
 | | Package | npm |
