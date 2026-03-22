@@ -50,7 +50,6 @@ function RootLayoutNav() {
     <AIAgent
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
       navRef={navRef}
-      language="en"
     >
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
