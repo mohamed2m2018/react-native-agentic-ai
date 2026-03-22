@@ -124,9 +124,10 @@ Then rebuild: `npx react-native run-android` (or `run-ios`)
 
 ## 🚀 Quick Start
 
+### React Navigation
+
 ```tsx
 import { AIAgent } from '@mobileai/react-native';
-// or: import { AIAgent } from 'react-native-agentic-ai';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 
 export default function App() {
@@ -137,6 +138,27 @@ export default function App() {
       <NavigationContainer ref={navRef}>
         {/* Your existing screens — zero changes needed */}
       </NavigationContainer>
+    </AIAgent>
+  );
+}
+```
+
+### Expo Router
+
+In your root layout (`app/_layout.tsx`):
+
+```tsx
+import { AIAgent } from '@mobileai/react-native';
+import { Slot, useNavigationContainerRef } from 'expo-router';
+
+export default function RootLayout() {
+  // expo-router re-exports useNavigationContainerRef from React Navigation
+  // so useNavigationContainerRef works — just don't wrap with <NavigationContainer>
+  const navRef = useNavigationContainerRef();
+
+  return (
+    <AIAgent apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!} navRef={navRef}>
+      <Slot />
     </AIAgent>
   );
 }
