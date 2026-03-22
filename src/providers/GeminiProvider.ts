@@ -27,8 +27,27 @@ export class GeminiProvider implements AIProvider {
   private ai: GoogleGenAI;
   private model: string;
 
-  constructor(apiKey: string, model: string = 'gemini-2.5-flash') {
-    this.ai = new GoogleGenAI({ apiKey });
+  constructor(
+    apiKey?: string,
+    model: string = 'gemini-2.5-flash',
+    proxyUrl?: string,
+    proxyHeaders?: Record<string, string>
+  ) {
+    const config: any = {};
+
+    if (proxyUrl) {
+      config.apiKey = 'proxy-key'; // Dummy key to bypass local validation
+      config.httpOptions = {
+        baseUrl: proxyUrl,
+        headers: proxyHeaders || {},
+      };
+    } else if (apiKey) {
+      config.apiKey = apiKey;
+    } else {
+      throw new Error('[mobileai] You must provide either "apiKey" or "proxyUrl" to AIAgent.');
+    }
+
+    this.ai = new GoogleGenAI(config);
     this.model = model;
   }
 

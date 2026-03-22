@@ -59,11 +59,24 @@ export interface AgentStep {
 }
 
 export interface AgentConfig {
-  apiKey: string;
-  model?: string;
+  /** 
+   * Gemini API key (for prototyping only).
+   * Do not use in production. Use proxyUrl instead.
+   */
+  apiKey?: string;
 
+  /**
+   * The URL of your secure backend proxy (for production).
+   * Routes all Gemini API requests through your server.
+   */
+  proxyUrl?: string;
 
-  /** Maximum steps per task */
+  /**
+   * Optional headers to send to your proxyUrl (e.g., auth tokens).
+   */
+  proxyHeaders?: Record<string, string>;
+
+  model?: string;  /** Maximum steps per task */
   maxSteps?: number;
 
   // ─── Element Gating ──

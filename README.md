@@ -142,7 +142,16 @@ export default function App() {
   const navRef = useNavigationContainerRef();
 
   return (
-    <AIAgent apiKey="YOUR_GEMINI_API_KEY" navRef={navRef}>
+    <AIAgent 
+      // ⚠️ Prototyping ONLY: Do not ship API keys in your production app bundle!
+      apiKey="YOUR_GEMINI_API_KEY" 
+      
+      // ✅ Production WAY: Route through your secure backend proxy
+      // proxyUrl="https://api.yourdomain.com/gemini-proxy"
+      // proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
+      
+      navRef={navRef}
+    >
       <NavigationContainer ref={navRef}>
         {/* Your existing screens — zero changes needed */}
       </NavigationContainer>
@@ -175,7 +184,12 @@ export default function RootLayout() {
 
   return (
     <AIAgent
+      // ⚠️ Prototyping ONLY
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!}
+      
+      // ✅ Production WAY
+      // proxyUrl="https://api.yourdomain.com/gemini-proxy"
+      
       navRef={navRef}
       knowledgeBase={KNOWLEDGE}
     >
@@ -268,7 +282,9 @@ The root provider. Wrap your app once at the top level.
 
 | Prop | Type | Default | Mode | Description |
 |------|------|---------|------|-------------|
-| `apiKey` | `string` | — | Both | **Required.** Gemini API key. |
+| `apiKey` | `string` | — | Both | Gemini API key (Prototypes only). |
+| `proxyUrl` | `string` | — | Both | Secure backend proxy URL (For production). |
+| `proxyHeaders` | `Record<string, string>` | — | Both | Optional headers for proxy (e.g. auth tokens). |
 | `model` | `string` | `'gemini-2.5-flash'` | Text | Gemini model name. |
 | `navRef` | `NavigationContainerRef` | — | Both | Navigation ref for auto-navigation. |
 | `maxSteps` | `number` | `10` | Text | Max steps per task. |
@@ -363,9 +379,74 @@ function CartScreen() {
 | `parameters` | `Record<string, string>` | Parameter schema (e.g., `{ itemName: 'string' }`). |
 | `handler` | `(args) => any` | Execution handler. Can be sync or async. |
 
-## 🔒 Security
+## 🔒 Security & Production Setup
 
-### Element Gating
+### 1. API Key Protection (Backend Proxy)
+> **CRITICAL:** Never ship `apiKey` in your production mobile app bundle. React Native code can be decompiled, exposing your keys to massive billing abuse.
+
+The safest architecture (aligning with Vercel AI SDK and LangChain standards) is to use a **Backend Proxy**.
+
+**A. How to configure the SDK for production:**
+```tsx
+<AIAgent 
+  proxyUrl="https://api.yourdomain.com/gemini-proxy"
+  proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
+  navRef={navRef}
+>
+```
+
+**B. Next.js Route Handler Example (For Text Mode):**
+```typescript
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const REAL_API_KEY = process.env.GEMINI_API_KEY; // Secure on server
+    
+    const response = await fetch('https://generativelanguage.googleapis.com/...', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': REAL_API_KEY!,
+      },
+      body: JSON.stringify(body),
+    });
+
+    return NextResponse.json(await response.json());
+  } catch (error) {
+    return NextResponse.json({ error: 'Proxy failed' }, { status: 500 });
+  }
+}
+```
+
+**C. Node.js Express WebSocket Proxy Example (For Voice/Live Mode):**
+Voice mode uses `ai.live.connect()` which requires a persistent WebSocket connection. Standard Serverless functions do not support WebSockets. You need a long-running Node.js proxy using `http-proxy-middleware`.
+
+```javascript
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+const app = express();
+const REAL_API_KEY = process.env.GEMINI_API_KEY;
+
+const geminiProxy = createProxyMiddleware({
+  target: 'https://generativelanguage.googleapis.com',
+  changeOrigin: true,
+  ws: true, // IMPORTANT: Enables WebSocket proxying for Live Voice Agent
+  pathRewrite: (path, req) => {
+    // Inject the real API key into the secure backend connection
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}key=${REAL_API_KEY}`;
+  }
+});
+
+app.use('/v1beta/models', geminiProxy);
+const server = app.listen(3000);
+server.on('upgrade', geminiProxy.upgrade);
+```
+
+### 2. Element Gating
 
 Hide specific elements from the AI:
 
