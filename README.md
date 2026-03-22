@@ -18,12 +18,13 @@
 [![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
 [![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
 
-Wrap your navigation with `<AIAgent>`. The AI automatically understands your entire screen — every button, every input, every label — and acts on it.
+Wrap your navigation with `<AIAgent>`. The AI reads your current screen's UI structure automatically — every button, every input, every label — and acts on it. **Structure-first, not screenshot-first** — fast, accurate, and lightweight. Screenshots are used optionally to understand visual content like images and colors.
 
 ## ✨ Features
 
 ### Text Mode
-- 🤖 **Zero-config UI understanding** — No annotations needed. The AI sees and understands your entire screen automatically.
+- 🤖 **Zero-config UI understanding** — No annotations needed. The AI reads your current screen's UI structure automatically.
+- 📐 **Structure-first** — Reads your UI structure directly. No OCR, no vision-only approach. Screenshots used optionally for visual content.
 - 🎯 **Works with every component** — Buttons, switches, inputs, custom components — all work out of the box.
 - 🖼️ **Sees images & videos** — The AI knows what media is on screen and can describe it.
 - 🧭 **Auto-navigation** — Navigates between screens to complete multi-step tasks.
