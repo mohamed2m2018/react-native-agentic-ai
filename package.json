@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.5.16",
+  "version": "0.5.17",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
