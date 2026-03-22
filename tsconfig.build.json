@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig",
-  "exclude": ["example", "lib", "page-agent-reference", "rntl-reference", "**/__tests__", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["example", "example-expo-router", "lib", "page-agent-reference", "rntl-reference", "**/__tests__", "**/*.test.ts", "**/*.test.tsx"]
 }
