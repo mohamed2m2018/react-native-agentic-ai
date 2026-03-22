@@ -279,9 +279,9 @@ export function AIAgent({
       });
     }
 
-    // Connect VoiceService
+    // Connect VoiceService (async — SDK's ai.live.connect returns a Promise)
     logger.info('AIAgent', 'Connecting VoiceService...');
-    voiceServiceRef.current.connect({
+    void voiceServiceRef.current.connect({
       onAudioResponse: (audio) => {
         logger.info('AIAgent', `Received audio response (${audio.length} chars)`);
         setIsAISpeaking(true);
