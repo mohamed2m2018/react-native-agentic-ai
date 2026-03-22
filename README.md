@@ -16,14 +16,26 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 
 ## ✨ Features
 
+### Text Mode
 - 🤖 **Zero-config UI understanding** — No annotations needed. The AI sees and understands your entire screen automatically.
 - 🎯 **Works with every component** — Buttons, switches, inputs, custom components — all work out of the box.
 - 🖼️ **Sees images & videos** — The AI knows what media is on screen and can describe it.
 - 🧭 **Auto-navigation** — Navigates between screens to complete multi-step tasks.
-- 🔒 **Production-grade security** — Element gating, content masking, lifecycle hooks, human-in-the-loop confirmation.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
 - 🌍 **Bilingual** — English and Arabic support built-in.
+
+### 🎤 Voice Mode (Live Agent)
+- 🗣️ **Real-time voice chat** — Bidirectional audio with Gemini Live API. Speak naturally, the agent responds with voice.
+- 🔄 **Screen change detection** — The agent automatically detects when the screen changes (e.g., loading finishes) and updates its context — no polling tool needed.
+- 🛡️ **Tool-first protocol** — Tool calls are emitted before speech to prevent server crashes (Gemini Live API limitation).
+- 🔇 **Audio gating** — Mic is automatically paused during tool execution and resumed after, preventing race conditions.
+- 🚫 **Auto-navigation guard** — Code-level gate rejects tool calls before the user speaks, preventing the model from acting on screen context alone.
+
+### Security & Production
+- 🔒 **Production-grade security** — Element gating, content masking, lifecycle hooks, human-in-the-loop confirmation.
+
+> **Provider support:** Currently supports **Google Gemini** only (`gemini-2.5-flash` for text, `gemini-2.5-flash-native-audio-preview` for voice). Additional providers may be added in future releases.
 
 ## 📦 Installation
 
@@ -37,12 +49,74 @@ No native modules required by default. Works with Expo managed workflow out of t
 
 ### Optional Native Dependencies
 
+#### Screenshots
+
 If you want to use **Screenshots** (for image/video content), install this optional peer dependency:
 
 ```bash
-# For Screenshots (when asking AI "what do you see in this image?"):
 npx expo install react-native-view-shot
 ```
+
+#### 🎤 Voice Mode (Real-time Voice Chat)
+
+Voice mode enables real-time bidirectional audio with the Gemini Live API. It requires one native module:
+
+```bash
+# Audio capture + playback (required for voice mode):
+npm install react-native-audio-api
+```
+
+**After installing, you need native configuration based on your setup:**
+
+<details>
+<summary><b>Expo Managed Workflow</b></summary>
+
+Add permissions to your `app.json`:
+
+```json
+{
+  "expo": {
+    "android": {
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Required for voice chat with AI assistant"
+      }
+    }
+  }
+}
+```
+
+Then rebuild: `npx expo prebuild && npx expo run:android` (or `run:ios`)
+
+</details>
+
+<details>
+<summary><b>Expo Bare / React Native CLI</b></summary>
+
+**Android** — add to `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+```
+
+**iOS** — add to `ios/YourApp/Info.plist`:
+
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>Required for voice chat with AI assistant</string>
+```
+
+Then rebuild: `npx react-native run-android` (or `run-ios`)
+
+</details>
+
+> **Note:** Hardware echo cancellation (AEC) is automatically enabled through `react-native-audio-api`'s AudioManager — no extra setup needed.
 
 ## 🚀 Quick Start
 
@@ -75,10 +149,12 @@ The root provider. Wrap your app once at the top level.
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `apiKey` | `string` | — | **Required.** Gemini API key. |
-| `model` | `string` | `'gemini-2.5-flash'` | Gemini model name. |
+| `model` | `string` | `'gemini-2.5-flash'` | Gemini model name for text mode. |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
-| `maxSteps` | `number` | `10` | Max steps per task. |
+| `maxSteps` | `number` | `10` | Max steps per task (text mode). |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
+| `enableVoice` | `boolean` | `true` | Enable voice mode tab in the chat bar. |
+| `language` | `'en' \| 'ar'` | `'en'` | Agent language (English/Arabic). |
 | `onResult` | `(result) => void` | — | Called when the agent finishes. |
 
 ### `useAction(name, description, params, handler)`

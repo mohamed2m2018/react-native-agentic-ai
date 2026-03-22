@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, FlatList, Alert } from 'react-native';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { useAction } from '@mobileai/react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../App';
@@ -9,7 +9,9 @@ import type { MenuItem } from '../menuData';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Menu'>;
 
-const PAGE_SIZE = 4;
+const PAGE_SIZE = 10;
+const INITIAL_LOAD_DELAY = 5000; // 5s — long delay to test voice agent behavior during loading
+const LAZY_LOAD_DELAY = 2000;   // 2s per page load
 
 // ─── Component ──────────────────────────────────────────────
 
@@ -18,12 +20,30 @@ export default function MenuScreen({ route, navigation }: Props) {
   const allItems = MENUS[category] || [];
   const { addToCart } = useCart();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Simulate network loading when screen opens
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), INITIAL_LOAD_DELAY);
+    return () => clearTimeout(timer);
+  }, []);
 
   const displayedItems = useMemo(
     () => allItems.slice(0, visibleCount),
     [allItems, visibleCount],
   );
   const hasMore = visibleCount < allItems.length;
+
+  // Scroll-based lazy loading
+  const handleEndReached = useCallback(() => {
+    if (!hasMore || isLoadingMore) return;
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount(prev => prev + PAGE_SIZE);
+      setIsLoadingMore(false);
+    }, LAZY_LOAD_DELAY);
+  }, [hasMore, isLoadingMore]);
 
   // useAction — optional non-UI action for the AI to add items by name
   useAction('addToCart', 'Add a food item to the shopping cart', {
@@ -62,6 +82,28 @@ export default function MenuScreen({ route, navigation }: Props) {
     </Pressable>
   );
 
+  const renderFooter = useCallback(() => {
+    if (!isLoadingMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color="#1a1a2e" />
+        <Text style={styles.footerText}>Loading more burgers...</Text>
+      </View>
+    );
+  }, [isLoadingMore]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>{category}</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1a1a2e" />
+          <Text style={styles.loadingText}>Loading {category}...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{category}</Text>
@@ -73,16 +115,9 @@ export default function MenuScreen({ route, navigation }: Props) {
         keyExtractor={item => item.name}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
-        ListFooterComponent={
-          hasMore ? (
-            <Pressable
-              style={styles.loadMoreButton}
-              onPress={() => setVisibleCount(prev => prev + PAGE_SIZE)}
-            >
-              <Text style={styles.loadMoreText}>Load More</Text>
-            </Pressable>
-          ) : undefined
-        }
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={renderFooter}
       />
     </View>
   );
@@ -127,4 +162,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loadMoreText: { color: '#1a1a2e', fontSize: 14, fontWeight: '600' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingText: { fontSize: 16, color: '#6c757d', marginTop: 8 },
+  footerLoader: { padding: 20, alignItems: 'center', gap: 8 },
+  footerText: { color: '#6c757d', fontSize: 13 },
 });

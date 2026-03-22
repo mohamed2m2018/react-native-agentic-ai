@@ -22,13 +22,23 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "agenticai.example"
+      "package": "agenticai.example",
+      "permissions": [
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "react-native-audio-api"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ec793d01-03ad-4129-a6d0-551016f20b62"
+      }
+    },
+    "owner": "mohamed2m2035"
   }
 }

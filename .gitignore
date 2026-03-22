@@ -93,3 +93,6 @@ list-all-models.mjs
 list-models.mjs
 .agent/
 *.tgz
+test-audio/
+page-agent-reference/
+rntl-reference/

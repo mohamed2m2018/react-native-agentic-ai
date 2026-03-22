@@ -7,7 +7,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 type Props = NativeStackScreenProps<any>;
 
 const PAGE_SIZE = 6;
-const FAKE_NETWORK_DELAY = 1000;
+const FAKE_NETWORK_DELAY = 5000; // 5s — long delay to test voice agent behavior during loading
 
 // Fake food images for visual richness
 const FOOD_IMAGES: Record<string, string> = {

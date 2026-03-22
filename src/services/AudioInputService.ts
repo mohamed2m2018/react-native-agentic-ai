@@ -5,6 +5,9 @@
  * PCM streaming from the microphone. Each chunk is converted from Float32
  * to Int16 PCM and base64-encoded for the Gemini Live API.
  *
+ * Echo cancellation is handled at the OS/hardware level via
+ * react-native-incall-manager (VOICE_COMMUNICATION mode) — not in JS.
+ *
  * Requires: react-native-audio-api (development build only, not Expo Go)
  */
 
@@ -31,6 +34,14 @@ export class AudioInputService {
   private config: AudioInputConfig;
   private status: RecordingStatus = 'idle';
   private recorder: any = null;
+
+  // Auto-recovery: detect when mic session dies after audio playback.
+  // This is a react-native-audio-api bug where AudioRecorder loses mic access
+  // after AudioBufferQueueSourceNode plays audio (audio session conflict).
+  private consecutiveSilentFrames = 0;
+  private isRecovering = false;
+  private static readonly SILENT_THRESHOLD = 0.01;
+  private static readonly SILENT_FRAMES_BEFORE_RESTART = 15;
 
   constructor(config: AudioInputConfig) {
     this.config = config;
@@ -71,6 +82,7 @@ export class AudioInputService {
 
       // Create AudioRecorder
       this.recorder = new audioApi.AudioRecorder();
+      this.consecutiveSilentFrames = 0;
 
       const sampleRate = this.config.sampleRate || 16000;
       const bufferLength = this.config.bufferLength || 4096;
@@ -84,9 +96,53 @@ export class AudioInputService {
           try {
             // event.buffer is an AudioBuffer — get Float32 channel data
             const float32Data = event.buffer.getChannelData(0);
-            // Convert Float32 → Int16 → base64 for Gemini
+
+            // Measure peak amplitude for diagnostics + silent detection
+            let maxAmp = 0;
+            for (let i = 0; i < float32Data.length; i++) {
+              const abs = Math.abs(float32Data[i] || 0);
+              if (abs > maxAmp) maxAmp = abs;
+            }
+
+            // Diagnostic: log amplitude on first 5 frames, then every 10th
+            if (frameCount <= 5 || frameCount % 10 === 0) {
+              logger.info('AudioInput', `🔬 Frame #${frameCount}: maxAmp=${maxAmp.toFixed(6)}, samples=${float32Data.length}`);
+            }
+
+            // ─── Auto-Recovery: Silent mic detection ─────────────
+            // After audio playback, react-native-audio-api's AudioRecorder
+            // can lose its mic session (all-zero frames). Detect this and
+            // restart the recorder to re-acquire the audio session.
+            if (maxAmp < AudioInputService.SILENT_THRESHOLD) {
+              this.consecutiveSilentFrames++;
+              if (
+                this.consecutiveSilentFrames >= AudioInputService.SILENT_FRAMES_BEFORE_RESTART &&
+                !this.isRecovering
+              ) {
+                this.isRecovering = true;
+                logger.warn('AudioInput', `⚠️ ${this.consecutiveSilentFrames} silent frames — restarting recorder...`);
+                this.restartRecorder().then(() => {
+                  this.isRecovering = false;
+                  this.consecutiveSilentFrames = 0;
+                  logger.info('AudioInput', '✅ Recorder restarted — mic session re-acquired');
+                }).catch((err: any) => {
+                  this.isRecovering = false;
+                  logger.error('AudioInput', `❌ Recorder restart failed: ${err?.message || err}`);
+                });
+                return; // Skip this frame
+              }
+            } else {
+              // Got real audio — reset counter
+              if (this.consecutiveSilentFrames > 5) {
+                logger.info('AudioInput', `🎤 Mic recovered after ${this.consecutiveSilentFrames} silent frames`);
+              }
+              this.consecutiveSilentFrames = 0;
+            }
+
             const base64Chunk = float32ToInt16Base64(float32Data);
-            logger.debug('AudioInput', `🎤 Frame #${frameCount}: size=${base64Chunk.length}`);
+            if (frameCount <= 5 || frameCount % 10 === 0) {
+              logger.info('AudioInput', `🎤 Frame #${frameCount}: chunk=${base64Chunk.length} chars, calling onAudioChunk...`);
+            }
             this.config.onAudioChunk(base64Chunk);
           } catch (err: any) {
             logger.error('AudioInput', `Frame processing error: ${err.message}`);
@@ -121,11 +177,30 @@ export class AudioInputService {
       }
       this.recorder = null;
       this.status = 'idle';
+      this.consecutiveSilentFrames = 0;
       logger.info('AudioInput', 'Streaming stopped');
     } catch (error: any) {
       logger.error('AudioInput', `Failed to stop: ${error.message}`);
       this.recorder = null;
       this.status = 'idle';
+    }
+  }
+
+  // ─── Auto-Recovery ─────────────────────────────────────────
+
+  /**
+   * Restart the recorder to re-acquire the audio session.
+   * Fixes react-native-audio-api bug where AudioRecorder loses mic access
+   * after AudioBufferQueueSourceNode plays audio.
+   */
+  private async restartRecorder(): Promise<void> {
+    logger.info('AudioInput', '🔄 Restarting recorder for mic recovery...');
+    await this.stop();
+    // Brief pause to let the audio system release resources
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const ok = await this.start();
+    if (!ok) {
+      throw new Error('Recorder restart failed');
     }
   }
 
