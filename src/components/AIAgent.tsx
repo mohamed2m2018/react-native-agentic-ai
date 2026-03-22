@@ -49,6 +49,15 @@ interface AIAgentProps {
    * Headers to send to your backend proxy (e.g., auth tokens). 
    */
   proxyHeaders?: Record<string, string>;
+  /**
+   * Optional specific URL for Voice Mode (WebSockets). 
+   * If voiceProxyUrl isn't provided, it safely falls back to using proxyUrl for everything.
+   */
+  voiceProxyUrl?: string;
+  /**
+   * Optional specific headers for voiceProxyUrl.
+   */
+  voiceProxyHeaders?: Record<string, string>;
   /** Gemini model name */
   model?: string;
   /** Navigation container ref (from useNavigationContainerRef) */
@@ -136,6 +145,8 @@ export function AIAgent({
   apiKey,
   proxyUrl,
   proxyHeaders,
+  voiceProxyUrl,
+  voiceProxyHeaders,
   model = 'gemini-2.5-flash',
   navRef,
 
@@ -212,6 +223,8 @@ export function AIAgent({
     apiKey,
     proxyUrl,
     proxyHeaders,
+    voiceProxyUrl,
+    voiceProxyHeaders,
     model,
     language: 'en',
     maxSteps,
@@ -243,7 +256,7 @@ export function AIAgent({
       });
     }),
   }), [
-    mode, apiKey, proxyUrl, proxyHeaders, model, maxSteps,
+    mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
@@ -305,8 +318,8 @@ export function AIAgent({
       logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,
-        proxyUrl,
-        proxyHeaders,
+        proxyUrl: voiceProxyUrl || proxyUrl,
+        proxyHeaders: voiceProxyHeaders || proxyHeaders,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
         language: 'en',
@@ -551,7 +564,7 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, proxyUrl, proxyHeaders, runtime, instructions]);
+  }, [mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, runtime, instructions]);
 
   // ─── Stop Voice Session (full cleanup) ─────────────────────
 

@@ -76,6 +76,17 @@ export interface AgentConfig {
    */
   proxyHeaders?: Record<string, string>;
 
+  /**
+   * Optional specific URL for Voice Mode (WebSockets).
+   * Useful if you use Serverless for text, but need a dedicated server for voice.
+   */
+  voiceProxyUrl?: string;
+
+  /**
+   * Optional specific headers for voiceProxyUrl.
+   */
+  voiceProxyHeaders?: Record<string, string>;
+
   model?: string;  /** Maximum steps per task */
   maxSteps?: number;
 
