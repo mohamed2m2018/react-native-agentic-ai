@@ -56,6 +56,17 @@ function RootLayoutNav() {
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
+          <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
+          <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
+          <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
+          <Stack.Screen name="addresses" options={{ title: 'Addresses' }} />
+          <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+          <Stack.Screen name="appearance" options={{ title: 'Appearance' }} />
+          <Stack.Screen name="language" options={{ title: 'Language' }} />
+          <Stack.Screen name="about" options={{ title: 'About' }} />
+          <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
+          <Stack.Screen name="help" options={{ title: 'Help Center' }} />
         </Stack>
       </ThemeProvider>
     </AIAgent>
