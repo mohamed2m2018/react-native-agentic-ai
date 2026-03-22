@@ -127,6 +127,14 @@ export interface AgentConfig {
     getScreenInstructions?: (screenName: string) => string | undefined | null;
   };
 
+  /**
+   * Enable or disable UI control tools (tap, type, navigate, ask_user, capture_screenshot).
+   * When false, the AI operates as a knowledge-only assistant — it can read the screen
+   * and answer questions via query_knowledge, but cannot interact with UI elements.
+   * Default: true
+   */
+  enableUIControl?: boolean;
+
   /** Delay between steps in ms. */
   stepDelay?: number;
 

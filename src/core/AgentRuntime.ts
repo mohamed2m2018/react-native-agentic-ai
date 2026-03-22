@@ -13,7 +13,7 @@ import { logger } from '../utils/logger';
 import { walkFiberTree } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
-import { buildSystemPrompt } from './systemPrompt';
+import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
 import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
 import type {
   AIProvider,
@@ -60,7 +60,12 @@ export class AgentRuntime {
       );
     }
 
-    this.registerBuiltInTools();
+    // Register tools based on mode
+    if (config.enableUIControl === false) {
+      this.registerKnowledgeOnlyTools();
+    } else {
+      this.registerBuiltInTools();
+    }
 
     // Apply customTools
     if (config.customTools) {
@@ -277,6 +282,47 @@ export class AgentRuntime {
           return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
         }
         return '❌ Screenshot capture failed. react-native-view-shot may not be installed.';
+      },
+    });
+
+    // query_knowledge — retrieve domain-specific knowledge (only if knowledgeBase is configured)
+    if (this.knowledgeService) {
+      this.tools.set('query_knowledge', {
+        name: 'query_knowledge',
+        description:
+          'Search the app knowledge base for domain-specific information '
+          + '(policies, FAQs, product details, delivery areas, allergens, etc). '
+          + 'Use when the user asks about the business or app and the answer is NOT visible on screen.',
+        parameters: {
+          question: {
+            type: 'string',
+            description: 'The question or topic to search for',
+            required: true,
+          },
+        },
+        execute: async (args) => {
+          const screenName = this.getCurrentScreenName();
+          return this.knowledgeService!.retrieve(args.question, screenName);
+        },
+      });
+    }
+  }
+
+  /**
+   * Register only knowledge-assistant tools (no UI control).
+   * Used when enableUIControl = false — the AI can only answer questions.
+   */
+  private registerKnowledgeOnlyTools(): void {
+    // done — complete the task
+    this.tools.set('done', {
+      name: 'done',
+      description: 'Complete the task with a message to the user.',
+      parameters: {
+        text: { type: 'string', description: 'Response message to the user', required: true },
+        success: { type: 'boolean', description: 'Whether the task was completed successfully', required: true },
+      },
+      execute: async (args) => {
+        return args.text;
       },
     });
 
@@ -705,6 +751,83 @@ ${screen.elementsText}
     await this.config.onBeforeTask?.();
 
     try {
+      // ─── Knowledge-only fast path ─────────────────────────────────
+      // Skip fiber walk, dehydration, screenshots, and multi-step loop.
+      // Only sends the user question → single LLM call → done.
+      if (this.config.enableUIControl === false) {
+        this.config.onStatusUpdate?.('Thinking...');
+        const hasKnowledge = !!this.knowledgeService;
+        const systemPrompt = buildKnowledgeOnlyPrompt(
+          'en', hasKnowledge, this.config.instructions?.system,
+        );
+        const tools = this.buildToolsForProvider();
+        const screenName = this.getCurrentScreenName();
+
+        // Minimal user prompt — just the question + screen name for context
+        const userPrompt = `Current screen: ${screenName}\n\nUser: ${contextualMessage}`;
+
+        const response = await this.provider.generateContent(
+          systemPrompt, userPrompt, tools, [], undefined,
+        );
+
+        // Track token usage
+        if (response.tokenUsage) {
+          sessionUsage.promptTokens += response.tokenUsage.promptTokens;
+          sessionUsage.completionTokens += response.tokenUsage.completionTokens;
+          sessionUsage.totalTokens += response.tokenUsage.totalTokens;
+          sessionUsage.estimatedCostUSD += response.tokenUsage.estimatedCostUSD;
+          this.config.onTokenUsage?.(response.tokenUsage);
+        }
+
+        // Execute tool calls (done / query_knowledge)
+        let message = response.text || '';
+        if (response.toolCalls) {
+          for (const tc of response.toolCalls) {
+            const tool = this.tools.get(tc.name);
+            if (tool) {
+              const result = await tool.execute(tc.args);
+              if (tc.name === 'done') {
+                message = result;
+              } else if (tc.name === 'query_knowledge') {
+                // Knowledge retrieved — need a second call with the results
+                const followUp = `Knowledge result:\n${result}\n\nUser question: ${contextualMessage}\n\nAnswer the user based on this knowledge. Call done() with your answer.`;
+                const followUpResponse = await this.provider.generateContent(
+                  systemPrompt, followUp, tools, [], undefined,
+                );
+                if (followUpResponse.tokenUsage) {
+                  sessionUsage.promptTokens += followUpResponse.tokenUsage.promptTokens;
+                  sessionUsage.completionTokens += followUpResponse.tokenUsage.completionTokens;
+                  sessionUsage.totalTokens += followUpResponse.tokenUsage.totalTokens;
+                  sessionUsage.estimatedCostUSD += followUpResponse.tokenUsage.estimatedCostUSD;
+                  this.config.onTokenUsage?.(followUpResponse.tokenUsage);
+                }
+                if (followUpResponse.toolCalls) {
+                  for (const ftc of followUpResponse.toolCalls) {
+                    if (ftc.name === 'done') {
+                      const doneResult = await this.tools.get('done')!.execute(ftc.args);
+                      message = doneResult;
+                    }
+                  }
+                }
+                if (!message && followUpResponse.text) {
+                  message = followUpResponse.text;
+                }
+              }
+            }
+          }
+        }
+
+        const result: ExecutionResult = {
+          success: true,
+          message: message || 'I could not find an answer.',
+          steps: [],
+          tokenUsage: sessionUsage,
+        };
+        await this.config.onAfterTask?.(result);
+        return result;
+      }
+
+      // ─── Full agent loop (UI control enabled) ─────────────────────
       for (let step = 0; step < maxSteps; step++) {
         logger.info('AgentRuntime', `===== Step ${step + 1}/${maxSteps} =====`);
 
@@ -743,7 +866,8 @@ ${screen.elementsText}
 
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Analyzing screen...');
-        const systemPrompt = buildSystemPrompt('en', !!this.knowledgeService);
+        const hasKnowledge = !!this.knowledgeService;
+        const systemPrompt = buildSystemPrompt('en', hasKnowledge);
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
