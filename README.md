@@ -62,7 +62,9 @@ The result: an AI that truly understands your app — and can act on it autonomo
 
 ## ✨ What's Inside
 
-### 🤖 Autonomous AI Agent — Natural Language UI Automation
+### Ship to Production
+
+#### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
 Your users describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by Google Gemini.
 
@@ -72,7 +74,7 @@ Your users describe what they want in natural language. The SDK reads the live s
 - **Knowledge base** — AI queries your FAQs, policies, product data on demand
 - **Human-in-the-loop** — native `Alert.alert` confirmation before critical actions
 
-### 🎤 Real-time Voice AI Agent — Bidirectional Audio with Gemini Live API
+#### 🎤 Real-time Voice AI Agent — Bidirectional Audio with Gemini Live API
 
 Full bidirectional voice AI powered by the Gemini Live API. Users speak naturally; the agent responds with voice AND controls your app simultaneously.
 
@@ -82,11 +84,31 @@ Full bidirectional voice AI powered by the Gemini Live API. Users speak naturall
 
 > 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` and a mic button appears in the chat bar — letting users dictate messages instead of typing. This is separate from voice mode.
 
-### 🔌 MCP Bridge — Connect Any AI to Your App
+---
 
-Your app becomes MCP-compatible with one prop. Any AI that speaks the Model Context Protocol — editors, autonomous agents, CI/CD pipelines, custom scripts — can remotely control your app.
+### Supercharge Your Dev Workflow
 
-### 🧪 AI-Powered Testing via MCP
+#### 🔌 MCP Bridge — Connect Any AI to Your App
+
+Your app becomes MCP-compatible with one prop. Any AI that speaks the Model Context Protocol — editors, autonomous agents, CI/CD pipelines, custom scripts — can remotely read and control your app.
+
+The MCP bridge uses the **same `AgentRuntime`** that powers the in-app AI agent. If the agent can do it via chat, an external AI can do it via MCP.
+
+**MCP-only mode** — just want testing? No chat popup needed:
+```tsx
+<AIAgent
+  showChatBar={false}
+  mcpServerUrl="ws://localhost:3101"
+  apiKey="YOUR_KEY"
+  navRef={navRef}
+>
+  <App />
+</AIAgent>
+```
+
+> 🔮 **Looking ahead:** The same architecture can power production use cases — imagine a user's personal AI assistant ordering food through your app via MCP. The runtime is ready; auth and multi-session support are on the roadmap.
+
+#### 🧪 AI-Powered Testing via MCP
 
 The most powerful use case: test your app without writing test code. Connect your AI (Antigravity, Claude Desktop, or any MCP client) to the emulator and describe what to check — in English. No selectors to maintain, no flaky tests, self-healing by design.
 
