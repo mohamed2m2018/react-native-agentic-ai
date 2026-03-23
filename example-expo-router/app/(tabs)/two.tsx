@@ -9,7 +9,7 @@ export default function ProfileScreen() {
         <Text style={styles.avatarText}>JS</Text>
       </View>
       <Text style={styles.name}>John Smith</Text>
-      <Text style={styles.email}>john.smith@example.com</Text>
+      {/* 🐛 BUG: email line was accidentally removed during refactor */}
 
       <View style={styles.section}>
         <Link href="/edit-profile" asChild>

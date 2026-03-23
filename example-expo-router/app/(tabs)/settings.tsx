@@ -41,12 +41,7 @@ export default function SettingsScreen() {
             <Text style={styles.chevron}>›</Text>
           </Pressable>
         </Link>
-        <Link href="/help" asChild>
-          <Pressable style={styles.row}>
-            <Text style={styles.rowText}>Help Center</Text>
-            <Text style={styles.chevron}>›</Text>
-          </Pressable>
-        </Link>
+        {/* 🐛 BUG: Help Center link was accidentally removed during cleanup */}
       </View>
     </ScrollView>
   );
