@@ -1,6 +1,6 @@
-# MobileAI — AI Agent SDK for React Native
+# AI Agent SDK for React Native & Expo
 
-> **Ship an AI agent inside your React Native app — with one component.** The AI sees your live UI, acts on it by natural language, and speaks back in real time. No selectors. No wrappers. No screenshots.
+> **Ship an autonomous AI agent inside any React Native app — one component, one line.** The AI reads your live UI structure, acts on it via natural language, speaks back in real-time voice, and lets your AI editor test your app via MCP. No selectors. No wrappers. No screenshots.
 
 ### 🤖 AI Agent — Autonomous UI Control
 
@@ -37,7 +37,7 @@ npm install @mobileai/react-native
 
 ---
 
-## 🧠 The Approach — Structure-First AI
+## 🧠 How It Works — Structure-First Agentic AI
 
 What if your AI could understand your app the way a developer does — not by looking at pixels, but by reading the actual UI structure?
 
@@ -60,11 +60,11 @@ The result: an AI agent that understands your app as well as a human tester, but
 
 ---
 
-## ✨ What You Can Build
+## ✨ What You Can Build with This AI SDK
 
-### 🤖 AI Agent — Automate Any UI Flow by Chat
+### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
-Your users (or your AI editor) describe what they want in natural language. MobileAI reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously.
+Your users (or your AI editor) describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by Google Gemini.
 
 - **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors
 - **Multi-step reasoning** — navigates across screens to complete complex tasks
@@ -72,18 +72,18 @@ Your users (or your AI editor) describe what they want in natural language. Mobi
 - **Knowledge base** — AI queries your FAQs, policies, product data on demand
 - **Human-in-the-loop** — native `Alert.alert` confirmation before critical actions
 
-### 🎤 Voice Agent — Real-time Voice Conversations with UI Control
+### 🎤 Real-time Voice AI Agent — Bidirectional Audio with Gemini Live API
 
-Full bidirectional audio with the Gemini Live API. Users speak naturally; the AI responds with voice AND controls your app simultaneously.
+Full bidirectional voice AI powered by the Gemini Live API. Users speak naturally; the agent responds with voice AND controls your app simultaneously.
 
 - **Sub-second latency** — real-time audio via WebSockets, not turn-based
 - **Full UI control** — same tap, type, navigate, custom actions as text mode — all by voice
 - **Screen-aware** — auto-detects screen changes and updates its context instantly
 - **Voice dictation fallback** — just want speech-to-text input? Install `expo-speech-recognition`
 
-### 🧪 AI-Powered Testing — Let Your AI Editor Test Your App
+### 🧪 AI-Powered Testing via MCP (Model Context Protocol)
 
-Connect Google Antigravity, Claude Desktop, or any MCP-compatible AI editor to your running emulator. Write test checks in plain English. The AI navigates your app, reads values, and reports bugs — no selectors, no flakiness, self-healing by design.
+Connect Google Antigravity, Claude Desktop, or any MCP-compatible AI editor to your running emulator via the Model Context Protocol. Write test checks in plain English. The AI navigates your app, reads values, and reports bugs — no selectors, no flakiness, self-healing by design.
 
 **Two ways to test:**
 
@@ -285,7 +285,7 @@ const KNOWLEDGE: KnowledgeEntry[] = [
 
 ---
 
-## 🧪 AI-Powered Testing Setup (MCP Bridge)
+## 🧪 AI-Powered Testing Setup — Model Context Protocol (MCP) Bridge
 
 ### Architecture
 
