@@ -59,7 +59,7 @@ The result: an AI that truly understands your app — and can act on it autonomo
 
 ---
 
-## ✨ What You Can Build with This AI SDK
+## ✨ Core Capabilities
 
 ### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
@@ -80,9 +80,13 @@ Full bidirectional voice AI powered by the Gemini Live API. Users speak naturall
 - **Screen-aware** — auto-detects screen changes and updates its context instantly
 - **Voice dictation fallback** — just want speech-to-text input? Install `expo-speech-recognition`
 
-### 🧪 AI-Powered Testing via MCP (Model Context Protocol)
+### 🔌 MCP Bridge — Connect Any AI to Your App
 
-Connect Google Antigravity, Claude Desktop, or any MCP-compatible AI editor to your running emulator via the Model Context Protocol. Write test checks in plain English. The AI navigates your app, reads values, and reports bugs — no selectors, no flakiness, self-healing by design.
+Your app becomes MCP-compatible with one prop. Any AI editor or agent that speaks the Model Context Protocol can remotely control your app — navigate screens, tap buttons, read content, execute tasks.
+
+### 🧪 AI-Powered Testing via MCP
+
+One powerful use case of the MCP bridge: connect your AI editor to your running emulator and test your app in plain English. No selectors, no flakiness, self-healing by design.
 
 **Two ways to test:**
 
