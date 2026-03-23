@@ -1,6 +1,6 @@
 # AI Agent SDK for React Native & Expo
 
-> **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, and a built-in knowledge base. Fully customizable, production-grade security, and lightweight. Plus: an MCP bridge that lets any AI connect to and test your app.
+> **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, and a built-in knowledge base. Fully customizable, production-grade security, performant, and lightweight. Plus: an MCP bridge that lets any AI connect to and test your app.
 
 ```bash
 npm install @mobileai/react-native
