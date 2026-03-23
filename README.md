@@ -205,7 +205,7 @@ Then rebuild: `npx expo prebuild && npx expo run:android` (or `run:ios`)
 ### React Navigation
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 
 export default function App() {
@@ -235,7 +235,7 @@ export default function App() {
 In your root layout (`app/_layout.tsx`):
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 import { Slot, useNavigationContainerRef } from 'expo-router';
 
 export default function RootLayout() {
@@ -293,7 +293,7 @@ Give the AI domain knowledge it can query on demand — policies, FAQs, product 
 ### Static Array
 
 ```tsx
-import type { KnowledgeEntry } from '@mobileai/react-native';
+import type { KnowledgeEntry } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 
 const KNOWLEDGE: KnowledgeEntry[] = [
   {
@@ -478,7 +478,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### `useAction` — Custom AI-Callable Business Logic
 
 ```tsx
-import { useAction } from '@mobileai/react-native';
+import { useAction } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 
 function CartScreen() {
   const { cart, clearCart, getTotal } = useCart();
@@ -500,7 +500,7 @@ function CartScreen() {
 ### `useAI` — Headless / Custom Chat UI
 
 ```tsx
-import { useAI } from '@mobileai/react-native';
+import { useAI } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 
 function CustomChat() {
   const { send, isLoading, status, messages } = useAI();
