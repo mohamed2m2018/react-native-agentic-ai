@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, useNavigationContainerRef } from 'expo-router';
+import { Stack, useNavigationContainerRef, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
@@ -101,12 +101,15 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const navRef = useNavigationContainerRef();
+  const router = useRouter();
 
   return (
     <AIAgent
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
       navRef={navRef}
       knowledgeBase={SHOP_KNOWLEDGE}
+      showChatBar={false}
+      enableUIControl={true}
       accentColor="#6C5CE7"
       theme={{
         backgroundColor: 'rgba(44, 30, 104, 0.95)',
@@ -114,6 +117,10 @@ function RootLayoutNav() {
       }}
       instructions={{
         system: 'You are ShopApp\'s AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app.',
+      }}
+      onResult={() => {
+        // Navigate back to chat tab after agent completes
+        router.push('/(tabs)/chat');
       }}
     >
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

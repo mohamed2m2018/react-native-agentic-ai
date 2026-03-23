@@ -287,6 +287,22 @@ export interface KnowledgeRetriever {
  */
 export type KnowledgeBaseConfig = KnowledgeEntry[] | KnowledgeRetriever;
 
+// ─── Chat Messages ───────────────────────────────────────────
+
+/** A single message in the conversation history. */
+export interface AIMessage {
+  /** Unique message ID */
+  id: string;
+  /** Who sent this message */
+  role: 'user' | 'assistant';
+  /** Text content */
+  content: string;
+  /** Unix timestamp (ms) */
+  timestamp: number;
+  /** Attached execution result (assistant messages only) */
+  result?: ExecutionResult;
+}
+
 // ─── Chat Bar Theme ──────────────────────────────────────────
 
 /** Color customization for the floating chat bar / popup. */

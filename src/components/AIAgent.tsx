@@ -27,7 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
 console.log('🚀 AIAgent.tsx MODULE LOADED');
@@ -190,6 +190,12 @@ export function AIAgent({
   const [isThinking, setIsThinking] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
+  const [messages, setMessages] = useState<AIMessage[]>([]);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setLastResult(null);
+  }, []);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -588,10 +594,24 @@ export function AIAgent({
 
   // ─── Execute ──────────────────────────────────────────────────
 
-  const handleSend = useCallback(async (message: string) => {
-    if (!message.trim()) return;
+  const handleSend = useCallback(async (
+    message: string,
+    options?: { onResult?: (result: ExecutionResult) => void }
+  ) => {
+    if (!message.trim() || isThinking) return;
 
     logger.info('AIAgent', `User message: "${message}"`);
+    
+    // Append user message
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString() + Math.random(),
+        role: 'user',
+        content: message.trim(),
+        timestamp: Date.now(),
+      },
+    ]);
 
     // If there's a pending ask_user, resolve it instead of starting a new execution
     if (askUserResolverRef.current) {
@@ -616,7 +636,24 @@ export function AIAgent({
       const result = await runtime.execute(message);
 
       setLastResult(result);
-      onResult?.(result);
+      
+      // Append assistant message
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString() + Math.random(),
+          role: 'assistant',
+          content: result.message,
+          timestamp: Date.now(),
+          result,
+        },
+      ]);
+
+      if (options?.onResult) {
+        options.onResult(result);
+      } else {
+        onResult?.(result);
+      }
 
       logger.info('AIAgent', `Result: ${result.success ? '✅' : '❌'} ${result.message}`);
     } catch (error: any) {
@@ -632,10 +669,22 @@ export function AIAgent({
     }
   }, [runtime, navRef, onResult]);
 
+  // ─── Context value (for useAI bridge) ─────────────────────────
+
+  const contextValue = useMemo(() => ({
+    runtime,
+    send: handleSend,
+    isLoading: isThinking,
+    status: statusText,
+    lastResult,
+    messages,
+    clearMessages,
+  }), [runtime, handleSend, isThinking, statusText, lastResult, messages, clearMessages]);
+
   // ─── Render ──────────────────────────────────────────────────
 
   return (
-    <AgentContext.Provider value={runtime}>
+    <AgentContext.Provider value={contextValue}>
       <View ref={rootViewRef} style={styles.root} collapsable={false}>
         {children}
 
