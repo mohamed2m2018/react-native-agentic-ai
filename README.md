@@ -4,6 +4,8 @@
 
 ```bash
 npm install @mobileai/react-native
+# — or —
+npm install react-native-agentic-ai
 ```
 
 ### 🤖 AI Agent — Autonomous UI Control
