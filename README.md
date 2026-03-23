@@ -39,7 +39,7 @@ npm install @mobileai/react-native
 
 ## 🧠 How It Works — Structure-First Agentic AI
 
-What if your AI could understand your app the way a developer does — not by looking at pixels, but by reading the actual UI structure?
+What if your AI could understand your app the way a real user does — not by looking at pixels, but by reading the actual UI structure?
 
 That's what this SDK does. It reads your app's live UI natively — every button, label, input, and screen — in real time. The AI understands your app's structure, not a screenshot of it.
 
