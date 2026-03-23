@@ -108,8 +108,6 @@ The MCP bridge uses the **same `AgentRuntime`** that powers the in-app AI agent.
 </AIAgent>
 ```
 
-> 🔮 **Looking ahead:** The same architecture can power production use cases — imagine a user's personal AI assistant ordering food through your app via MCP. The runtime is ready; auth and multi-session support are on the roadmap.
-
 #### 🧪 AI-Powered Testing via MCP
 
 The most powerful use case: test your app without writing test code. Connect your AI (Antigravity, Claude Desktop, or any MCP client) to the emulator and describe what to check — in English. No selectors to maintain, no flaky tests, self-healing by design.
