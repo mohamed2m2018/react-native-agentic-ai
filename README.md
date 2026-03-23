@@ -616,7 +616,7 @@ server.on('upgrade', geminiProxy.upgrade);
 - Expo SDK 49+ (or bare React Native)
 - Gemini API key — [Get one free](https://aistudio.google.com/apikey)
 
-> Currently supports **Google Gemini** models only. Defaults: `gemini-2.5-flash` for text, `gemini-2.5-flash-native-audio-preview` for voice. You can change the model via the `model` prop — any Gemini model works. Additional providers may be added in future releases.
+> Currently supports **Google Gemini** models only. Text mode defaults to `gemini-2.5-flash` (configurable via the `model` prop — any Gemini model works). Voice mode uses `gemini-2.5-flash-native-audio-preview` (fixed). Additional providers may be added in future releases.
 
 ## 📄 License
 
