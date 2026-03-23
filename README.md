@@ -252,9 +252,9 @@ export default function RootLayout() {
 }
 ```
 
-### Using OpenAI (Text Mode)
+### Choose Your Provider
 
-Switch to OpenAI for text mode by setting the `provider` prop:
+The examples above use **Gemini** (default). To use **OpenAI** for text mode, add the `provider` prop. Voice mode is not supported with OpenAI.
 
 ```tsx
 <AIAgent
@@ -263,7 +263,7 @@ Switch to OpenAI for text mode by setting the `provider` prop:
   // model="gpt-4.1-mini"  ← default, or use any OpenAI model
   navRef={navRef}
 >
-  <Slot />
+  {/* Same app, different brain */}
 </AIAgent>
 ```
 
