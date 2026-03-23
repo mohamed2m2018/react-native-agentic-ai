@@ -1,37 +1,45 @@
 # AI Agent SDK for React Native & Expo
 
-> **Ship an autonomous AI agent inside any React Native app — one component, one line.** The AI reads your live UI structure, acts on it via natural language, speaks back in real-time voice, and lets your AI editor test your app via MCP. No selectors. No wrappers. No screenshots.
-
-### 🤖 AI Agent — Autonomous UI Control
-
-<p align="center">
-  <img src="./assets/demo.gif" alt="MobileAI AI Agent autonomously controlling a React Native app" width="350" />
-</p>
-
-### 🧪 AI-Powered Testing — Your AI Editor Tests Your App
-
-<p align="center">
-  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via MCP — Google Antigravity finding bugs in a React Native app" width="700" />
-</p>
-
-> *Google Antigravity autonomously finding bugs in the example app — no test code written, no selectors, just English.*
-
----
-
-**Two names, one package:**
-
-| | Package | npm |
-|---|---|---|
-| 📦 | `@mobileai/react-native` | [![npm](https://img.shields.io/npm/v/@mobileai/react-native?label=latest)](https://www.npmjs.com/package/@mobileai/react-native) |
-| 📦 | `react-native-agentic-ai` | [![npm](https://img.shields.io/npm/v/react-native-agentic-ai?label=latest)](https://www.npmjs.com/package/react-native-agentic-ai) |
-
-[![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
-[![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
-[![stars](https://img.shields.io/github/stars/mohamed2m2018/react-native-agentic-ai?style=social)](https://github.com/mohamed2m2018/react-native-agentic-ai)
+> **One component. Your app gets an AI brain.** Text chat, real-time voice, and MCP bridge — all from `<AIAgent>`.
 
 ```bash
 npm install @mobileai/react-native
 ```
+
+<table>
+<tr>
+<td width="35%">
+
+### 🤖 AI Agent
+
+<p align="center">
+  <img src="./assets/demo.gif" alt="AI Agent autonomously controlling a React Native app UI via natural language" width="300" />
+</p>
+
+</td>
+<td width="65%">
+
+### 🧪 AI-Powered Testing via MCP
+
+<p align="center">
+  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — AI editor finding bugs in React Native app" width="100%" />
+</p>
+
+</td>
+</tr>
+</table>
+
+> *Left: AI agent autonomously navigating and acting on the app. Right: Google Antigravity finding 5 bugs via MCP — no test code, just English.*
+
+---
+
+[![npm](https://img.shields.io/npm/v/@mobileai/react-native?label=%40mobileai%2Freact-native)](https://www.npmjs.com/package/@mobileai/react-native)
+[![npm](https://img.shields.io/npm/v/react-native-agentic-ai?label=react-native-agentic-ai)](https://www.npmjs.com/package/react-native-agentic-ai)
+[![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
+[![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
+[![stars](https://img.shields.io/github/stars/mohamed2m2018/react-native-agentic-ai?style=social)](https://github.com/mohamed2m2018/react-native-agentic-ai)
+
+**Two names, one package** — install either: `@mobileai/react-native` or `react-native-agentic-ai`
 
 > ⭐ If this helped you, [star this repo](https://github.com/mohamed2m2018/react-native-agentic-ai) — it helps others find it!
 
@@ -59,7 +67,7 @@ The result: an AI that truly understands your app — and can act on it autonomo
 
 ---
 
-## ✨ Core Capabilities
+## ✨ What's Inside
 
 ### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
@@ -288,7 +296,7 @@ const KNOWLEDGE: KnowledgeEntry[] = [
 
 ---
 
-## 🧪 AI-Powered Testing Setup — Model Context Protocol (MCP) Bridge
+## 🔌 MCP Bridge Setup — Connect AI Editors to Your App
 
 ### Architecture
 
