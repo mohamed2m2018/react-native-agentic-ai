@@ -6,6 +6,10 @@
 
 export type AgentMode = 'text' | 'voice';
 
+// ─── Provider Names ──────────────────────────────────────────
+
+export type AIProviderName = 'gemini' | 'openai';
+
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 
 export type ElementType = 'pressable' | 'text-input' | 'switch' | 'scrollable';
@@ -59,8 +63,14 @@ export interface AgentStep {
 }
 
 export interface AgentConfig {
+  /**
+   * Which LLM provider to use for text mode.
+   * Default: 'gemini'
+   */
+  provider?: AIProviderName;
+
   /** 
-   * Gemini API key (for prototyping only).
+   * API key (for prototyping only).
    * Do not use in production. Use proxyUrl instead.
    */
   apiKey?: string;

@@ -17,7 +17,7 @@ import React, {
 } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
-import { GeminiProvider } from '../providers/GeminiProvider';
+import { createProvider } from '../providers/ProviderFactory';
 import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
 import { AgentOverlay } from './AgentOverlay';
@@ -27,7 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
 console.log('🚀 AIAgent.tsx MODULE LOADED');
@@ -36,10 +36,15 @@ console.log('🚀 AIAgent.tsx MODULE LOADED');
 
 interface AIAgentProps {
   /** 
-   * Gemini API key (for local prototyping only).
+   * API key (for local prototyping only).
    * Do not ship API keys in your production app bundle. 
    */
   apiKey?: string;
+  /**
+   * Which LLM provider to use for text mode.
+   * Default: 'gemini'
+   */
+  provider?: AIProviderName;
   /** 
    * The URL of your secure backend proxy (for production).
    * Routes all Gemini API traffic through your server.
@@ -58,7 +63,7 @@ interface AIAgentProps {
    * Optional specific headers for voiceProxyUrl.
    */
   voiceProxyHeaders?: Record<string, string>;
-  /** Gemini model name */
+  /** LLM model name (provider-specific) */
   model?: string;
   /** Navigation container ref (from useNavigationContainerRef) */
   navRef?: any;
@@ -147,7 +152,8 @@ export function AIAgent({
   proxyHeaders,
   voiceProxyUrl,
   voiceProxyHeaders,
-  model = 'gemini-2.5-flash',
+  provider: providerName = 'gemini',
+  model,
   navRef,
 
   maxSteps = 10,
@@ -271,8 +277,8 @@ export function AIAgent({
   ]);
 
   const provider = useMemo(
-    () => new GeminiProvider(apiKey, model, proxyUrl, proxyHeaders), 
-    [apiKey, model, proxyUrl, proxyHeaders]
+    () => createProvider(providerName, apiKey, model, proxyUrl, proxyHeaders),
+    [providerName, apiKey, model, proxyUrl, proxyHeaders]
   );
 
   const runtime = useMemo(

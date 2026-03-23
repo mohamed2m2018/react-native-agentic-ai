@@ -1,4 +1,4 @@
-# AI Agent SDK for React Native & Expo
+# Agentic AI for React Native
 
 > **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, and a built-in knowledge base. Fully customizable, production-grade security, performant, and lightweight. Plus: an MCP bridge that lets any AI connect to and test your app.
 
@@ -68,7 +68,7 @@ The result: an AI that truly understands your app — and can act on it autonomo
 
 #### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
-Your users describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by Google Gemini.
+Your users describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by **Gemini**. **OpenAI** is also supported as a text mode alternative.
 
 - **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors
 - **Multi-step reasoning** — navigates across screens to complete complex tasks
@@ -78,7 +78,7 @@ Your users describe what they want in natural language. The SDK reads the live s
 
 #### 🎤 Real-time Voice AI Agent — Bidirectional Audio with Gemini Live API
 
-Full bidirectional voice AI powered by the Gemini Live API. Users speak naturally; the agent responds with voice AND controls your app simultaneously.
+Full bidirectional voice AI powered by the Gemini Live API (Gemini only). Users speak naturally; the agent responds with voice AND controls your app simultaneously.
 
 - **Sub-second latency** — real-time audio via WebSockets, not turn-based
 - **Full UI control** — same tap, type, navigate, custom actions as text mode — all by voice
@@ -216,10 +216,10 @@ export default function App() {
   return (
     <AIAgent
       // ⚠️ Prototyping ONLY — don't ship API keys in production
-      apiKey="YOUR_GEMINI_API_KEY"
+      apiKey="YOUR_API_KEY"
 
       // ✅ Production: route through your secure backend proxy
-      // proxyUrl="https://api.yourdomain.com/gemini-proxy"
+      // proxyUrl="https://api.yourdomain.com/ai-proxy"
       // proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
 
       navRef={navRef}
@@ -245,13 +245,28 @@ export default function RootLayout() {
 
   return (
     <AIAgent
-      apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!}
+      apiKey={process.env.AI_API_KEY!}
       navRef={navRef}
     >
       <Slot />
     </AIAgent>
   );
 }
+```
+
+### Using OpenAI (Text Mode)
+
+Switch to OpenAI for text mode by setting the `provider` prop:
+
+```tsx
+<AIAgent
+  provider="openai"
+  apiKey="YOUR_OPENAI_API_KEY"
+  // model="gpt-4.1-mini"  ← default, or use any OpenAI model
+  navRef={navRef}
+>
+  <Slot />
+</AIAgent>
 ```
 
 A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, fill forms, answer questions.
@@ -341,7 +356,7 @@ npx @mobileai/mcp-server
 
 ```tsx
 <AIAgent
-  apiKey="YOUR_GEMINI_KEY"
+  apiKey="YOUR_API_KEY"
   mcpServerUrl="ws://localhost:3101"
 />
 ```
@@ -415,12 +430,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `apiKey` | `string` | — | Gemini API key (prototyping only). |
+| `apiKey` | `string` | — | API key for your provider (prototyping only). |
+| `provider` | `'gemini' \| 'openai'` | `'gemini'` | LLM provider for text mode. |
 | `proxyUrl` | `string` | — | Backend proxy URL (production). |
 | `proxyHeaders` | `Record<string, string>` | — | Auth headers for proxy. |
 | `voiceProxyUrl` | `string` | — | Dedicated proxy for Voice Mode WebSockets. |
 | `voiceProxyHeaders` | `Record<string, string>` | — | Auth headers for voice proxy. |
-| `model` | `string` | `'gemini-2.5-flash'` | Gemini model name. |
+| `model` | `string` | Provider default | Model name (e.g. `gemini-2.5-flash`, `gpt-4.1-mini`). |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
 | `maxSteps` | `number` | `10` | Max agent steps per task. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
@@ -618,9 +634,10 @@ server.on('upgrade', geminiProxy.upgrade);
 
 - React Native 0.72+
 - Expo SDK 49+ (or bare React Native)
-- Gemini API key — [Get one free](https://aistudio.google.com/apikey)
+- **Gemini** API key — [Get one free](https://aistudio.google.com/apikey), or
+- **OpenAI** API key — [Get one](https://platform.openai.com/api-keys)
 
-> Currently supports **Google Gemini** models only. Text mode defaults to `gemini-2.5-flash` (configurable via the `model` prop — any Gemini model works). Voice mode uses `gemini-2.5-flash-native-audio-preview` (fixed). Additional providers may be added in future releases.
+> **Gemini** is the default provider and powers all modes (text + voice). **OpenAI** is available as a text mode alternative via `provider="openai"`. Voice mode uses `gemini-2.5-flash-native-audio-preview` (Gemini only).
 
 ## 📄 License
 

@@ -119,10 +119,6 @@ function RootLayoutNav() {
       instructions={{
         system: 'You are ShopApp\'s AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app.',
       }}
-      onResult={() => {
-        // Navigate back to chat tab after agent completes
-        router.push('/(tabs)/chat');
-      }}
     >
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
