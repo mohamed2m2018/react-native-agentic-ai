@@ -183,13 +183,16 @@ function isDisabled(fiber: any): boolean {
   return props.disabled === true || props.editable === false;
 }
 
-// ─── Text Extraction ───────────────────────────────────────────
-
 /**
- * Recursively extract text content from a fiber's children.
- * Stops at the next interactive element to avoid capturing text from nested buttons.
+ * Recursively extract ALL text content from a fiber's children.
+ * Pierces through nested interactive elements — unlike typical tree walkers
+ * that stop at inner Pressable/TouchableOpacity boundaries.
+ * 
+ * This is critical for wrapper components (e.g. ZButton → internal
+ * TouchableOpacity → Text) where stopping at nested interactives
+ * would lose the text label entirely.
  */
-function extractTextContent(fiber: any, maxDepth: number = 10): string {
+function extractDeepTextContent(fiber: any, maxDepth: number = 10): string {
   if (!fiber || maxDepth <= 0) return '';
 
   const parts: string[] = [];
@@ -199,19 +202,13 @@ function extractTextContent(fiber: any, maxDepth: number = 10): string {
     const childName = getComponentName(child);
     const childProps = child.memoizedProps || {};
 
-    // Stop at nested interactive elements
-    if (getElementType(child) !== null && child !== fiber) {
-      child = child.sibling;
-      continue;
-    }
-
     // Text node — extract content
     if (childName && TEXT_TYPES.has(childName)) {
       const text = extractRawText(childProps.children);
       if (text) parts.push(text);
     } else {
-      // Recurse into non-interactive children
-      const nestedText = extractTextContent(child, maxDepth - 1);
+      // Recurse into ALL children, including nested interactives
+      const nestedText = extractDeepTextContent(child, maxDepth - 1);
       if (nestedText) parts.push(nestedText);
     }
 
@@ -242,6 +239,47 @@ function extractRawText(children: any): string {
     return extractRawText(children.props.children);
   }
 
+  return '';
+}
+
+/**
+ * Recursively search a fiber subtree for icon/symbol components and
+ * return their `name` prop as a semantic label.
+ * 
+ * Works generically: any non-RN-internal child component with a string
+ * `name` prop is treated as an icon (covers Ionicons, MaterialIcons,
+ * FontAwesome, custom SVG wrappers, etc. — no hardcoded list needed).
+ * 
+ * e.g. a TouchableOpacity wrapping <Ionicons name="add-circle" /> → "icon:add-circle"
+ */
+function extractIconName(fiber: any, maxDepth: number = 5): string {
+  if (!fiber || maxDepth <= 0) return '';
+
+  let child = fiber.child;
+  while (child) {
+    const componentName = getComponentName(child);
+    const childProps = child.memoizedProps || {};
+
+    // Generic icon detection: non-RN-internal component with a string `name` prop
+    if (
+      componentName &&
+      !RN_INTERNAL_NAMES.has(componentName) &&
+      !PRESSABLE_TYPES.has(componentName) &&
+      !TEXT_INPUT_TYPES.has(componentName) &&
+      typeof childProps.name === 'string' &&
+      childProps.name.length > 0
+    ) {
+      return `icon:${childProps.name}`;
+    }
+
+    // Recurse into non-interactive children
+    if (!getElementType(child)) {
+      const found = extractIconName(child, maxDepth - 1);
+      if (found) return found;
+    }
+
+    child = child.sibling;
+  }
   return '';
 }
 
@@ -402,9 +440,25 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
     if (shouldInclude) {
       const resolvedType = elementType || 'pressable';
-      let label = props.accessibilityLabel || extractTextContent(node);
+      // Primary: accessibilityLabel → deep text (pierces nested interactives)
+      let label = props.accessibilityLabel || extractDeepTextContent(node);
+
+      // Fallback: TextInput placeholder
       if (!label && resolvedType === 'text-input' && props.placeholder) {
         label = props.placeholder;
+      }
+      // Fallback: Icon/symbol name (any component with a `name` prop)
+      if (!label) {
+        label = extractIconName(node);
+      }
+      // Fallback: testID/nativeID
+      if (!label && (props.testID || props.nativeID)) {
+        label = props.testID || props.nativeID;
+      }
+      // Fallback: Parent component context
+      if (!label) {
+        const parentContext = getNearestCustomComponentName(node);
+        if (parentContext) label = parentContext;
       }
 
       interactives.push({
