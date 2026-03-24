@@ -335,8 +335,25 @@ export class AgentRuntime {
         const targetIndex = args.containerIndex ?? 0;
         const container = containers[targetIndex];
         if (!container) {
-          const available = containers.map(c => `[${c.index}] ${c.label} (${c.componentName})`).join(', ');
-          return `❌ Container index ${targetIndex} not found. Available on "${screenName}": ${available}`;
+          const available = containers
+            .filter(c => !c.isPagerLike)
+            .map(c => `[${c.index}] ${c.label} (${c.componentName})`)
+            .join(', ');
+          return `❌ Container index ${targetIndex} not found. Available scrollable containers on "${screenName}": ${available}`;
+        }
+
+        // ── PagerView/TabView Rejection (Pattern from Detox: getConstraints() rejects ViewPager) ──
+        if (container.isPagerLike) {
+          // Find non-pager alternatives to suggest
+          const scrollableAlts = containers
+            .filter(c => !c.isPagerLike)
+            .map(c => `[${c.index}] ${c.label} (${c.componentName})`)
+            .join(', ');
+          const suggestion = scrollableAlts
+            ? `Try scrolling a content container instead: ${scrollableAlts}`
+            : 'Use tap on the tab labels to switch tabs instead of scrolling.';
+          return `⚠️ Container [${targetIndex}] "${container.label}" is a ${container.componentName} (tab/page container). ` +
+            `Scrolling pager containers directly causes native crashes. ${suggestion}`;
         }
 
         const direction: string = args.direction || 'down';
@@ -357,18 +374,36 @@ export class AgentRuntime {
               scrollRef.scrollToOffset({ offset: 0, animated: true });
             }
           } else {
-            // Page scroll — move ~800px (roughly one screen height)
-            const PAGE_OFFSET = 800;
+            // ── Direction-Based Relative Scroll ──
+            // Pattern from Detox: ScrollHelper.perform(direction, amountInDP)
+            // Pattern from Appium: mobileScrollGesture(direction, percent)
+            // Instead of absolute 800px, scroll relative to current position by ~80% of visible height
+            const FALLBACK_PAGE_HEIGHT = 800;
 
             if (typeof scrollRef.scrollToOffset === 'function') {
-              // VirtualizedList — scrollToOffset is absolute
+              // VirtualizedList — use _scrollMetrics for current position
+              const metrics = scrollRef._scrollMetrics;
+              const currentOffset = metrics?.offset ?? 0;
+              const visibleLength = metrics?.visibleLength ?? FALLBACK_PAGE_HEIGHT;
+              const scrollAmount = Math.round(visibleLength * 0.8); // 80% of visible area (like Detox's SCROLL_RANGE_SAFE_PERCENT)
+
+              const newOffset = direction === 'down'
+                ? currentOffset + scrollAmount
+                : Math.max(0, currentOffset - scrollAmount);
+
               scrollRef.scrollToOffset({
-                offset: direction === 'down' ? PAGE_OFFSET : 0,
+                offset: newOffset,
                 animated: true,
               });
             } else if (typeof scrollRef.scrollTo === 'function') {
+              // Plain ScrollView — use contentOffset for relative scrolling
+              const currentY = scrollRef._nativeRef?.contentOffset?.y ?? 0;
+              const scrollAmount = FALLBACK_PAGE_HEIGHT;
+
               scrollRef.scrollTo({
-                y: direction === 'down' ? PAGE_OFFSET : 0,
+                y: direction === 'down'
+                  ? currentY + scrollAmount
+                  : Math.max(0, currentY - scrollAmount),
                 animated: true,
               });
             }
@@ -813,9 +848,18 @@ ${screen.elementsText}
     }
 
     try {
+      // ── Argument Validation (Pattern from Detox/Appium: typeof checks before native dispatch) ──
+      // Prevents null/undefined/wrong-type args from reaching native components
+      const validationError = this.validateToolArgs(args, toolName);
+      if (validationError) {
+        logger.warn('AgentRuntime', `🛡️ Arg validation rejected "${toolName}": ${validationError}`);
+        return validationError;
+      }
+
       const result = await tool.execute(args);
-      // Brief settle window for async side-effects (useEffect, native callbacks)
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Settle window for async side-effects (useEffect, native callbacks, PagerView onPageSelected)
+      // 2s covers animation completions and delayed native event callbacks
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       if (errorRef.error) {
         logger.warn('AgentRuntime', `🛡️ Tool "${toolName}" succeeded but caused a side-effect error: ${errorRef.error.message}`);
@@ -831,6 +875,36 @@ ${screen.elementsText}
         ErrorUtils.setGlobalHandler(originalHandler);
       }
     }
+  }
+
+  /**
+   * Validate tool arguments before execution.
+   * Pattern from Detox: `typeof index !== 'number' → throw Error`
+   * Pattern from Appium: `_.isFinite(x) && _.isFinite(y)` for coordinates
+   * Returns error string if validation fails, null if valid.
+   */
+  private validateToolArgs(args: any, toolName: string): string | null {
+    if (!args || typeof args !== 'object') return null;
+
+    // Reject any null/undefined values that could crash native components
+    for (const [key, value] of Object.entries(args)) {
+      if (value === undefined) {
+        return `❌ Argument "${key}" is undefined for tool "${toolName}". Provide a valid value.`;
+      }
+    }
+
+    // Tool-specific number validation (like Detox's typeof checks)
+    const numericArgs = ['containerIndex', 'index', 'x', 'y', 'offset'];
+    for (const key of numericArgs) {
+      if (key in args && args[key] !== null && args[key] !== undefined) {
+        const val = args[key];
+        if (typeof val !== 'number' || !Number.isFinite(val)) {
+          return `❌ Argument "${key}" must be a finite number for tool "${toolName}", got ${typeof val}: ${val}`;
+        }
+      }
+    }
+
+    return null;
   }
 
   // ─── Walk Config (passes security settings to FiberTreeWalker) ─

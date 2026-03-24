@@ -586,6 +586,18 @@ const SCROLLABLE_TYPES = new Set([
   'FlatList', 'SectionList', 'VirtualizedList',
 ]);
 
+/**
+ * React Native component names that are pager/tab containers.
+ * These look scrollable but use page-based navigation internally.
+ * Scrolling them directly causes native assertion crashes (e.g. setPage(NSNull)).
+ * Pattern: Detox's ScrollToIndexAction.getConstraints() rejects these entirely.
+ */
+const PAGER_TYPES = new Set([
+  'RNCViewPager', 'PagerView', 'ViewPager',
+  'RNViewPager', 'TabView', 'MaterialTabView',
+  'ScrollableTabView', 'RNTabView',
+]);
+
 export interface ScrollableContainer {
   /** Index for identification when multiple scrollables exist */
   index: number;
@@ -597,6 +609,12 @@ export interface ScrollableContainer {
   fiberNode: any;
   /** The native stateNode (has scrollToOffset, scrollToEnd, etc.) */
   stateNode: any;
+  /**
+   * True if this container is a PagerView/TabView.
+   * These must NOT be scrolled — use tap on tab labels instead.
+   * Pattern from Detox: ScrollToIndexAction rejects non-ScrollView types.
+   */
+  isPagerLike: boolean;
 }
 
 /**
@@ -677,23 +695,26 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
     if (!node) return;
 
     const name = getComponentName(node);
+    const isScrollable = name && SCROLLABLE_TYPES.has(name);
+    const isPagerLike = name ? PAGER_TYPES.has(name) : false;
 
-    if (name && SCROLLABLE_TYPES.has(name)) {
+    if (isScrollable || isPagerLike) {
       // Get context: nearest custom parent component name
-      const contextLabel = getNearestCustomComponentName(node) || name;
+      const contextLabel = getNearestCustomComponentName(node) || name || 'Unknown';
 
       // For scrollable containers, we need the native scroll ref.
       // FlatList Fiber stateNode may be the component instance — 
       // we need to find the underlying native ScrollView.
-      let scrollRef = resolveNativeScrollRef(node);
+      let scrollRef = isPagerLike ? node.stateNode : resolveNativeScrollRef(node);
 
       if (scrollRef) {
         containers.push({
           index: currentIndex++,
-          componentName: name,
+          componentName: name || 'Unknown',
           label: contextLabel,
           fiberNode: node,
           stateNode: scrollRef,
+          isPagerLike,
         });
       }
     }
