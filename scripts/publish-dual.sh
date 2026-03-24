@@ -3,8 +3,11 @@ set -euo pipefail
 
 # ─── Dual Publish Script ────────────────────────────────────────
 # Publishes the same built artifacts under two npm package names:
-#   1. @mobileai/react-native        (primary, scoped)
-#   2. react-native-agentic-ai       (alias, unscoped)
+#   1. @mobileai/react-native        (scoped)
+#   2. react-native-agentic-ai       (unscoped)
+#
+# Reads the ACTUAL name from package.json and publishes under BOTH names,
+# regardless of which name is currently set.
 #
 # Usage:
 #   ./scripts/publish-dual.sh           # publish both
@@ -17,46 +20,51 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   echo "🔍 Dry-run mode — nothing will actually be published."
 fi
 
-PRIMARY_NAME="@mobileai/react-native"
-ALIAS_NAME="react-native-agentic-ai"
+NAME_A="@mobileai/react-native"
+NAME_B="react-native-agentic-ai"
 
 # Ensure we're in the repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Back up original package.json BEFORE any modifications
+cp package.json package.json.bak
+
+# Helper: swap name in package.json
+swap_name() {
+  node -e "
+    const pkg = require('./package.json');
+    pkg.name = '$1';
+    require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+  "
+}
+
+# Ensure we always restore package.json, even on error
+cleanup() {
+  echo ""
+  echo "♻️  Restoring original package.json..."
+  mv package.json.bak package.json
+}
+trap cleanup EXIT
+
 # Ensure the build is fresh
 echo "📦 Building package..."
 npx bob build
 
-# ─── Step 1: Publish primary name ────────────────────────────────
+# ─── Publish under name A ────────────────────────────────────────
 echo ""
-echo "🚀 Publishing as $PRIMARY_NAME..."
+echo "🚀 Publishing as $NAME_A..."
+swap_name "$NAME_A"
 npm publish --access public $DRY_RUN
 
-# ─── Step 2: Swap name and publish alias ─────────────────────────
+# ─── Publish under name B ────────────────────────────────────────
 echo ""
-echo "🔄 Swapping package name to $ALIAS_NAME..."
-
-# Back up original package.json
-cp package.json package.json.bak
-
-# Replace the name field using node (cross-platform, no jq dependency)
-node -e "
-  const pkg = require('./package.json');
-  pkg.name = '$ALIAS_NAME';
-  require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-"
-
-echo "🚀 Publishing as $ALIAS_NAME..."
+echo "🚀 Publishing as $NAME_B..."
+swap_name "$NAME_B"
 npm publish --access public $DRY_RUN
-
-# ─── Step 3: Restore original package.json ───────────────────────
-echo ""
-echo "♻️  Restoring original package.json..."
-mv package.json.bak package.json
 
 echo ""
 echo "✅ Done! Published under both names:"
-echo "   • $PRIMARY_NAME"
-echo "   • $ALIAS_NAME"
+echo "   • $NAME_A"
+echo "   • $NAME_B"

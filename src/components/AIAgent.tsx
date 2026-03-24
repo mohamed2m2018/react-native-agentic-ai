@@ -692,6 +692,12 @@ export function AIAgent({
 
   // ─── Context value (for useAI bridge) ─────────────────────────
 
+  const handleCancel = useCallback(() => {
+    runtime.cancel();
+    setIsThinking(false);
+    setStatusText('');
+  }, [runtime]);
+
   const contextValue = useMemo(() => ({
     runtime,
     send: handleSend,
@@ -700,7 +706,8 @@ export function AIAgent({
     lastResult,
     messages,
     clearMessages,
-  }), [runtime, handleSend, isThinking, statusText, lastResult, messages, clearMessages]);
+    cancel: handleCancel,
+  }), [runtime, handleSend, handleCancel, isThinking, statusText, lastResult, messages, clearMessages]);
 
   // ─── Render ──────────────────────────────────────────────────
 
@@ -718,7 +725,7 @@ export function AIAgent({
         </AgentErrorBoundary>
 
         {/* Overlay (shown while thinking) */}
-        <AgentOverlay visible={isThinking} statusText={statusText} />
+        <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
 
         {/* Chat bar */}
         {showChatBar && (
