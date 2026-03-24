@@ -394,9 +394,31 @@ function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
       let screenName = null, componentName = null, title = null;
       for (const attr of nodePath.node.attributes) {
         if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue;
-        if (attr.name.name === 'name' && t.isStringLiteral(attr.value)) screenName = attr.value.value;
-        if (attr.name.name === 'component' && t.isJSXExpressionContainer(attr.value) && t.isIdentifier(attr.value.expression)) {
-          componentName = attr.value.expression.name;
+        if (attr.name.name === 'name') {
+          if (t.isStringLiteral(attr.value)) {
+            screenName = attr.value.value;
+          } else if (t.isJSXExpressionContainer(attr.value)) {
+            const expr = attr.value.expression;
+            if (t.isStringLiteral(expr)) {
+               screenName = expr.value;
+            } else if (t.isMemberExpression(expr) && t.isIdentifier(expr.property)) {
+               screenName = expr.property.name;
+            } else if (t.isIdentifier(expr)) {
+               screenName = expr.name;
+            }
+          }
+        }
+        if (attr.name.name === 'component' && t.isJSXExpressionContainer(attr.value)) {
+          const expr = attr.value.expression;
+          if (t.isIdentifier(expr)) {
+            componentName = expr.name;
+          } else if (t.isMemberExpression(expr)) {
+            if (t.isIdentifier(expr.object)) {
+               componentName = expr.object.name;
+            } else if (t.isIdentifier(expr.property)) {
+               componentName = expr.property.name;
+            }
+          }
         }
         if (attr.name.name === 'options' && t.isJSXExpressionContainer(attr.value)) {
           title = extractTitleFromOptions(attr.value.expression);
@@ -416,10 +438,27 @@ function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
         if (!t.isObjectExpression(prop.value)) continue;
         for (const screenProp of prop.value.properties) {
           if (!t.isObjectProperty(screenProp)) continue;
-          const screenName = t.isIdentifier(screenProp.key) ? screenProp.key.name : t.isStringLiteral(screenProp.key) ? screenProp.key.value : null;
+          let screenName = null;
+          if (!screenProp.computed) {
+            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+            else if (t.isStringLiteral(screenProp.key)) screenName = screenProp.key.value;
+          } else {
+            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+            else if (t.isMemberExpression(screenProp.key) && t.isIdentifier(screenProp.key.property)) {
+              screenName = screenProp.key.property.name;
+            }
+          }
           if (!screenName) continue;
           let componentName = null, title;
-          if (t.isIdentifier(screenProp.value)) componentName = screenProp.value.name;
+          if (t.isIdentifier(screenProp.value)) {
+            componentName = screenProp.value.name;
+          } else if (t.isMemberExpression(screenProp.value)) {
+            if (t.isIdentifier(screenProp.value.object)) {
+              componentName = screenProp.value.object.name;
+            } else if (t.isIdentifier(screenProp.value.property)) {
+              componentName = screenProp.value.property.name;
+            }
+          }
           if (t.isObjectExpression(screenProp.value)) {
             for (const inner of screenProp.value.properties) {
               if (!t.isObjectProperty(inner) || !t.isIdentifier(inner.key)) continue;
