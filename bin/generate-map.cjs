@@ -630,6 +630,7 @@ const NAVIGATOR_FUNCTIONS = [
   'createStackNavigator', 'createNativeStackNavigator',
   'createBottomTabNavigator', 'createDrawerNavigator',
   'createMaterialBottomTabNavigator', 'createMaterialTopTabNavigator',
+  'createSwitchNavigator', // v4
 ];
 
 function scanReactNavigationApp(projectRoot) {
@@ -762,40 +763,62 @@ function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
       if (!t.isIdentifier(callee) || !NAVIGATOR_FUNCTIONS.includes(callee.name)) return;
       const firstArg = nodePath.node.arguments[0];
       if (!t.isObjectExpression(firstArg)) return;
+
+      // v5+: routes nested under `screens` key
+      // v4:  routes are direct top-level properties (no `screens` wrapper)
+      let routeProps = null;
       for (const prop of firstArg.properties) {
-        if (!t.isObjectProperty(prop) || !t.isIdentifier(prop.key) || prop.key.name !== 'screens') continue;
-        if (!t.isObjectExpression(prop.value)) continue;
-        for (const screenProp of prop.value.properties) {
-          if (!t.isObjectProperty(screenProp)) continue;
-          let screenName = null;
-          if (!screenProp.computed) {
-            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
-            else if (t.isStringLiteral(screenProp.key)) screenName = screenProp.key.value;
-          } else {
-            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
-            else if (t.isMemberExpression(screenProp.key) && t.isIdentifier(screenProp.key.property)) {
-              screenName = screenProp.key.property.name;
-            }
+        if (t.isObjectProperty(prop) && t.isIdentifier(prop.key) && prop.key.name === 'screens' && t.isObjectExpression(prop.value)) {
+          routeProps = prop.value.properties;
+          break;
+        }
+      }
+
+      // v4 fallback: treat all top-level properties as routes (skip known config keys)
+      const V4_CONFIG_KEYS = new Set([
+        'initialRouteName', 'headerMode', 'defaultNavigationOptions', 'navigationOptions',
+        'mode', 'cardStyle', 'transitionConfig', 'onTransitionStart', 'onTransitionEnd',
+        'contentComponent', 'drawerPosition', 'drawerWidth', 'overlayColor', 'drawerType',
+        'lazy', 'tabBarOptions', 'tabBarComponent', 'backBehavior', 'order',
+      ]);
+      if (!routeProps) {
+        routeProps = firstArg.properties.filter(p =>
+          t.isObjectProperty(p) && ((t.isIdentifier(p.key) && !V4_CONFIG_KEYS.has(p.key.name)) || t.isStringLiteral(p.key))
+        );
+      }
+
+      if (!routeProps) return;
+
+      for (const screenProp of routeProps) {
+        if (!t.isObjectProperty(screenProp)) continue;
+        let screenName = null;
+        if (!screenProp.computed) {
+          if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+          else if (t.isStringLiteral(screenProp.key)) screenName = screenProp.key.value;
+        } else {
+          if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+          else if (t.isMemberExpression(screenProp.key) && t.isIdentifier(screenProp.key.property)) {
+            screenName = screenProp.key.property.name;
           }
-          if (!screenName) continue;
-          let componentName = null, title;
-          if (t.isIdentifier(screenProp.value)) {
-            componentName = screenProp.value.name;
-          } else if (t.isMemberExpression(screenProp.value)) {
-            if (t.isIdentifier(screenProp.value.object) && t.isIdentifier(screenProp.value.property)) {
-              componentName = `${screenProp.value.object.name}.${screenProp.value.property.name}`;
-            }
+        }
+        if (!screenName) continue;
+        let componentName = null, title;
+        if (t.isIdentifier(screenProp.value)) {
+          componentName = screenProp.value.name;
+        } else if (t.isMemberExpression(screenProp.value)) {
+          if (t.isIdentifier(screenProp.value.object) && t.isIdentifier(screenProp.value.property)) {
+            componentName = `${screenProp.value.object.name}.${screenProp.value.property.name}`;
           }
-          if (t.isObjectExpression(screenProp.value)) {
-            for (const inner of screenProp.value.properties) {
-              if (!t.isObjectProperty(inner) || !t.isIdentifier(inner.key)) continue;
-              if (inner.key.name === 'screen' && t.isIdentifier(inner.value)) componentName = inner.value.name;
-              if (inner.key.name === 'options') title = extractTitleFromOptions(inner.value) || undefined;
-            }
+        }
+        if (t.isObjectExpression(screenProp.value)) {
+          for (const inner of screenProp.value.properties) {
+            if (!t.isObjectProperty(inner) || !t.isIdentifier(inner.key)) continue;
+            if (inner.key.name === 'screen' && t.isIdentifier(inner.value)) componentName = inner.value.name;
+            if (inner.key.name === 'options' || inner.key.name === 'navigationOptions') title = extractTitleFromOptions(inner.value) || undefined;
           }
-          if (componentName) {
-            screens.push({ routeName: screenName, componentName, filePath: resolveComponentPath(componentName, imports, filePath), title });
-          }
+        }
+        if (componentName) {
+          screens.push({ routeName: screenName, componentName, filePath: resolveComponentPath(componentName, imports, filePath), title });
         }
       }
     },
