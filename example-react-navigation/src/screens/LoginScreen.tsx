@@ -49,6 +49,11 @@ export default function LoginScreen({ navigation }: Props) {
         <Pressable style={styles.loginButton} onPress={handleLogin}>
           <Text style={styles.loginButtonText}>Log In</Text>
         </Pressable>
+
+        {/* Corner case: navigation.navigate() in auth flow */}
+        <Pressable onPress={() => navigation.navigate('ForgotPassword')}>
+          <Text style={styles.forgotLink}>Forgot Password?</Text>
+        </Pressable>
       </View>
 
       <Pressable onPress={() => navigation.navigate('Signup')}>
@@ -91,4 +96,5 @@ const styles = StyleSheet.create({
   loginButtonText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   signupLink: { color: '#6c757d', fontSize: 14, marginTop: 24 },
   signupLinkBold: { color: '#1a1a2e', fontWeight: '700' },
+  forgotLink: { color: '#6c757d', fontSize: 14, textAlign: 'center', marginTop: 12 },
 });

@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { AIAgent } from '@mobileai/react-native';
+import screenMap from '../ai-screen-map.json';
 import type { ExecutionResult, TokenUsage } from '@mobileai/react-native';
 import { CartProvider } from './CartContext';
 import { AuthProvider, useAuth } from './AuthContext';
@@ -11,31 +12,56 @@ import type { MenuItem } from './menuData';
 // Screens
 import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import HomeScreen from './screens/HomeScreen';
 import MenuScreen from './screens/MenuScreen';
 import DishDetailScreen from './screens/DishDetailScreen';
+import DishReviewsScreen from './screens/DishReviewsScreen';
+import ReportIssueScreen from './screens/ReportIssueScreen';
+import WriteReviewScreen from './screens/WriteReviewScreen';
+import ReviewThanksScreen from './screens/ReviewThanksScreen';
+import LoyaltyProgramScreen from './screens/LoyaltyProgramScreen';
+import RedeemRewardScreen from './screens/RedeemRewardScreen';
+import GiftCardScreen from './screens/GiftCardScreen';
+import GiftConfirmationScreen from './screens/GiftConfirmationScreen';
 import SearchScreen from './screens/SearchScreen';
 import CartScreen from './screens/CartScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import NotificationPrefsScreen from './screens/NotificationPrefsScreen';
 
 // ─── Navigation Types ───────────────────────────────────────
 
 export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
+  ForgotPassword: undefined;
 };
 
 export type HomeStackParamList = {
   Home: undefined;
   Menu: { category: string };
   DishDetail: { dish: MenuItem };
+  DishReviews: { dishName: string };
+  ReportIssue: { dishName: string; reviewId: number };
+  WriteReview: { dishName: string };
+  ReviewThanks: { dishName: string };
+  LoyaltyProgram: undefined;
+  RedeemReward: undefined;
+  GiftCard: { rewardName: string; pointCost: number };
+  GiftConfirmation: { rewardName: string; recipientEmail: string };
+};
+
+export type SettingsStackParamList = {
+  SettingsMain: undefined;
+  NotificationPrefs: undefined;
 };
 
 // ─── Navigators ─────────────────────────────────────────────
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
+const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const Tab = createBottomTabNavigator();
 
 // ─── Screen Options ─────────────────────────────────────────
@@ -66,7 +92,66 @@ function HomeStackNavigator() {
         component={DishDetailScreen}
         options={({ route }) => ({ title: route.params.dish.name })}
       />
+      <HomeStack.Screen
+        name="DishReviews"
+        component={DishReviewsScreen}
+        options={({ route }) => ({ title: `${route.params.dishName} Reviews` })}
+      />
+      <HomeStack.Screen
+        name="ReportIssue"
+        component={ReportIssueScreen}
+        options={{ title: 'Report Issue' }}
+      />
+      <HomeStack.Screen
+        name="WriteReview"
+        component={WriteReviewScreen}
+        options={({ route }) => ({ title: `Review ${route.params.dishName}` })}
+      />
+      <HomeStack.Screen
+        name="ReviewThanks"
+        component={ReviewThanksScreen}
+        options={{ title: 'Review Submitted' }}
+      />
+      <HomeStack.Screen
+        name="LoyaltyProgram"
+        component={LoyaltyProgramScreen}
+        options={{ title: 'Loyalty Program' }}
+      />
+      <HomeStack.Screen
+        name="RedeemReward"
+        component={RedeemRewardScreen}
+        options={{ title: 'Redeem Rewards' }}
+      />
+      <HomeStack.Screen
+        name="GiftCard"
+        component={GiftCardScreen}
+        options={{ title: 'Send Gift Card' }}
+      />
+      <HomeStack.Screen
+        name="GiftConfirmation"
+        component={GiftConfirmationScreen}
+        options={{ title: 'Gift Sent!' }}
+      />
     </HomeStack.Navigator>
+  );
+}
+
+// ─── Settings Stack Navigator ───────────────────────────────
+
+function SettingsStackNavigator() {
+  return (
+    <SettingsStack.Navigator screenOptions={HEADER_STYLE}>
+      <SettingsStack.Screen
+        name="SettingsMain"
+        component={SettingsScreen}
+        options={{ title: 'Settings' }}
+      />
+      <SettingsStack.Screen
+        name="NotificationPrefs"
+        component={NotificationPrefsScreen}
+        options={{ title: 'Notification Preferences' }}
+      />
+    </SettingsStack.Navigator>
   );
 }
 
@@ -130,11 +215,10 @@ function MainTabs() {
       />
       <Tab.Screen
         name="Settings"
-        component={SettingsScreen}
+        component={SettingsStackNavigator}
         options={{
           title: 'Settings',
-          ...HEADER_STYLE,
-          headerShown: true,
+          headerShown: false,
           tabBarIcon: ({ focused }) => <TabIcon emoji="G" focused={focused} />,
         }}
       />
@@ -149,6 +233,7 @@ function AuthFlow() {
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Signup" component={SignupScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </AuthStack.Navigator>
   );
 }
@@ -172,6 +257,8 @@ export default function App() {
         <AIAgent
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
           navRef={navRef}
+          screenMap={screenMap}
+          maxSteps={25}
           enableVoice
           debug
           instructions={{

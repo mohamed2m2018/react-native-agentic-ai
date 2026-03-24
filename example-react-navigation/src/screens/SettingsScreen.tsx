@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Switch, ScrollView, Pressable, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { SettingsStackParamList } from '../App';
 
-export default function SettingsScreen() {
+type Props = NativeStackScreenProps<SettingsStackParamList, 'SettingsMain'>;
+
+export default function SettingsScreen({ navigation }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [pin, setPin] = useState('');
   const [form, setForm] = useState({
@@ -170,6 +174,15 @@ export default function SettingsScreen() {
             trackColor={{ true: '#1a1a2e' }}
           />
         </View>
+
+        {/* Corner case: navigation.push() — tests push() method detection */}
+        <Pressable
+          style={styles.notifPrefsButton}
+          onPress={() => navigation.push('NotificationPrefs')}
+        >
+          <Text style={styles.notifPrefsText}>Manage Notification Preferences</Text>
+          <Text style={styles.arrow}>›</Text>
+        </Pressable>
       </View>
 
       {/* --- Security Section --- */}
@@ -300,4 +313,15 @@ const styles = StyleSheet.create({
   numpad: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, paddingHorizontal: 20 },
   numButton: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#f8f9fa', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#dee2e6' },
   numText: { fontSize: 20, fontWeight: '600', color: '#1a1a2e' },
+  notifPrefsButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f8f9fa',
+  },
+  notifPrefsText: { fontSize: 15, fontWeight: '600', color: '#1a1a2e' },
+  arrow: { fontSize: 22, color: '#adb5bd' },
 });

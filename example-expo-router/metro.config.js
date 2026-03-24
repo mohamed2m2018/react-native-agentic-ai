@@ -3,6 +3,7 @@ const path = require('path');
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '..');
+const pkg = require('../package.json');
 
 const config = getDefaultConfig(projectRoot);
 
@@ -21,7 +22,18 @@ config.resolver.extraNodeModules = {
   'react': path.resolve(projectRoot, 'node_modules/react'),
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
   'react-native-reanimated': path.resolve(projectRoot, 'node_modules/react-native-reanimated'),
-  '@mobileai/react-native': monorepoRoot,
+  [pkg.name]: monorepoRoot,
+};
+
+// Resolve the library's package name imports to src/ for development
+// This bypasses the "exports" field in package.json that points to lib/module/
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === pkg.name || moduleName.startsWith(pkg.name + '/')) {
+    const subPath = moduleName.replace(pkg.name, '');
+    const srcPath = path.resolve(monorepoRoot, 'src', subPath || 'index');
+    return context.resolveRequest(context, srcPath, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
 };
 
 // Block the parent's node_modules versions of react/react-native
@@ -33,3 +45,4 @@ config.resolver.blockList = [
 ];
 
 module.exports = config;
+

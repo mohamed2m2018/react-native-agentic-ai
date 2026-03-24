@@ -27,7 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
 console.log('🚀 AIAgent.tsx MODULE LOADED');
@@ -142,6 +142,18 @@ interface AIAgentProps {
    * Overrides accentColor for any specified key.
    */
   theme?: ChatBarTheme;
+  /**
+   * Pre-generated screen map from `npx react-native-ai-agent generate-map`.
+   * Gives the AI knowledge of all screens, their content, and navigation chains.
+   */
+  screenMap?: ScreenMap;
+
+  /**
+   * Whether to include the screen map in the AI prompt.
+   * Set to `false` to disable navigation intelligence without removing the `screenMap` prop.
+   * @default true
+   */
+  useScreenMap?: boolean;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -156,7 +168,7 @@ export function AIAgent({
   model,
   navRef,
 
-  maxSteps = 10,
+  maxSteps = 25,
   showChatBar = true,
   children,
   onResult,
@@ -182,6 +194,8 @@ export function AIAgent({
   enableUIControl,
   accentColor,
   theme,
+  screenMap,
+  useScreenMap = true,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -257,6 +271,9 @@ export function AIAgent({
     knowledgeBase,
     knowledgeMaxTokens,
     enableUIControl,
+    screenMap: useScreenMap ? screenMap : undefined,
+    // TRACE: verify screenMap reaches the config
+    ...((() => { console.log('[TRACE-MAP] 2️⃣ AIAgent.tsx config: screenMap exists:', !!screenMap, 'screens:', screenMap ? Object.keys((screenMap as any).screens || {}).length : 0); return {}; })()),
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
@@ -273,7 +290,7 @@ export function AIAgent({
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
-    knowledgeBase, knowledgeMaxTokens, enableUIControl,
+    knowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
   ]);
 
   const provider = useMemo(

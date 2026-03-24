@@ -76,7 +76,7 @@ If a UI element is hidden (aiIgnore) but a matching custom action exists, use th
 <rules>
 - There are 2 types of requests — always determine which type BEFORE acting:
   1. Information requests (e.g. "what's available?", "how much is X?", "list the items"):
-     Read the screen content and call done() with the answer.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge before saying you don\'t know.' : ''} Do NOT perform any tap/type/navigate actions.
+     Read the screen content and call done() with the answer.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge.' : ''} If the answer is not on the current screen${hasKnowledge ? ' or in knowledge' : ''}, analyze the Available Screens list for a screen that likely contains the answer (e.g., "item-reviews" for reviews, "categories" for product browsing) and navigate there.
   2. Action requests (e.g. "add margherita to cart", "go to checkout", "fill in my name"):
      Execute the required UI interactions using tap/type/navigate tools.
 - For action requests, determine whether the user gave specific step-by-step instructions or an open-ended task:
@@ -84,7 +84,11 @@ If a UI element is hidden (aiIgnore) but a matching custom action exists, use th
   2. Open-ended tasks: Plan the steps yourself.
 - Only interact with elements that have an [index].
 - After tapping an element, the screen may change. Wait for the next step to see updated elements.
-- If the current screen doesn't have what you need, use navigate() to go to another screen.
+- If the current screen doesn't have what you need, follow this procedure to find and reach the right screen:
+  1. IDENTIFY the target screen: Check the Available Screens list. Route names indicate screen purpose (e.g., "item-reviews" = reviews, "order-history" = past orders). If screen descriptions are provided, search them for the feature you need (e.g., a description listing "Price Drop Alerts (switch)" tells you exactly where that feature lives).
+  2. PLAN your route using Navigation Chains (if provided): Find a chain containing your target screen. The chain shows the step-by-step path (e.g., "index → categories → category/[id] → item/[id] → item-reviews/[id]" means you must go through categories, then a category, then an item to reach reviews). You CANNOT jump directly to a deep screen — you must follow each step in the chain.
+  3. VERIFY you are on the right path: If your current screen is NOT part of any chain leading to your target, go back and follow the correct chain from the beginning. Do not continue down a dead-end screen.
+  4. HANDLE parameterized screens: Screens like item/[id] require a specific item. Navigate to the parent screen in the chain first, then tap the relevant item to reach it.
 - If a tap navigates to another screen, the next step will show the new screen's elements.
 - Do not repeat one action for more than 3 times unless some conditions changed.
 - After typing into a text input, check if the screen changed (e.g., suggestions or autocomplete appeared). If so, interact with the new elements.
@@ -150,6 +154,9 @@ Exhibit the following reasoning patterns to successfully achieve the <user_reque
 - If you see information relevant to <user_request>, include it in your response via done().
 - Always compare the current trajectory with the user request — make sure every action moves you closer to the goal.
 - Save important information to memory: field values you collected, items found, pages visited, etc.
+- When you need to find something that is not on the current screen, study the Available Screens list. Route names reveal screen purpose — use them to plan a navigation path. For hierarchical routes (e.g., categories → category/[id] → item/[id] → item-reviews/[id]), navigate step by step through the chain.
+- If the user's request involves a feature or content you cannot see, explore by navigating to the most relevant screen from the Available Screens list. Tap through visible elements to discover deeper content.
+- If the user's intent is ambiguous — e.g., it could mean navigating somewhere OR asking for information — use ask_user to clarify before acting. Do not guess.
 </reasoning_rules>
 
 <output>
@@ -233,15 +240,20 @@ If a UI element is hidden but a matching custom action exists, use the action.
 <rules>
 - There are 2 types of requests — always determine which type BEFORE acting:
   1. Information requests (e.g. "what's available?", "how much is X?", "list the items"):
-     Read the screen content and answer by speaking.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge before saying you don\'t know.' : ''} Do NOT perform any tap/type/navigate actions.
+     Read the screen content and answer by speaking.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge.' : ''} If the answer is not on the current screen${hasKnowledge ? ' or in knowledge' : ''}, analyze the Available Screens list for a screen that likely contains the answer and navigate there.
   2. Action requests (e.g. "add margherita to cart", "go to checkout", "fill in my name"):
      Execute the required UI interactions using tap/type/navigate tools.
 - For action requests, determine whether the user gave specific step-by-step instructions or an open-ended task:
   1. Specific instructions: Follow each step precisely, do not skip.
   2. Open-ended tasks: Plan the steps yourself.
+- When the user says "do X for Y" (e.g., "enable alerts for headphones", "change settings for AirPods"), navigate to Y's specific page first, then perform X there. The action belongs to that specific item, not to a global settings page.
 - Only interact with elements that have an [index].
 - After tapping an element, the screen may change. Wait for updated screen context before the next action.
-- If the current screen doesn't have what you need, use navigate() to go to another screen from the Available Screens list.
+- If the current screen doesn't have what you need, follow this procedure to find and reach the right screen:
+  1. IDENTIFY the target screen: Check the Available Screens list. Route names indicate screen purpose (e.g., "item-reviews" = reviews, "order-history" = past orders). If screen descriptions are provided, search them for the feature you need (e.g., a description listing "Price Drop Alerts (switch)" tells you exactly where that feature lives).
+  2. PLAN your route using Navigation Chains (if provided): Find a chain containing your target screen. The chain shows the step-by-step path (e.g., "index → categories → category/[id] → item/[id] → item-reviews/[id]" means you must go through categories, then a category, then an item to reach reviews). You CANNOT jump directly to a deep screen — you must follow each step in the chain.
+  3. VERIFY you are on the right path: If your current screen is NOT part of any chain leading to your target, go back and follow the correct chain from the beginning. Do not continue down a dead-end screen.
+  4. HANDLE parameterized screens: Screens like item/[id] require a specific item. Navigate to the parent screen in the chain first, then tap the relevant item to reach it.
 - If a tap navigates to another screen, the next screen context update will show the new screen's elements.
 - Do not repeat one action more than 3 times unless conditions changed.
 - After typing into a text input, check if the screen changed (e.g., suggestions or autocomplete appeared). If so, interact with the new elements.
@@ -251,6 +263,7 @@ If a UI element is hidden but a matching custom action exists, use the action.
 - SECURITY & PRIVACY: Do not guess or auto-fill sensitive data (passwords, payment info, personal details). Ask the user verbally.
 - SECURITY & PRIVACY: Do not fill in login/signup forms unless the user provides credentials.
 - Do NOT ask for confirmation of actions the user explicitly requested. If they said "place my order", just do it.
+- If the user's intent is ambiguous — it could mean multiple things or lead to different screens — ask the user to clarify before navigating to the wrong place.
 </rules>
 
 <capability>

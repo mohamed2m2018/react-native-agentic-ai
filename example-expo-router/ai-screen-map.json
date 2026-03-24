@@ -1,0 +1,155 @@
+{
+  "generatedAt": "2026-03-24T09:54:57.209Z",
+  "framework": "expo-router",
+  "screens": {
+    "(tabs)/chat": {
+      "title": "Chat",
+      "description": "Try: go to profile, tap settings... (text-input), Send (button)"
+    },
+    "(tabs)/index": {
+      "title": "Home",
+      "description": "$ (button), Browse All Categories (button)"
+    },
+    "(tabs)/settings": {
+      "title": "Settings",
+      "description": "Notifications (button), Appearance (button), Language (button), About (button), Privacy Policy (button)"
+    },
+    "(tabs)/two": {
+      "title": "Profile",
+      "description": "Edit Profile (button), Favorites (button), Order History (button), Saved Addresses (button)"
+    },
+    "about": {
+      "title": "About",
+      "description": "Screen content"
+    },
+    "addresses": {
+      "title": "Addresses",
+      "description": "Screen content"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "description": "Screen content"
+    },
+    "categories": {
+      "title": "Categories",
+      "description": "Screen content"
+    },
+    "category/[id]": {
+      "title": "Category",
+      "description": "› (button)"
+    },
+    "edit-profile": {
+      "title": "Edit Profile",
+      "description": "text input (text-input), Save Changes (button)"
+    },
+    "favorites": {
+      "title": "Favorites",
+      "description": "Screen content"
+    },
+    "help": {
+      "title": "Help Center",
+      "description": "Contact Support (button)"
+    },
+    "invite-friends": {
+      "description": "Copy Code (button), Friend's email address (text-input), 📤 Share via Other Apps (button)"
+    },
+    "item/[id]": {
+      "title": "Item Details",
+      "description": "Add to Wishlist (switch), View Reviews & Questions (button), Add to Cart (button)"
+    },
+    "item-reviews/[id]": {
+      "title": "Reviews",
+      "description": "✍️ Write a Review (button), Price Drop Alerts (switch), Notify on New Reviews (switch), Type your question about this product... (text-input), Submit Question (button)"
+    },
+    "language": {
+      "title": "Language",
+      "description": "Screen content"
+    },
+    "modal": {
+      "description": "Screen content"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Push Notifications (switch), Email Notifications (switch), SMS Notifications (switch), Deal Alerts (switch)"
+    },
+    "order-history": {
+      "title": "Order History",
+      "description": "Screen content"
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "description": "Screen content"
+    },
+    "product/[id]": {
+      "title": "Product Details",
+      "description": "Screen content"
+    },
+    "review-thanks/[id]": {
+      "description": "View Rewards Program (button), Back to Reviews (button)"
+    },
+    "rewards": {
+      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 👥 (button)"
+    },
+    "subcategory/[id]": {
+      "title": "Subcategory",
+      "description": "$ (button)"
+    },
+    "write-review/[id]": {
+      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), 👍 Yes (button), 👎 No (button), Submit Review (button)"
+    }
+  },
+  "chains": [
+    [
+      "(tabs)/index",
+      "categories",
+      "category/[id]",
+      "subcategory/[id]",
+      "item/[id]",
+      "item-reviews/[id]",
+      "write-review/[id]",
+      "review-thanks/[id]",
+      "rewards",
+      "invite-friends"
+    ],
+    [
+      "(tabs)/index",
+      "product/[id]"
+    ],
+    [
+      "(tabs)/settings",
+      "notifications"
+    ],
+    [
+      "(tabs)/settings",
+      "appearance"
+    ],
+    [
+      "(tabs)/settings",
+      "language"
+    ],
+    [
+      "(tabs)/settings",
+      "about"
+    ],
+    [
+      "(tabs)/settings",
+      "privacy"
+    ],
+    [
+      "(tabs)/two",
+      "edit-profile"
+    ],
+    [
+      "(tabs)/two",
+      "favorites"
+    ],
+    [
+      "(tabs)/two",
+      "order-history"
+    ],
+    [
+      "(tabs)/two",
+      "addresses"
+    ]
+  ]
+}

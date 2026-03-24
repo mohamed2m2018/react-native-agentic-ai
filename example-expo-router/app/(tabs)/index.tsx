@@ -36,6 +36,12 @@ export default function HomeScreen() {
           </Link>
         )}
       />
+
+      <Link href="/categories" asChild>
+        <Pressable style={styles.browseButton}>
+          <Text style={styles.browseButtonText}>Browse All Categories</Text>
+        </Pressable>
+      </Link>
     </View>
   );
 }
@@ -70,4 +76,12 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '600' },
   cardCategory: { fontSize: 13, color: '#6c757d', marginTop: 2 },
   cardPrice: { fontSize: 16, fontWeight: '700', color: '#27AE60' },
+  browseButton: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#3498DB',
+    alignItems: 'center',
+  },
+  browseButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

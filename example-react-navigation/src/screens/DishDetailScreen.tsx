@@ -1,4 +1,5 @@
-import { View, Text, Image, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, ScrollView, Switch } from 'react-native';
+import { useState } from 'react';
 import { useCart } from '../CartContext';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../App';
@@ -8,6 +9,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'DishDetail'>;
 export default function DishDetailScreen({ route, navigation }: Props) {
   const { dish } = route.params;
   const { addToCart } = useCart();
+  const [favorite, setFavorite] = useState(false);
 
   const handleAddToCart = (qty: number) => {
     addToCart(dish.name, dish.price, qty);
@@ -36,6 +38,21 @@ export default function DishDetailScreen({ route, navigation }: Props) {
             <Text style={styles.sectionText}>{dish.ingredients}</Text>
           </View>
         )}
+
+        {/* ACTION: Add to Favorites (level 3 action) */}
+        <View style={styles.favoriteRow}>
+          <Text style={styles.favoriteLabel}>Add to Favorites</Text>
+          <Switch value={favorite} onValueChange={setFavorite} />
+        </View>
+
+        {/* Reviews link */}
+        <Pressable
+          style={styles.reviewsButton}
+          onPress={() => navigation.navigate('DishReviews', { dishName: dish.name })}
+        >
+          <Text style={styles.reviewsButtonText}>View Reviews & Questions</Text>
+          <Text style={styles.arrow}>›</Text>
+        </Pressable>
 
         {/* Quantity buttons */}
         <View style={styles.actions}>
@@ -84,4 +101,29 @@ const styles = StyleSheet.create({
     borderColor: '#1a1a2e',
   },
   addMoreText: { color: '#1a1a2e', fontSize: 16, fontWeight: '600' },
+  reviewsButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  reviewsButtonText: { fontSize: 16, fontWeight: '600', color: '#1a1a2e' },
+  arrow: { fontSize: 22, color: '#adb5bd' },
+  favoriteRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  favoriteLabel: { fontSize: 16, fontWeight: '500', color: '#1a1a2e' },
 });
