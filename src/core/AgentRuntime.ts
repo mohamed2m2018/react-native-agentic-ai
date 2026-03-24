@@ -10,11 +10,22 @@
  */
 
 import { logger } from '../utils/logger';
-import { walkFiberTree, findScrollableContainers } from './FiberTreeWalker';
+import { walkFiberTree } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
 import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
+import {
+  createTapTool,
+  createLongPressTool,
+  createTypeTool,
+  createScrollTool,
+  createSliderTool,
+  createPickerTool,
+  createDatePickerTool,
+  createKeyboardTool,
+} from '../tools';
+import type { ToolContext } from '../tools';
 import type {
   AIProvider,
   AgentConfig,
@@ -41,6 +52,13 @@ export class AgentRuntime {
   private lastAskUserQuestion: string | null = null;
   private knowledgeService: KnowledgeBaseService | null = null;
   private uiControlOverride?: boolean;
+
+  // ─── Task-scoped error suppression ──────────────────────────
+  // Installed once at execute() start, removed at execute() finally.
+  // Catches ALL async errors (useEffect, native callbacks, PagerView)
+  // that would otherwise crash the host app during agent execution.
+  private originalErrorHandler: ((error: Error, isFatal?: boolean) => void) | null = null;
+  private lastSuppressedError: Error | null = null;
 
   constructor(
     provider: AIProvider,
@@ -86,92 +104,35 @@ export class AgentRuntime {
   // ─── Tool Registration ─────────────────────────────────────
 
   private registerBuiltInTools(): void {
-    // tap — universal interaction (mirrors RNTL's dispatchEvent pattern)
-    this.tools.set('tap', {
-      name: 'tap',
-      description: 'Tap an interactive element by its index. Works universally on buttons, switches, and custom components.',
-      parameters: {
-        index: { type: 'number', description: 'The index of the element to tap', required: true },
-      },
-      execute: async (args) => {
-        const { interactives: elements } = walkFiberTree(this.rootRef, this.getWalkConfig());
-        const element = elements.find(el => el.index === args.index);
-        if (!element) {
-          return `❌ Element with index ${args.index} not found. Available indexes: ${elements.map(e => e.index).join(', ')}`;
-        }
+    // ── Tool Context — shared dependencies for modular tools ──
+    const toolContext: ToolContext = {
+      rootRef: this.rootRef,
+      getWalkConfig: () => this.getWalkConfig(),
+      getCurrentScreenName: () => this.getCurrentScreenName(),
+      navRef: this.navRef,
+      routerRef: this.config.router,
+      getRouteNames: () => this.getRouteNames(),
+      findScreenPath: (name: string) => this.findScreenPath(name),
+      buildNestedParams: (path: string[], params?: any) => this.buildNestedParams(path, params),
+      captureScreenshot: async () => (await this.captureScreenshot()) ?? null,
+    };
 
-        // Strategy 1: Switch — call onValueChange (like RNTL's fireEvent('valueChange'))
-        if (element.type === 'switch' && element.props.onValueChange) {
-          try {
-            element.props.onValueChange(!element.props.value);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return `✅ Toggled [${args.index}] "${element.label}" to ${!element.props.value}`;
-          } catch (error: any) {
-            return `❌ Error toggling [${args.index}]: ${error.message}`;
-          }
-        }
+    // ── Register modular tools (extracted to src/tools/) ──
+    const modularTools = [
+      createTapTool(toolContext),
+      createLongPressTool(toolContext),
+      createTypeTool(toolContext),
+      createScrollTool(toolContext),
+      createSliderTool(toolContext),
+      createPickerTool(toolContext),
+      createDatePickerTool(toolContext),
+      createKeyboardTool(),
+    ];
 
-        // Strategy 2: Direct onPress (covers Pressable, Button, custom components)
-        if (element.props.onPress) {
-          try {
-            element.props.onPress();
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return `✅ Tapped [${args.index}] "${element.label}"`;
-          } catch (error: any) {
-            return `❌ Error tapping [${args.index}]: ${error.message}`;
-          }
-        }
+    for (const tool of modularTools) {
+      this.tools.set(tool.name, tool);
+    }
 
-        // Strategy 3: Bubble up Fiber tree (like RNTL's findEventHandler → element.parent)
-        let fiber = element.fiberNode?.return;
-        let bubbleDepth = 0;
-        while (fiber && bubbleDepth < 5) {
-          const parentProps = fiber.memoizedProps || {};
-          if (parentProps.onPress && typeof parentProps.onPress === 'function') {
-            try {
-              parentProps.onPress();
-              await new Promise(resolve => setTimeout(resolve, 500));
-              return `✅ Tapped parent of [${args.index}] "${element.label}"`;
-            } catch (error: any) {
-              return `❌ Error tapping parent of [${args.index}]: ${error.message}`;
-            }
-          }
-          fiber = fiber.return;
-          bubbleDepth++;
-        }
-
-        return `❌ Element [${args.index}] "${element.label}" has no tap handler (no onPress or onValueChange found).`;
-      },
-    });
-
-    // type — type text into a TextInput
-    this.tools.set('type', {
-      name: 'type',
-      description: 'Type text into a text-input element by its index.',
-      parameters: {
-        index: { type: 'number', description: 'The index of the text-input element', required: true },
-        text: { type: 'string', description: 'The text to type', required: true },
-      },
-      execute: async (args) => {
-        const { interactives: elements } = walkFiberTree(this.rootRef, this.getWalkConfig());
-        const element = elements.find(el => el.index === args.index);
-        if (!element) {
-          return `❌ Element with index ${args.index} not found.`;
-        }
-        if (!element.props.onChangeText) {
-          return `❌ Element [${args.index}] "${element.label}" is not a text input.`;
-        }
-        try {
-          element.props.onChangeText(args.text);
-          // Wait for React to process the state update and re-render
-          // (same pattern as navigate tool's 500ms post-action delay)
-          await new Promise(resolve => setTimeout(resolve, 500));
-          return `✅ Typed "${args.text}" into [${args.index}] "${element.label}"`;
-        } catch (error: any) {
-          return `❌ Error typing: ${error.message}`;
-        }
-      },
-    });
 
     // navigate — navigate to a screen (supports React Navigation + Expo Router)
     this.tools.set('navigate', {
@@ -301,124 +262,8 @@ export class AgentRuntime {
       },
     });
 
-    // scroll — programmatic scroll for lazy-loaded lists and long screens
-    this.tools.set('scroll', {
-      name: 'scroll',
-      description: 'Scroll the current screen to reveal more content. Use when you need to see items that are not yet visible, e.g. in lazy-loaded lists, long forms, or paginated content. If the screen has multiple scrollable areas, specify containerIndex to target a specific one.',
-      parameters: {
-        direction: {
-          type: 'string',
-          description: "Scroll direction: 'down' or 'up'",
-          required: true,
-          enum: ['down', 'up'],
-        },
-        amount: {
-          type: 'string',
-          description: "How far to scroll: 'page' (default, ~one screenful), 'toEnd' (jump to bottom), or 'toStart' (jump to top)",
-          required: false,
-          enum: ['page', 'toEnd', 'toStart'],
-        },
-        containerIndex: {
-          type: 'number',
-          description: 'Index of the scrollable container to scroll (0-based). Use when the screen has multiple scrollable areas. Default: 0 (the main/first scrollable area).',
-          required: false,
-        },
-      },
-      execute: async (args) => {
-        const screenName = this.getCurrentScreenName();
-        const containers = findScrollableContainers(this.rootRef, screenName);
 
-        if (containers.length === 0) {
-          return `❌ No scrollable container found on screen "${screenName}". Content may still be loading — wait and try again.`;
-        }
 
-        const targetIndex = args.containerIndex ?? 0;
-        const container = containers[targetIndex];
-        if (!container) {
-          const available = containers
-            .filter(c => !c.isPagerLike)
-            .map(c => `[${c.index}] ${c.label} (${c.componentName})`)
-            .join(', ');
-          return `❌ Container index ${targetIndex} not found. Available scrollable containers on "${screenName}": ${available}`;
-        }
-
-        // ── PagerView/TabView Rejection (Pattern from Detox: getConstraints() rejects ViewPager) ──
-        if (container.isPagerLike) {
-          // Find non-pager alternatives to suggest
-          const scrollableAlts = containers
-            .filter(c => !c.isPagerLike)
-            .map(c => `[${c.index}] ${c.label} (${c.componentName})`)
-            .join(', ');
-          const suggestion = scrollableAlts
-            ? `Try scrolling a content container instead: ${scrollableAlts}`
-            : 'Use tap on the tab labels to switch tabs instead of scrolling.';
-          return `⚠️ Container [${targetIndex}] "${container.label}" is a ${container.componentName} (tab/page container). ` +
-            `Scrolling pager containers directly causes native crashes. ${suggestion}`;
-        }
-
-        const direction: string = args.direction || 'down';
-        const amount: string = args.amount || 'page';
-        const scrollRef = container.stateNode;
-
-        try {
-          if (amount === 'toEnd') {
-            if (typeof scrollRef.scrollToEnd === 'function') {
-              scrollRef.scrollToEnd({ animated: true });
-            } else if (typeof scrollRef.scrollTo === 'function') {
-              scrollRef.scrollTo({ y: 999999, animated: true });
-            }
-          } else if (amount === 'toStart') {
-            if (typeof scrollRef.scrollTo === 'function') {
-              scrollRef.scrollTo({ y: 0, animated: true });
-            } else if (typeof scrollRef.scrollToOffset === 'function') {
-              scrollRef.scrollToOffset({ offset: 0, animated: true });
-            }
-          } else {
-            // ── Direction-Based Relative Scroll ──
-            // Pattern from Detox: ScrollHelper.perform(direction, amountInDP)
-            // Pattern from Appium: mobileScrollGesture(direction, percent)
-            // Instead of absolute 800px, scroll relative to current position by ~80% of visible height
-            const FALLBACK_PAGE_HEIGHT = 800;
-
-            if (typeof scrollRef.scrollToOffset === 'function') {
-              // VirtualizedList — use _scrollMetrics for current position
-              const metrics = scrollRef._scrollMetrics;
-              const currentOffset = metrics?.offset ?? 0;
-              const visibleLength = metrics?.visibleLength ?? FALLBACK_PAGE_HEIGHT;
-              const scrollAmount = Math.round(visibleLength * 0.8); // 80% of visible area (like Detox's SCROLL_RANGE_SAFE_PERCENT)
-
-              const newOffset = direction === 'down'
-                ? currentOffset + scrollAmount
-                : Math.max(0, currentOffset - scrollAmount);
-
-              scrollRef.scrollToOffset({
-                offset: newOffset,
-                animated: true,
-              });
-            } else if (typeof scrollRef.scrollTo === 'function') {
-              // Plain ScrollView — use contentOffset for relative scrolling
-              const currentY = scrollRef._nativeRef?.contentOffset?.y ?? 0;
-              const scrollAmount = FALLBACK_PAGE_HEIGHT;
-
-              scrollRef.scrollTo({
-                y: direction === 'down'
-                  ? currentY + scrollAmount
-                  : Math.max(0, currentY - scrollAmount),
-                animated: true,
-              });
-            }
-          }
-
-          // Wait for scroll animation + onEndReached + lazy load + re-render
-          await new Promise(resolve => setTimeout(resolve, 1500));
-
-          const amountLabel = amount === 'toEnd' ? 'to end' : amount === 'toStart' ? 'to start' : `${direction} one page`;
-          return `✅ Scrolled ${amountLabel} in ${container.label} (${container.componentName}). Check the updated screen content for newly loaded items.`;
-        } catch (error: any) {
-          return `❌ Scroll failed: ${error.message}`;
-        }
-      },
-    });
 
     // query_knowledge — retrieve domain-specific knowledge (only if knowledgeBase is configured)
     if (this.knowledgeService) {
@@ -638,6 +483,16 @@ export class AgentRuntime {
         return `Scrolling ${args.direction || 'down'}...`;
       case 'wait':
         return `Waiting for ${args.seconds || 2} seconds...`;
+      case 'long_press':
+        return `Long-pressing element ${args.index ?? ''}...`;
+      case 'adjust_slider':
+        return `Adjusting slider to ${Math.round((args.value ?? 0) * 100)}%...`;
+      case 'select_picker':
+        return `Selecting "${args.value || ''}" from picker...`;
+      case 'set_date':
+        return `Setting date to ${args.date || ''}...`;
+      case 'dismiss_keyboard':
+        return 'Dismissing keyboard...';
       default:
         return `Running ${toolName}...`;
     }
@@ -820,36 +675,22 @@ ${screen.elementsText}
   }
 
   /**
-   * Execute a tool with global error safety.
-   * Overrides ErrorUtils.setGlobalHandler during execution to catch
-   * ALL errors (JS, native-to-JS, Fabric JSI) and prevent app crashes.
-   * This is the same pattern used by Sentry/Bugsnag crash SDKs.
+   * Execute a tool with safety checks.
+   * Validates args before execution (Detox/Appium pattern).
+   * Checks for async errors that were suppressed during the settle window.
+   * The global ErrorUtils handler is task-scoped (installed in execute()),
+   * so this method only needs to CHECK for errors, not install/remove.
    */
   private async executeToolSafely(
     tool: { execute: (args: any) => Promise<string> },
     args: any,
     toolName: string
   ): Promise<string> {
-    // Get the global ErrorUtils (available in all RN architectures)
-    const ErrorUtils = (global as any).ErrorUtils;
-    const originalHandler = ErrorUtils?.getGlobalHandler?.();
-    const errorRef: { error: Error | null } = { error: null };
-
-    // Install safety handler — catch errors instead of crashing
-    if (ErrorUtils?.setGlobalHandler) {
-      ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
-        errorRef.error = error;
-        logger.warn(
-          'AgentRuntime',
-          `🛡️ Caught ${isFatal ? 'FATAL' : 'non-fatal'} error during "${toolName}": ${error.message}`
-        );
-        // Don't re-throw — suppress the crash
-      });
-    }
+    // Clear any previous suppressed error before this tool
+    this.lastSuppressedError = null;
 
     try {
       // ── Argument Validation (Pattern from Detox/Appium: typeof checks before native dispatch) ──
-      // Prevents null/undefined/wrong-type args from reaching native components
       const validationError = this.validateToolArgs(args, toolName);
       if (validationError) {
         logger.warn('AgentRuntime', `🛡️ Arg validation rejected "${toolName}": ${validationError}`);
@@ -857,23 +698,21 @@ ${screen.elementsText}
       }
 
       const result = await tool.execute(args);
-      // Settle window for async side-effects (useEffect, native callbacks, PagerView onPageSelected)
-      // 2s covers animation completions and delayed native event callbacks
+
+      // Settle window for async side-effects (useEffect, native callbacks)
+      // The global ErrorUtils handler catches any errors during this window
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      if (errorRef.error) {
-        logger.warn('AgentRuntime', `🛡️ Tool "${toolName}" succeeded but caused a side-effect error: ${errorRef.error.message}`);
-        return `${result} (⚠️ a background error was safely caught: ${errorRef.error.message})`;
+      const suppressedError = this.lastSuppressedError as Error | null;
+      if (suppressedError) {
+        logger.warn('AgentRuntime', `🛡️ Tool "${toolName}" caused async error (suppressed): ${suppressedError.message}`);
+        this.lastSuppressedError = null;
+        return `${result} (⚠️ a background error was safely caught: ${suppressedError.message})`;
       }
       return result;
     } catch (error: any) {
       logger.error('AgentRuntime', `Tool "${toolName}" threw: ${error.message}`);
       return `❌ Tool "${toolName}" failed: ${error.message}`;
-    } finally {
-      // Restore original handler
-      if (ErrorUtils?.setGlobalHandler && originalHandler) {
-        ErrorUtils.setGlobalHandler(originalHandler);
-      }
     }
   }
 
@@ -1099,6 +938,28 @@ ${screen.elementsText}
     await this.config.onBeforeTask?.();
 
     try {
+      // ── Task-scoped error suppression ──────────────────────────
+      // Install global error handler for the ENTIRE task lifecycle.
+      // This catches ALL async errors (useEffect, native callbacks,
+      // PagerView onPageSelected, scrollToIndex) — not just errors
+      // during direct tool execution.
+      // Pattern: Same as Sentry/Bugsnag — intercept ErrorUtils globally.
+      const ErrorUtils = (global as any).ErrorUtils;
+      if (ErrorUtils?.setGlobalHandler) {
+        this.originalErrorHandler = ErrorUtils.getGlobalHandler?.() ?? null;
+        this.lastSuppressedError = null;
+        ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+          this.lastSuppressedError = error;
+          logger.warn(
+            'AgentRuntime',
+            `🛡️ Suppressed ${isFatal ? 'FATAL' : 'non-fatal'} error during agent task: ${error.message}`
+          );
+          // Don't re-throw — suppress the crash entirely.
+          // The error message will be included in the next tool result
+          // so the AI knows something went wrong and can adjust.
+        });
+      }
+
       // ─── Knowledge-only fast path ─────────────────────────────────
       // Skip fiber walk, dehydration, screenshots, and multi-step loop.
       // Only sends the user question → single LLM call → done.
@@ -1352,6 +1213,16 @@ ${screen.elementsText}
       return result;
     } finally {
       this.isRunning = false;
+      // ── Restore original error handler ────────────────────────
+      // Only now — after the entire task is done — do we remove
+      // the safety net. This ensures the handler covers ALL async
+      // side-effects from every tool call in the task.
+      const ErrorUtils = (global as any).ErrorUtils;
+      if (ErrorUtils?.setGlobalHandler && this.originalErrorHandler) {
+        ErrorUtils.setGlobalHandler(this.originalErrorHandler);
+        this.originalErrorHandler = null;
+      }
+      this.lastSuppressedError = null;
     }
   }
 
