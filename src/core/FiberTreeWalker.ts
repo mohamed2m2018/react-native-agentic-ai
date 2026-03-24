@@ -406,7 +406,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   let currentIndex = 0;
   const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
 
-  function processNode(node: any, depth: number = 0, isInsideInteractive: boolean = false): string {
+  function processNode(node: any, depth: number = 0, isInsideInteractive: boolean = false, ancestorOnPress: any = null): string {
     if (!node) return '';
 
     const props = node.memoizedProps || {};
@@ -423,25 +423,36 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       return childText;
     }
 
-    // Interactive check — skip if already inside an interactive ancestor (dedup nested TextInput layers)
+    // Interactive check — nested interactives with a DIFFERENT onPress than
+    // their ancestor are separate actions (e.g. "+" button inside a dish card).
+    // Only suppress true wrapper duplicates (same onPress reference).
     const isWhitelisted = matchesRefList(node, config?.interactiveWhitelist);
     const elementType = getElementType(node);
-    const shouldInclude = !isInsideInteractive && (hasWhitelist ? isWhitelisted : (elementType && !isDisabled(node)));
+    let shouldInclude = false;
+    if (hasWhitelist) {
+      shouldInclude = isWhitelisted;
+    } else if (elementType && !isDisabled(node)) {
+      if (!isInsideInteractive) {
+        shouldInclude = true;
+      } else {
+        // Inside an ancestor interactive — only include if onPress is DIFFERENT
+        const ownOnPress = props.onPress;
+        shouldInclude = !!ownOnPress && ownOnPress !== ancestorOnPress;
+      }
+    }
 
-    // Process children — nested interactives are only suppressed when they
-    // share the SAME onPress handler as their parent (wrapper dedup).
-    // Genuinely separate nested actions (e.g. "+" button inside a card)
-    // have their own distinct handler and are registered normally.
+    // Track the onPress for descendant dedup
+    const nextAncestorOnPress = shouldInclude ? (props.onPress || ancestorOnPress) : ancestorOnPress;
+
+    // Process children
     let childrenText = '';
     let currentChild = node.child;
-    const parentOnPress = shouldInclude ? props.onPress : null;
     while (currentChild) {
-      const childIsWrapper = shouldInclude && parentOnPress &&
-        currentChild.memoizedProps?.onPress === parentOnPress;
       childrenText += processNode(
         currentChild,
         depth + 1,
-        isInsideInteractive || !!childIsWrapper,
+        isInsideInteractive || !!shouldInclude,
+        nextAncestorOnPress,
       );
       currentChild = currentChild.sibling;
     }
