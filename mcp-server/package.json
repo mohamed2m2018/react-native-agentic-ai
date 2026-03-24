@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP bridge server for @mobileai/react-native — connect AI editors to your React Native app",
   "main": "dist/index.js",
   "bin": {
@@ -12,7 +12,13 @@
     "dev": "tsx watch src/cli.ts",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["mcp", "react-native", "ai-agent", "mobileai", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "react-native",
+    "ai-agent",
+    "mobileai",
+    "model-context-protocol"
+  ],
   "author": "Mohamed Salah",
   "license": "MIT",
   "repository": {
