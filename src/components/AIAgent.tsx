@@ -28,6 +28,7 @@ import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
 import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
+import { AgentErrorBoundary } from './AgentErrorBoundary';
 
 // ─── Context ───────────────────────────────────────────────────
 
@@ -229,6 +230,7 @@ export function AIAgent({
   const userHasSpokenRef = useRef<boolean>(false);
   const lastScreenContextRef = useRef<string>('');
   const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastAgentErrorRef = useRef<string | null>(null);
 
   // Compute available modes from props
   const availableModes: AgentMode[] = useMemo(() => {
@@ -705,7 +707,15 @@ export function AIAgent({
   return (
     <AgentContext.Provider value={contextValue}>
       <View ref={rootViewRef} style={styles.root} collapsable={false}>
-        {children}
+        <AgentErrorBoundary
+          onError={(error, componentStack) => {
+            const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
+            lastAgentErrorRef.current = errorMsg;
+            logger.warn('AIAgent', `🛡️ Error caught by boundary: ${error.message}\n${componentStack || ''}`);
+          }}
+        >
+          {children}
+        </AgentErrorBoundary>
 
         {/* Overlay (shown while thinking) */}
         <AgentOverlay visible={isThinking} statusText={statusText} />
