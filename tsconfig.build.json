@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig",
-  "exclude": ["example-react-navigation", "example-expo-router", "lib", "**/__tests__", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["example-react-navigation", "example-expo-router", "lib", "src/cli", "**/__tests__", "**/*.test.ts", "**/*.test.tsx"]
 }
