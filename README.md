@@ -211,6 +211,12 @@ Add one line to your `metro.config.js` — the AI gets a map of every screen in 
 require('@mobileai/react-native/generate-map').autoGenerate(__dirname);
 ```
 
+Or generate it manually anytime:
+
+```bash
+npx @mobileai/react-native generate-map
+```
+
 > Without this, the AI can only see the currently mounted screen — it has no idea what other screens exist or how to reach them. Example: *"Write a review for the Laptop Stand"* — the AI sees the Home screen but doesn't know a `WriteReview` screen exists 3 levels deep. With a map, it sees every screen in your app and knows exactly how to get there: `Home → Products → Detail → Reviews → WriteReview`.
 
 ### 2. Wrap Your App
