@@ -54,7 +54,8 @@ export class AudioInputService {
       // Lazy-load react-native-audio-api (optional peer dependency)
       let audioApi: any;
       try {
-        audioApi = require('react-native-audio-api');
+        const audioApiModule = ['react-native', 'audio-api'].join('-');
+        audioApi = require(audioApiModule);
       } catch {
         const msg =
           'Voice mode requires react-native-audio-api. Install with: npm install react-native-audio-api';

@@ -616,7 +616,11 @@ export class AgentRuntime {
    */
   private async captureScreenshot(): Promise<string | undefined> {
     try {
-      const viewShot = require('react-native-view-shot');
+      // Use variable to prevent Metro from statically resolving this optional dep.
+      // A bare `require('react-native-view-shot')` is traced at bundle time
+      // and crashes with "unknown module" when the package isn't installed.
+      const moduleName = ['react-native', 'view-shot'].join('-');
+      const viewShot = require(moduleName);
       const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
       if (!captureRef || !this.rootRef) return undefined;
 
@@ -630,8 +634,7 @@ export class AgentRuntime {
       logger.info('AgentRuntime', `Screenshot captured (${Math.round((uri?.length || 0) / 1024)}KB base64)`);
       return uri || undefined;
     } catch (error: any) {
-      // Detect missing dependency vs runtime failure
-      if (error.message?.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND') {
+      if (error.message?.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND' || error.message?.includes('unknown module')) {
         logger.warn('AgentRuntime', 'Screenshot requires react-native-view-shot. Install with: npx expo install react-native-view-shot');
       } else {
         logger.debug('AgentRuntime', `Screenshot skipped: ${error.message}`);
