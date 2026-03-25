@@ -333,31 +333,25 @@ function extractIconName(fiber: any, maxDepth: number = 5): string {
 }
 
 /**
- * Get the Fiber root node.
- * 
- * In React Native, a View ref gives a native node, NOT a Fiber node.
- * We use __REACT_DEVTOOLS_GLOBAL_HOOK__ (available in dev builds) to
- * access getFiberRoots(), which is the same API React DevTools uses.
- * 
- * Falls back to probing the ref's internal keys for Fiber references.
+ * Get the Fiber root node via __REACT_DEVTOOLS_GLOBAL_HOOK__.
+ *
+ * This hook is injected by React in development builds so React DevTools
+ * can inspect the component tree. It is NOT available in release/production.
+ * Used as a last-resort fallback when ref-based strategies fail.
  */
-function getFiberRoot(): any | null {
-  // Strategy 1: __REACT_DEVTOOLS_GLOBAL_HOOK__ (most reliable in dev)
+function getFiberRootFromDevTools(): any | null {
   try {
     const hook = (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
     if (hook) {
-      // hook.renderers is a Map of renderer ID → renderer
-      // hook.getFiberRoots(rendererId) returns a Set of FiberRoot objects
       const renderers = hook.renderers;
       if (renderers && renderers.size > 0) {
         for (const [rendererId] of renderers) {
           const roots = hook.getFiberRoots(rendererId);
           if (roots && roots.size > 0) {
-            // Get the first (and usually only) root
             const fiberRoot = roots.values().next().value;
             if (fiberRoot && fiberRoot.current) {
               logger.debug('FiberTreeWalker', 'Accessed Fiber tree via DevTools hook');
-              return fiberRoot.current; // This is the root Fiber node
+              return fiberRoot.current;
             }
           }
         }
@@ -370,35 +364,57 @@ function getFiberRoot(): any | null {
   return null;
 }
 
+/**
+ * Resolve a Fiber node from a React ref.
+ *
+ * Strategy order prioritizes ref-based access (works in BOTH dev and release)
+ * over the DevTools hook (dev-only):
+ *
+ * 1. __reactFiber$ keys — React attaches these to native host nodes in both
+ *    dev and release. This is how the reconciler maps native nodes back to
+ *    their Fiber. Most reliable for <View ref={...}> refs.
+ * 2. _reactInternals — available on class component instances.
+ * 3. _reactInternalInstance — legacy React (pre-Fiber) pattern.
+ * 4. Direct fiber properties — ref IS already a Fiber node (e.g. in tests).
+ * 5. __REACT_DEVTOOLS_GLOBAL_HOOK__ — dev-only last resort. Finds the root
+ *    Fiber regardless of what ref is, but stripped in production builds.
+ */
 function getFiberFromRef(ref: any): any | null {
-  // First try the DevTools hook (works regardless of what ref is)
-  const rootFiber = getFiberRoot();
-  if (rootFiber) return rootFiber;
-
   if (!ref) return null;
 
-  // Fallback: Try known internal Fiber access patterns on the ref itself
-
-  // Pattern 1: _reactInternals (class components)
-  if (ref._reactInternals) return ref._reactInternals;
-
-  // Pattern 2: _reactInternalInstance (older React)
-  if (ref._reactInternalInstance) return ref._reactInternalInstance;
-
-  // Pattern 3: __reactFiber$ keys (React DOM/RN style) 
+  // Strategy 1: __reactFiber$ keys (React DOM/RN style)
+  // Works in both dev AND release builds — primary strategy.
   try {
     const keys = Object.keys(ref);
     const fiberKey = keys.find(
       key => key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$'),
     );
-    if (fiberKey) return (ref as any)[fiberKey];
+    if (fiberKey) {
+      logger.debug('FiberTreeWalker', 'Accessed Fiber tree via __reactFiber$ key');
+      return (ref as any)[fiberKey];
+    }
   } catch {
     // Object.keys may fail on some native nodes
   }
 
-  // Pattern 4: Direct fiber node properties
+  // Strategy 2: _reactInternals (class components)
+  if (ref._reactInternals) return ref._reactInternals;
+
+  // Strategy 3: _reactInternalInstance (older React)
+  if (ref._reactInternalInstance) return ref._reactInternalInstance;
+
+  // Strategy 4: Direct fiber node properties (ref IS a fiber — used in tests)
   if (ref.child || ref.memoizedProps) return ref;
 
+  // Strategy 5: DevTools hook (dev-only last resort)
+  const rootFiber = getFiberRootFromDevTools();
+  if (rootFiber) return rootFiber;
+
+  console.warn(
+    '[AIAgent] Could not access React Fiber tree. ' +
+    'The AI agent will not be able to detect interactive elements. ' +
+    'Ensure the rootRef is attached to a rendered <View>.'
+  );
   logger.warn('FiberTreeWalker', 'All Fiber access strategies failed');
   return null;
 }

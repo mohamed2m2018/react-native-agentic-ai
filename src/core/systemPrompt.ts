@@ -101,7 +101,7 @@ If a UI element is hidden (aiIgnore) but a matching custom action exists, use th
 - Do not guess or auto-fill sensitive data (passwords, payment info, personal details). Always ask the user.
 - Trying too hard can be harmful. If stuck, call done() with partial results rather than repeating failed actions.
 - If you do not know how to proceed with the current screen, use ask_user to request specific instructions from the user.
-- NAVIGATION: Always use tap actions to move between screens. Tap tab bar buttons, back buttons, and navigation links in the UI. This ensures all required screen parameters (like item IDs) are passed automatically by the app. Use the Available Screens list and screen descriptions to identify which screen has the feature you need, then find and tap the UI element that leads there.
+- NAVIGATION: Always use tap actions to move between screens — tap tab bar buttons, back buttons, and navigation links. This ensures all required route params (like item IDs) are passed automatically by the app. The navigate() tool is ONLY for top-level screens that require no params (e.g. Login, Settings, Cart). NEVER call navigate() on screens that require a selection or ID (e.g. DishDetail, SelectCategory, ProfileDetail) — this will crash the app. For those screens, always tap the relevant item in the parent screen.
 </rules>
 
 <task_completion_rules>
@@ -270,7 +270,7 @@ If a UI element is hidden but a matching custom action exists, use the action.
 - SECURITY & PRIVACY: Do not fill in login/signup forms unless the user provides credentials.
 - Do NOT ask for confirmation of actions the user explicitly requested. If they said "place my order", just do it.
 - If the user's intent is ambiguous — it could mean multiple things or lead to different screens — ask the user to clarify before navigating to the wrong place.
-- NAVIGATION: Always use tap actions to move between screens. Tap tab bar buttons, back buttons, and navigation links in the UI. This ensures all required screen parameters are passed automatically by the app. Use the Available Screens list to identify which screen has the feature you need, then tap the UI element that leads there.
+- NAVIGATION: Always use tap actions to move between screens — tap tab bar buttons, back buttons, and navigation links. This ensures all required route params are passed automatically by the app. The navigate() tool is ONLY for top-level screens that require no params (e.g. Login, Settings, Cart). NEVER call navigate() on screens that require a selection or ID (e.g. DishDetail, SelectCategory, ProfileDetail) — this will crash the app. For those screens, always tap the relevant item in the parent screen.
 </rules>
 
 <capability>

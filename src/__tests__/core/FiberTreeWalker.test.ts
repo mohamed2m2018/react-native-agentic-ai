@@ -283,4 +283,102 @@ describe('FiberTreeWalker', () => {
       expect(hasAnyEventHandler({})).toBe(false);
     });
   });
+
+  // ─── getFiberFromRef Resolution Strategies ───────────────────
+  // These tests verify each Fiber access strategy individually,
+  // ensuring the walker works in BOTH dev and release builds.
+
+  describe('getFiberFromRef resolution', () => {
+    it('resolves fiber via __reactFiber$ key (primary strategy, works in release)', () => {
+      // Simulate what a real <View ref={ref}> looks like at runtime:
+      // The native host node has a __reactFiber$<hash> key pointing to its Fiber node.
+      const fiberNode = createFiberNode('View', {}, [
+        createFiberNode('Pressable', { onPress: () => {} }),
+      ]);
+      const nativeViewHandle = {
+        '__reactFiber$abc123': fiberNode,
+      };
+
+      const result = walkFiberTree(nativeViewHandle);
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('pressable');
+    });
+
+    it('resolves fiber via _reactInternals (class component pattern)', () => {
+      const fiberNode = createFiberNode('View', {}, [
+        createFiberNode('TextInput', { onChangeText: () => {}, placeholder: 'Email' }),
+      ]);
+      const classComponentRef = {
+        _reactInternals: fiberNode,
+      };
+
+      const result = walkFiberTree(classComponentRef);
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('text-input');
+    });
+
+    it('resolves fiber via direct fiber node properties (test pattern)', () => {
+      // This is the pattern used by all existing tests — ref IS the fiber
+      const fiberNode = createFiberNode('View', {}, [
+        createFiberNode('Switch', { onValueChange: () => {} }),
+      ]);
+
+      const result = walkFiberTree(fiberNode);
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('switch');
+    });
+
+    it('works in release build simulation (no DevTools hook, uses __reactFiber$)', () => {
+      // Ensure __REACT_DEVTOOLS_GLOBAL_HOOK__ is NOT available
+      const originalHook = (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+
+      try {
+        const fiberNode = createFiberNode('View', {}, [
+          createFiberNode('Pressable', { onPress: () => {} }, [
+            createFiberNode('Text', { children: 'Submit Order' }),
+          ]),
+        ]);
+        // Simulate native View handle with __reactFiber$ key
+        const nativeRef = { '__reactFiber$release123': fiberNode };
+
+        const result = walkFiberTree(nativeRef);
+
+        expect(result.interactives).toHaveLength(1);
+        expect(result.interactives[0]!.label).toBe('Submit Order');
+      } finally {
+        // Restore hook if it existed
+        if (originalHook) {
+          (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = originalHook;
+        }
+      }
+    });
+
+    it('returns empty result and warns when all strategies fail', () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const originalHook = (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+
+      try {
+        // Pass an object with no fiber access patterns
+        const opaqueRef = { someRandomProp: 42 };
+
+        const result = walkFiberTree(opaqueRef);
+
+        expect(result.elementsText).toBe('');
+        expect(result.interactives).toEqual([]);
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Could not access React Fiber tree')
+        );
+      } finally {
+        consoleWarnSpy.mockRestore();
+        if (originalHook) {
+          (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = originalHook;
+        }
+      }
+    });
+  });
 });
