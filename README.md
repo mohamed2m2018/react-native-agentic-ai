@@ -540,6 +540,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `model` | `string` | Provider default | Model name (e.g. `gemini-2.5-flash`, `gpt-4.1-mini`). |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
 | `maxSteps` | `number` | `25` | Max agent steps per task. |
+| `maxTokenBudget` | `number` | — | Max total tokens before auto-stopping the agent loop. |
+| `maxCostUSD` | `number` | — | Max estimated cost (USD) before auto-stopping. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
 | `enableVoice` | `boolean` | `true` | Enable voice mode tab. |
 | `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only. |
@@ -556,6 +558,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `onBeforeStep` | `(stepCount) => void` | — | Called before each step. |
 | `onAfterStep` | `(history) => void` | — | Called after each step. |
 | `onTokenUsage` | `(usage) => void` | — | Token usage per step. |
+| `onAskUser` | `(question) => Promise<string>` | — | Handle `ask_user` inline — agent waits for your response. |
 | `stepDelay` | `number` | — | Delay between steps (ms). |
 | `router` | `{ push, replace, back }` | — | Expo Router instance. |
 | `pathname` | `string` | — | Current pathname (Expo Router). |
@@ -724,8 +727,14 @@ server.on('upgrade', geminiProxy.upgrade);
 | Tool | What it does |
 |------|-------------|
 | `tap(index)` | Tap any interactive element — buttons, switches, checkboxes, custom components |
+| `long_press(index)` | Long-press an element to trigger context menus |
 | `type(index, text)` | Type into a text input |
+| `scroll(direction, amount?)` | Scroll content — auto-detects edge, rejects PagerView |
+| `slider(index, value)` | Drag a slider to a specific value |
+| `picker(index, value)` | Select a value from a dropdown/picker |
+| `date_picker(index, date)` | Set a date on a date picker |
 | `navigate(screen)` | Navigate to any screen |
+| `wait(seconds)` | Wait for loading states before acting |
 | `capture_screenshot(reason)` | Capture the screen as an image (requires `react-native-view-shot`) |
 | `done(text)` | Finish the task with a response |
 | `ask_user(question)` | Ask the user for clarification |
