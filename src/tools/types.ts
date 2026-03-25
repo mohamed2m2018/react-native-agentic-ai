@@ -35,14 +35,14 @@ export interface AgentTool {
 // ─── Tool Context (shared dependencies injected by AgentRuntime) ──
 
 export interface ToolContext {
-  /** Root React ref for fiber tree access */
-  rootRef: any;
+  /** Root React ref for fiber tree access (getter to avoid stale closure) */
+  getRootRef: () => any;
   /** Walk configuration (blacklist/whitelist/screen scoping) */
   getWalkConfig: () => WalkConfig;
   /** Get the current active screen name */
   getCurrentScreenName: () => string;
-  /** Navigation ref (React Navigation / Expo Router) */
-  navRef?: any;
+  /** Navigation ref getter (React Navigation / Expo Router) */
+  getNavRef?: () => any;
   /** Expo Router ref */
   routerRef?: any;
   /** Get available route names */

@@ -68,7 +68,7 @@ export function createPickerTool(context: ToolContext): AgentTool {
       value: { type: 'string', description: 'The value to select (must match an available option)', required: true },
     },
     execute: async (args) => {
-      const { interactives: elements } = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const { interactives: elements } = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const element = elements.find(el => el.index === args.index);
       if (!element) {
         return `❌ Element with index ${args.index} not found.`;

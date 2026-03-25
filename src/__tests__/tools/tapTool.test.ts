@@ -11,7 +11,7 @@ import type { ToolContext } from '../../tools/types';
 
 function createMockContext(): ToolContext {
   return {
-    rootRef: {},
+    getRootRef: () => ({}),
     getWalkConfig: () => ({}),
     getCurrentScreenName: () => 'TestScreen',
   };

@@ -17,7 +17,7 @@ export function createTypeTool(context: ToolContext): AgentTool {
       text: { type: 'string', description: 'The text to type', required: true },
     },
     execute: async (args) => {
-      const { interactives: elements } = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const { interactives: elements } = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const element = elements.find(el => el.index === args.index);
       if (!element) {
         return `❌ Element with index ${args.index} not found.`;

@@ -16,7 +16,7 @@ const mockFindContainers = findScrollableContainers as jest.MockedFunction<typeo
 
 function createMockContext(): ToolContext {
   return {
-    rootRef: {},
+    getRootRef: () => ({}),
     getWalkConfig: () => ({}),
     getCurrentScreenName: () => 'TestScreen',
   };
