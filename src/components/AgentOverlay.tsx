@@ -4,6 +4,7 @@
  */
 
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { CloseIcon } from './Icons';
 
 interface AgentOverlayProps {
   visible: boolean;
@@ -25,7 +26,7 @@ export function AgentOverlay({ visible, statusText, onCancel }: AgentOverlayProp
             style={styles.cancelButton}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.cancelText}>✕</Text>
+            <CloseIcon size={12} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
@@ -50,11 +51,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
+    maxWidth: '85%',
   },
   text: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '500',
+    flexShrink: 1,
   },
   cancelButton: {
     marginLeft: 4,
@@ -64,10 +67,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  cancelText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
+    flexShrink: 0,
   },
 });
+

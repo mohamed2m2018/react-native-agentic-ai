@@ -578,13 +578,26 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // Track the onPress for descendant dedup
     const nextAncestorOnPress = shouldInclude ? (props.onPress || ancestorOnPress) : ancestorOnPress;
 
+    // Determine if this node produces visible output (affects depth for children)
+    // Only visible nodes (interactives, text, images, videos) should increment
+    // depth. Structural View wrappers are transparent — they pass through the
+    // same depth so indentation stays flat and doesn't waste LLM tokens.
+    const typeStr = node.type && typeof node.type === 'string' ? node.type : 
+                   (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
+    const componentName = getComponentName(node);
+    const isTextNode = typeStr === 'RCTText' || typeStr === 'Text';
+    const isImageNode = !!(componentName && IMAGE_TYPES.has(componentName));
+    const isVideoNode = !!(componentName && VIDEO_TYPES.has(componentName));
+    const producesOutput = shouldInclude || isTextNode || isImageNode || isVideoNode;
+    const childDepth = producesOutput ? depth + 1 : depth;
+
     // Process children
     let childrenText = '';
     let currentChild = node.child;
     while (currentChild) {
       childrenText += processNode(
         currentChild,
-        depth + 1,
+        childDepth,
         isInsideInteractive || !!shouldInclude,
         nextAncestorOnPress,
       );
@@ -635,10 +648,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
     // Non-interactive structural nodes — collapse view chains to reduce noise
     // Only emit text content; structural <view> wrappers are transparent
-    const typeStr = node.type && typeof node.type === 'string' ? node.type : 
-                   (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
-
-    if (typeStr === 'RCTText' || typeStr === 'Text') {
+    if (isTextNode) {
       const textContent = extractRawText(props.children);
       if (textContent && textContent.trim() !== '') {
         return `${indent}${textContent.trim()}\n`;
@@ -646,8 +656,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     }
 
     // ── Media Detection: Component-Context Media Inference ──
-    const componentName = getComponentName(node);
-    if (componentName && IMAGE_TYPES.has(componentName)) {
+    if (isImageNode) {
       const context = getNearestCustomComponentName(node);
       const alt = props.alt || props.accessibilityLabel || '';
       // Emit the full URI so Gemini can use vision to analyze the image
@@ -662,7 +671,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       return `${indent}[image${attrs ? ' ' + attrs : ''}]\n`;
     }
 
-    if (componentName && VIDEO_TYPES.has(componentName)) {
+    if (isVideoNode) {
       const context = getNearestCustomComponentName(node);
       const paused = props.paused !== undefined ? props.paused : props.shouldPlay !== undefined ? !props.shouldPlay : null;
       // Capture video source URI and poster image

@@ -26,6 +26,7 @@ import {
   StopIcon,
   LoadingDots,
   AIBadge,
+  CloseIcon,
 } from './Icons';
 
 // ─── Props ─────────────────────────────────────────────────────
@@ -503,7 +504,9 @@ export function AgentChatBar({
       />
 
       {/* Result Bubble */}
-      {lastResult && (
+      {lastResult && (() => {
+        const cleanMessage = lastResult.message.trim();
+        return (
         <View style={[
           styles.resultBubble,
           lastResult.success
@@ -511,15 +514,16 @@ export function AgentChatBar({
             : [styles.resultError, theme?.errorColor ? { backgroundColor: theme.errorColor } : undefined],
         ]}>
           <ScrollView style={styles.resultScroll} nestedScrollEnabled>
-            <Text style={[styles.resultText, theme?.textColor ? { color: theme.textColor } : undefined]}>{lastResult.message}</Text>
+            <Text style={[styles.resultText, { textAlign: isArabic ? 'right' : 'left' }, theme?.textColor ? { color: theme.textColor } : undefined]}>{cleanMessage}</Text>
           </ScrollView>
           {onDismiss && (
             <Pressable style={styles.dismissButton} onPress={onDismiss} hitSlop={12}>
-              <Text style={styles.dismissText}>✕</Text>
+              <CloseIcon size={14} color={theme?.textColor ? theme.textColor : 'rgba(255, 255, 255, 0.6)'} />
             </Pressable>
           )}
         </View>
-      )}
+        );
+      })()}
 
       {/* Mode-specific input */}
       {mode === 'text' && (
@@ -632,6 +636,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     flex: 1,
   },
+
   resultScroll: {
     maxHeight: 200,
     flex: 1,

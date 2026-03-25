@@ -1254,7 +1254,7 @@ ${screen.elementsText}
         // Dynamic status update based on tool being executed + Reasoning
         const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
         // Prefer the human-readable plan over the raw tool status if available to avoid double statuses
-        const statusDisplay = reasoning.plan ? `🤔 ${reasoning.plan}` : `👆 ${statusLabel}`;
+        const statusDisplay = reasoning.plan || statusLabel;
         this.config.onStatusUpdate?.(statusDisplay);
 
         // Find and execute the tool

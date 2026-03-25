@@ -102,9 +102,8 @@ export class GeminiProvider implements AIProvider {
     } catch (error: any) {
       logger.error('GeminiProvider', 'Request failed:', error.message);
 
-      // Preserve HTTP error format for backward compatibility with tests
       if (error.status) {
-        throw new Error(`Gemini API error ${error.status}: ${error.message}`);
+        throw new Error(this.formatProviderError(error.status, error.message));
       }
       throw error;
     }
@@ -314,5 +313,45 @@ export class GeminiProvider implements AIProvider {
       (completionTokens / 1_000_000) * OUTPUT_COST_PER_M;
 
     return { promptTokens, completionTokens, totalTokens, estimatedCostUSD };
+  }
+
+  // ─── Error Formatting ──────────────────────────────────────
+
+  /**
+   * Converts raw API errors into clean, user-friendly messages.
+   * Parses JSON error bodies and maps HTTP codes to plain language.
+   */
+  private formatProviderError(status: number, rawMessage: string): string {
+    // Try to extract the human-readable message from JSON body
+    let humanMessage = '';
+    try {
+      const parsed = JSON.parse(rawMessage);
+      humanMessage = parsed?.error?.message || parsed?.message || '';
+    } catch {
+      // rawMessage may contain JSON embedded in a string like "503: {json}"
+      const jsonMatch = rawMessage.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          humanMessage = parsed?.error?.message || parsed?.message || '';
+        } catch { /* ignore */ }
+      }
+    }
+
+    // Map status codes to friendly descriptions
+    switch (status) {
+      case 429:
+        return humanMessage || 'Too many requests. Please wait a moment and try again.';
+      case 503:
+        return humanMessage || 'The AI service is temporarily unavailable. Please try again shortly.';
+      case 500:
+        return humanMessage || 'The AI service encountered an internal error. Please try again.';
+      case 401:
+        return 'Authentication failed. Please check your API key.';
+      case 403:
+        return 'Access denied. Your API key may not have the required permissions.';
+      default:
+        return humanMessage || `Something went wrong (${status}). Please try again.`;
+    }
   }
 }
