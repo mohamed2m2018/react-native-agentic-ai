@@ -924,9 +924,34 @@ ${screen.elementsText}
     // 3. <agent_history> — structured per-step history
     prompt += '<agent_history>\n';
 
+    // History summarization: when steps > 8, compress middle steps
+    // to bound prompt growth for long tasks (approaching 25-step limit).
+    // Keep first 2 (initial context) + last 4 (recent context) as full detail.
+    const SUMMARIZE_THRESHOLD = 8;
+    const KEEP_HEAD = 2;
+    const KEEP_TAIL = 4;
+    const shouldSummarize = this.history.length > SUMMARIZE_THRESHOLD;
+
     let stepIndex = 0;
-    for (const event of this.history) {
+    for (let i = 0; i < this.history.length; i++) {
+      const event = this.history[i]!;
       stepIndex++;
+
+      if (shouldSummarize && i >= KEEP_HEAD && i < this.history.length - KEEP_TAIL) {
+        // First compressed step emits the summary block
+        if (i === KEEP_HEAD) {
+          prompt += '<steps_summary>\n';
+          for (let j = KEEP_HEAD; j < this.history.length - KEEP_TAIL; j++) {
+            const h = this.history[j]!;
+            const actionName = h.action.name || 'unknown';
+            const succeeded = h.action.output?.startsWith('✅') ? 'success' : 'fail';
+            prompt += `Step ${j + 1}: ${actionName} → ${succeeded}\n`;
+          }
+          prompt += '</steps_summary>\n';
+        }
+        continue; // Skip full detail for middle steps
+      }
+
       prompt += `<step_${stepIndex}>\n`;
       prompt += `Previous Goal Eval: ${event.reflection.previousGoalEval}\n`;
       prompt += `Memory: ${event.reflection.memory}\n`;
@@ -1173,6 +1198,30 @@ ${screen.elementsText}
           this.config.onTokenUsage?.(response.tokenUsage);
         }
 
+        // ── Budget Guards ──────────────────────────────────────
+        if (this.config.maxTokenBudget && sessionUsage.totalTokens >= this.config.maxTokenBudget) {
+          logger.warn('AgentRuntime', `Token budget exceeded: ${sessionUsage.totalTokens} >= ${this.config.maxTokenBudget}`);
+          const budgetResult: ExecutionResult = {
+            success: false,
+            message: `Task stopped: token budget exceeded (used ${sessionUsage.totalTokens.toLocaleString()} of ${this.config.maxTokenBudget.toLocaleString()} tokens)`,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          await this.config.onAfterTask?.(budgetResult);
+          return budgetResult;
+        }
+        if (this.config.maxCostUSD && sessionUsage.estimatedCostUSD >= this.config.maxCostUSD) {
+          logger.warn('AgentRuntime', `Cost budget exceeded: $${sessionUsage.estimatedCostUSD.toFixed(4)} >= $${this.config.maxCostUSD}`);
+          const budgetResult: ExecutionResult = {
+            success: false,
+            message: `Task stopped: cost budget exceeded ($${sessionUsage.estimatedCostUSD.toFixed(4)} of $${this.config.maxCostUSD.toFixed(2)} max)`,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          await this.config.onAfterTask?.(budgetResult);
+          return budgetResult;
+        }
+
         // 6. Process tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
           logger.warn('AgentRuntime', 'No tool calls in response. Text:', response.text);
@@ -1242,6 +1291,7 @@ ${screen.elementsText}
             success: toolCall.args.success !== false,
             message: toolCall.args.text || output,
             steps: this.history,
+            tokenUsage: sessionUsage,
           };
           logger.info('AgentRuntime', `Task completed: ${result.message}`);
           await this.config.onAfterTask?.(result);
@@ -1256,6 +1306,7 @@ ${screen.elementsText}
             success: true,
             message: output,
             steps: this.history,
+            tokenUsage: sessionUsage,
           };
           await this.config.onAfterTask?.(result);
           return result;
