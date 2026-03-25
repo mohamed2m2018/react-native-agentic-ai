@@ -103,7 +103,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
 
       expect(MockWebSocket.instances).toHaveLength(1);
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       expect(ws.url).toContain('generativelanguage.googleapis.com');
       expect(ws.url).toContain('key=test-key');
       expect(ws.url).toContain('BidiGenerateContent');
@@ -138,10 +138,10 @@ describe('VoiceService', () => {
       // Wait for onopen
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       expect(ws.sentMessages.length).toBeGreaterThanOrEqual(1);
 
-      const setup = JSON.parse(ws.sentMessages[0]);
+      const setup = JSON.parse(ws.sentMessages[0]!);
       expect(setup.setup.model).toBe('models/gemini-live-2.5-flash-native-audio');
       expect(setup.setup.generationConfig.responseModalities).toEqual(['AUDIO']);
     });
@@ -153,8 +153,8 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
-      const setup = JSON.parse(ws.sentMessages[0]);
+      const ws = MockWebSocket.instances[0]!;
+      const setup = JSON.parse(ws.sentMessages[0]!);
       expect(setup.setup.systemInstruction.parts[0].text).toBe('You are a helpful food agent.');
     });
 
@@ -165,8 +165,8 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
-      const setup = JSON.parse(ws.sentMessages[0]);
+      const ws = MockWebSocket.instances[0]!;
+      const setup = JSON.parse(ws.sentMessages[0]!);
 
       expect(setup.setup.tools[0].functionDeclarations).toHaveLength(1);
       expect(setup.setup.tools[0].functionDeclarations[0].name).toBe('tap');
@@ -179,8 +179,8 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
-      const setup = JSON.parse(ws.sentMessages[0]);
+      const ws = MockWebSocket.instances[0]!;
+      const setup = JSON.parse(ws.sentMessages[0]!);
 
       expect(setup.setup.inputAudioTranscription).toBeDefined();
       expect(setup.setup.outputAudioTranscription).toBeDefined();
@@ -195,12 +195,12 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       service.sendAudio('base64audiodata');
 
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.realtimeInput.audio.mimeType).toContain('audio/pcm');
       expect(lastMsg.realtimeInput.audio.mimeType).toContain('rate=16000');
       expect(lastMsg.realtimeInput.audio.data).toBe('base64audiodata');
@@ -213,7 +213,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       const msgCountBefore = ws.sentMessages.length;
 
       // Don't call simulateSetupComplete — setup is NOT done
@@ -232,12 +232,12 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       service.sendText('What is on screen?');
 
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.realtimeInput.text).toBe('What is on screen?');
     });
   });
@@ -250,12 +250,12 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       service.sendScreenContext('<screen>...</screen>');
 
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.clientContent.turns[0].parts).toHaveLength(1);
       expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('<screen>...</screen>');
       // turnComplete should be false (passive context, don't trigger response)
@@ -277,7 +277,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       expect(callbacks.onStatusChange).toHaveBeenCalledWith('connected');
@@ -290,7 +290,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       ws.simulateMessage({
@@ -317,7 +317,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       ws.simulateMessage({
@@ -334,7 +334,7 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       ws.simulateMessage({
@@ -355,12 +355,12 @@ describe('VoiceService', () => {
       service.connect(callbacks);
       await new Promise(r => setTimeout(r, 10));
 
-      const ws = MockWebSocket.instances[0];
+      const ws = MockWebSocket.instances[0]!;
       ws.simulateSetupComplete();
 
       service.sendFunctionResponse('tap', 'call-123', { result: 'Tapped element 5' });
 
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.toolResponse.functionResponses[0].name).toBe('tap');
       expect(lastMsg.toolResponse.functionResponses[0].id).toBe('call-123');
       expect(lastMsg.toolResponse.functionResponses[0].response).toEqual({
