@@ -655,12 +655,24 @@ Just add `analyticsKey` — every button tap, screen navigation, and session is 
 
 | Event | Data | How |
 |-------|------|-----|
-| `user_interaction` | Button label, screen, coordinates | Root touch interceptor |
+| `user_interaction` | Button label, screen, coordinates, `actor: 'user'` | Root touch interceptor |
 | `screen_view` | Screen name, previous screen | Navigation ref listener |
 | `session_start` | Device, OS, SDK version | On mount |
 | `session_end` | Duration, event count | On background |
 | `agent_request` | User query | On AI task start |
+| `agent_step` | Tool name, args, result | On each AI action |
 | `agent_complete` | Success, steps, cost | On AI task end |
+
+### AI vs User Action Differentiation
+
+When the AI agent taps a button on behalf of the user, those taps are **not** counted as `user_interaction` events — they're already captured as `agent_step` events with full context.
+
+This means your funnels and retention charts always show **real human behaviour**, while the AI's actions are separately attributed for ROI analysis. No other analytics SDK can offer this because they don't own the app root.
+
+| Event | Who | Dashboard use |
+|-------|-----|--------------|
+| `user_interaction { actor: 'user' }` | Human only | Funnels, retention, journeys |
+| `agent_step { tool: 'tap' }` | AI only | Agent ROI, resolution rate |
 
 **Custom business events** — track what matters to you:
 
