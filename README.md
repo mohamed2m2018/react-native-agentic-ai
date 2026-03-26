@@ -563,6 +563,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `router` | `{ push, replace, back }` | — | Expo Router instance. |
 | `pathname` | `string` | — | Current pathname (Expo Router). |
 | `debug` | `boolean` | `false` | Enable SDK debug logging. |
+| `analyticsKey` | `string` | — | Publishable key (`mobileai_pub_xxx`) for zero-config analytics to MobileAI Cloud. |
+| `analyticsProxyUrl` | `string` | — | Enterprise: route analytics events through your backend proxy. |
+| `analyticsProxyHeaders` | `Record<string, string>` | — | Auth headers for analyticsProxyUrl. |
 
 ### 🎨 Customization
 
@@ -631,6 +634,44 @@ const { send } = useAI({
   onResult: (result) => router.push('/(tabs)/chat'),
 });
 ```
+
+---
+
+## 📊 Zero-Config Analytics — Auto-Capture Every Tap
+
+Just add `analyticsKey` — every button tap, screen navigation, and session is tracked automatically. **Zero code changes** to your app components.
+
+```tsx
+<AIAgent
+  apiKey="YOUR_KEY"
+  analyticsKey="mobileai_pub_abc123"   // ← enables full auto-capture
+  navRef={navRef}
+>
+  <App />
+</AIAgent>
+```
+
+**What's captured automatically:**
+
+| Event | Data | How |
+|-------|------|-----|
+| `user_interaction` | Button label, screen, coordinates | Root touch interceptor |
+| `screen_view` | Screen name, previous screen | Navigation ref listener |
+| `session_start` | Device, OS, SDK version | On mount |
+| `session_end` | Duration, event count | On background |
+| `agent_request` | User query | On AI task start |
+| `agent_complete` | Success, steps, cost | On AI task end |
+
+**Custom business events** — track what matters to you:
+
+```tsx
+import { MobileAI } from '@mobileai/react-native';
+
+MobileAI.track('purchase_complete', { order_id: 'ord_1', total: 29.99 });
+MobileAI.identify('user_123', { plan: 'pro' });
+```
+
+> Enterprise: use `analyticsProxyUrl` to route events through your own backend — zero keys in the app bundle.
 
 ---
 
