@@ -318,6 +318,11 @@ export function AIAgent({
         setStatusText('');
       });
     }),
+    // Toggle isAgentActing flag on TelemetryService before/after every tool
+    // so that AI-driven taps are never tracked as user_interaction events.
+    onToolExecute: (active: boolean) => {
+      telemetryRef.current?.setAgentActing(active);
+    },
   }), [
     mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
@@ -830,12 +835,15 @@ export function AIAgent({
           collapsable={false}
           onStartShouldSetResponderCapture={(event) => {
             // Auto-capture every tap for analytics (zero-config)
-            if (telemetryRef.current) {
+            // Skip if the AI agent is currently executing a tool — those are
+            // already tracked as `agent_step` events with full context.
+            if (telemetryRef.current && !telemetryRef.current.isAgentActing) {
               const label = extractTouchLabel(event.nativeEvent);
               if (label !== 'Unknown Element') {
                 telemetryRef.current.track('user_interaction', {
                   type: 'tap',
                   label,
+                  actor: 'user',
                   x: Math.round(event.nativeEvent.pageX),
                   y: Math.round(event.nativeEvent.pageY),
                 });

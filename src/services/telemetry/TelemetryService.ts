@@ -62,6 +62,18 @@ export class TelemetryService {
   private isFlushing = false;
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
+  /**
+   * True while the AI agent is executing a tool (tap, type, navigate, etc.).
+   * The touch interceptor checks this flag to avoid double-counting AI actions
+   * as human interactions. Agent steps are already tracked as agent_step events.
+   */
+  isAgentActing = false;
+
+  /** Set by AgentRuntime before/after each tool execution. */
+  setAgentActing(active: boolean): void {
+    this.isAgentActing = active;
+  }
+
   constructor(config: TelemetryConfig) {
     this.config = config;
     this.sessionId = generateSessionId();
