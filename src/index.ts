@@ -22,6 +22,9 @@ export { AudioInputService } from './services/AudioInputService';
 export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
 
+// ─── Analytics ───────────────────────────────────────────────
+export { MobileAI } from './services/telemetry';
+
 // ─── Utilities ───────────────────────────────────────────────
 export { logger } from './utils/logger';
 
@@ -50,3 +53,21 @@ export type {
   VoiceServiceCallbacks,
   VoiceStatus,
 } from './services/VoiceService';
+
+export type {
+  TelemetryConfig,
+  TelemetryEvent,
+} from './services/telemetry';
+
+// ─── Support Mode ────────────────────────────────────────────
+export { SupportGreeting, CSATSurvey, buildSupportPrompt, createEscalateTool } from './support';
+
+export type {
+  SupportModeConfig,
+  QuickReply,
+  EscalationConfig,
+  EscalationContext,
+  CSATConfig,
+  CSATRating,
+  BusinessHoursConfig,
+} from './support';
