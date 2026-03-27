@@ -19,6 +19,7 @@ interface Props {
   children: React.ReactNode;
   /** Called when an error is caught — reports back to agent runtime */
   onError?: (error: Error, componentStack?: string) => void;
+  telemetryRef?: React.RefObject<any>; // Using any to avoid circular import, we duck-type track()
 }
 
 interface State {
@@ -40,6 +41,15 @@ export class AgentErrorBoundary extends React.Component<Props, State> {
       `🛡️ Caught rendering error: ${error.message}\n${componentStack}`
     );
     this.props.onError?.(error, componentStack);
+
+    // Track the render error silently in analytics
+    if (this.props.telemetryRef?.current?.track) {
+      this.props.telemetryRef.current.track('render_error', {
+        message: error.message,
+        component: componentStack?.split('\n')[1]?.trim() ?? 'unknown',
+        screen: this.props.telemetryRef.current.screen,
+      });
+    }
   }
 
   componentDidUpdate(_prevProps: Props, prevState: State): void {

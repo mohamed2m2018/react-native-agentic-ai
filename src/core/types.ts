@@ -22,6 +22,10 @@ export interface InteractiveElement {
   type: ElementType;
   /** Human-readable label (extracted from Text children or accessibilityLabel) */
   label: string;
+  /** Declarative AI priority explicitly set by the developer */
+  aiPriority?: 'high' | 'low';
+  /** The nearest enclosing AIZone ID (if any) */
+  zoneId?: string;
   /** Reference to the Fiber node for execution */
   fiberNode: any;
   /**
@@ -110,8 +114,18 @@ export interface AgentConfig {
    */
   voiceProxyHeaders?: Record<string, string>;
 
-  model?: string;  /** Maximum steps per task */
+  model?: string;  
+  
+  /** Maximum steps per task */
   maxSteps?: number;
+
+  /**
+   * MCP server mode — controls whether external agents can discover and invoke actions.
+   * 'auto' (default): enabled in __DEV__, disabled in production
+   * 'enabled': always on (opt-in for production)
+   * 'disabled': always off
+   */
+  mcpServerMode?: 'auto' | 'enabled' | 'disabled';
 
   // ─── Element Gating ──
 
@@ -305,10 +319,21 @@ export interface ToolParam {
 
 // ─── Action (optional useAction hook) ─────────────────────────
 
+export interface ActionParameterDef {
+  /** The primitive type of the parameter. Maps to MCP schemas and native iOS/Android types. */
+  type: 'string' | 'number' | 'boolean';
+  /** A clear description of what the parameter is for (read by the AI). */
+  description: string;
+  /** Whether the AI must provide this parameter. Defaults to true. */
+  required?: boolean;
+  /** If provided, the AI is restricted to these specific string values. */
+  enum?: string[];
+}
+
 export interface ActionDefinition {
   name: string;
   description: string;
-  parameters: Record<string, string>;
+  parameters: Record<string, string | ActionParameterDef>;
   handler: (args: Record<string, any>) => any;
 }
 
@@ -424,4 +449,52 @@ export interface AIProvider {
     /** Optional base64-encoded JPEG screenshot for vision */
     screenshot?: string,
   ): Promise<ProviderResult>;
+}
+
+// ─── AI-Native UI (Pillar B) ───────────────────────────────────────────────────
+
+/**
+ * Configuration for an AIZone declarative boundary.
+ */
+export interface AIZoneConfig {
+  /** Unique identifier for this zone on the current screen */
+  id: string;
+  /** Whether the AI is allowed to use guide_user() to highlight elements here */
+  allowHighlight?: boolean;
+  /** Whether the AI is allowed to inject tooltip hints here */
+  allowInjectHint?: boolean;
+  /** Whether the AI is allowed to hide children marked with aiPriority="low" */
+  allowSimplify?: boolean;
+  /** Whether the AI is allowed to inject custom cards here */
+  allowInjectCard?: boolean;
+  /** 
+   * Whitelist of React component templates the AI can instantiate.
+   * Required if allowInjectCard is true.
+   * IMPORTANT: The AI receives the displayName of these components 
+   * and can only produce props for them. It cannot generate JSX.
+   */
+  templates?: React.ComponentType<any>[];
+}
+
+/**
+ * Internal representation of a registered zone.
+ */
+export interface RegisteredZone extends AIZoneConfig {
+  /** React ref to the zone's container View */
+  ref: React.RefObject<any>;
+}
+
+export interface ProactiveHelpConfig {
+  /** Enable proactive help (default: true) */
+  enabled?: boolean;
+  /** Time in minutes before a subtle pulse (default: 2) */
+  pulseAfterMinutes?: number;
+  /** Time in minutes before showing a help badge (default: 4) */
+  badgeAfterMinutes?: number;
+  /** Default text for the badge (default: "Need help with this screen?") */
+  badgeText?: string;
+  /** If true, dismissing the badge disables proactive help for the rest of the session (default: true) */
+  dismissForSession?: boolean;
+  /** Dynamic context suggestion generator based on current screen */
+  generateSuggestion?: (screenName: string) => string;
 }

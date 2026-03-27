@@ -16,9 +16,12 @@ export type {
 // Prompt injection
 export { buildSupportPrompt } from './supportPrompt';
 
-// Escalation tool
+// Escalation tool + WebSocket manager
 export { createEscalateTool } from './escalateTool';
+export { EscalationSocket } from './EscalationSocket';
+export type { SocketReplyHandler } from './EscalationSocket';
 
 // UI Components
 export { SupportGreeting } from './SupportGreeting';
 export { CSATSurvey } from './CSATSurvey';
+

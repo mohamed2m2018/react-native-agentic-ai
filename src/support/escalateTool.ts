@@ -1,24 +1,57 @@
 /**
  * Escalate tool — hands off the conversation to a human agent.
  *
- * When the AI determines it cannot resolve the user's issue
- * (or when the user explicitly asks for a human), this tool
- * triggers the escalation callback with full conversation context.
+ * Providers:
+ * - 'mobileai' (default when analyticsKey present):
+ *   POSTs to MobileAI /api/v1/escalations → gets ticketId + wsUrl
+ *   Opens WebSocket via EscalationSocket → agent reply pushed in real time
+ * - 'custom': fires the consumer's onEscalate callback (backward compatible)
  */
 
 import type { ToolDefinition } from '../core/types';
 import type { EscalationConfig, EscalationContext } from './types';
+import { EscalationSocket } from './EscalationSocket';
 
-/**
- * Create the escalate_to_human tool.
- *
- * @param escalationConfig - Consumer's escalation configuration
- * @param getContext - Function that returns current conversation context
- */
+const MOBILEAI_HOST = 'https://api.mobileai.dev';
+
+export interface EscalationToolDeps {
+  config: EscalationConfig;
+  analyticsKey?: string;
+  getContext: () => Omit<EscalationContext, 'conversationSummary'>;
+  getHistory: () => Array<{ role: string; content: string }>;
+  onHumanReply?: (reply: string) => void;
+}
+
+export function createEscalateTool(deps: EscalationToolDeps): ToolDefinition;
+/** @deprecated Use createEscalateTool({ config, analyticsKey, getContext, getHistory }) */
 export function createEscalateTool(
-  escalationConfig: EscalationConfig,
+  config: EscalationConfig,
   getContext: () => Omit<EscalationContext, 'conversationSummary'>
+): ToolDefinition;
+export function createEscalateTool(
+  depsOrConfig: EscalationToolDeps | EscalationConfig,
+  legacyGetContext?: () => Omit<EscalationContext, 'conversationSummary'>
 ): ToolDefinition {
+  // Normalise both call signatures
+  let deps: EscalationToolDeps;
+  if (legacyGetContext) {
+    deps = {
+      config: depsOrConfig as EscalationConfig,
+      getContext: legacyGetContext,
+      getHistory: () => [],
+    };
+  } else {
+    deps = depsOrConfig as EscalationToolDeps;
+  }
+
+  const { config, analyticsKey, getContext, getHistory, onHumanReply } = deps;
+
+  // Determine effective provider
+  const provider = config.provider ?? (analyticsKey ? 'mobileai' : 'custom');
+
+  // Socket instance kept here — one per tool instance
+  let socket: EscalationSocket | null = null;
+
   return {
     name: 'escalate_to_human',
     description:
@@ -33,23 +66,68 @@ export function createEscalateTool(
         required: true,
       },
     },
-    execute: async (args: Record<string, any>) => {
+    execute: async (args: Record<string, unknown>) => {
+      const reason = String(args.reason ?? 'User requested human support');
       const context = getContext();
 
+      if (provider === 'mobileai') {
+        if (!analyticsKey) {
+          console.warn('[Escalation] provider=mobileai but no analyticsKey — falling back to custom');
+        } else {
+          try {
+            const history = getHistory().slice(-20); // last 20 messages for context
+            const res = await fetch(`${MOBILEAI_HOST}/api/v1/escalations`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                analyticsKey,
+                reason,
+                screen: context.currentScreen,
+                history,
+                stepsBeforeEscalation: context.stepsBeforeEscalation,
+              }),
+            });
+
+            if (res.ok) {
+              const { ticketId, wsUrl } = await res.json();
+              console.log(`[Escalation] Ticket created: ${ticketId}`);
+
+              // Connect WebSocket for real-time reply
+              socket?.disconnect();
+              socket = new EscalationSocket({
+                onReply: (reply) => {
+                  console.log(`[Escalation] Human reply received for ticket ${ticketId}`);
+                  onHumanReply?.(reply);
+                  socket?.disconnect();
+                  socket = null;
+                },
+                onError: (err) => {
+                  console.error('[Escalation] WebSocket error:', err);
+                },
+              });
+              socket.connect(wsUrl);
+            } else {
+              console.error('[Escalation] Failed to create ticket:', res.status);
+            }
+          } catch (err) {
+            console.error('[Escalation] Network error:', (err as Error).message);
+          }
+
+          const message = config.escalationMessage ?? 'Connecting you to a human agent...';
+          return `ESCALATED: ${message}`;
+        }
+      }
+
+      // 'custom' provider — fire callback
       const escalationContext: EscalationContext = {
-        conversationSummary: String(args.reason ?? 'User requested human support'),
+        conversationSummary: reason,
         currentScreen: context.currentScreen,
         originalQuery: context.originalQuery,
         stepsBeforeEscalation: context.stepsBeforeEscalation,
       };
+      config.onEscalate?.(escalationContext);
 
-      // Trigger the consumer's escalation callback
-      escalationConfig.onEscalate(escalationContext);
-
-      const message =
-        escalationConfig.escalationMessage ??
-        'Connecting you to a human agent...';
-
+      const message = config.escalationMessage ?? 'Connecting you to a human agent...';
       return `ESCALATED: ${message}`;
     },
   };

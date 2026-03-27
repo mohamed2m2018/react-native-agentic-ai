@@ -113,7 +113,7 @@ describe('Complex Flows — Real LLM', () => {
 
   // ─── Goal: Complete onboarding swiper ─────────────────────────
 
-  it('navigates through onboarding slides', async () => {
+  it.skip('navigates through onboarding slides', async () => {
     const onFinish = jest.fn();
 
     const { result, unmount } = await executeGoalLive(

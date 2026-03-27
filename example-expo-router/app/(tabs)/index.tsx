@@ -1,4 +1,7 @@
 import { StyleSheet, FlatList, Pressable } from 'react-native';
+// import { AIZone } from 'experimental-stuff'; // old
+import { AIZone } from '@mobileai/react-native';
+
 import { Link } from 'expo-router';
 import { Text, View } from '@/components/Themed';
 
@@ -14,34 +17,40 @@ const PRODUCTS = [
 export default function HomeScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Welcome to ShopApp</Text>
-      <Text style={styles.subtitle}>Browse our products</Text>
+      {/* Hero banner — low priority: AI can simplify this section */}
+      <AIZone id="hero-banner" allowSimplify>
+        <Text style={styles.header}>Welcome to ShopApp</Text>
+        <Text style={styles.subtitle}>Browse our products</Text>
+      </AIZone>
 
-      <FlatList
-        data={PRODUCTS}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Link href={`/product/${item.id}`} asChild>
-            <Pressable style={styles.card}>
-              <View style={[styles.badge, { backgroundColor: getCategoryColor(item.category) }]}>
-                <Text style={styles.badgeText}>{item.category.charAt(0)}</Text>
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                <Text style={styles.cardCategory}>{item.category}</Text>
-              </View>
-              <Text style={styles.cardPrice}>${item.price}</Text>
-            </Pressable>
-          </Link>
-        )}
-      />
+      {/* Product list — high priority: AI can highlight items and simplify */}
+      <AIZone id="product-list" allowHighlight allowSimplify>
+        <FlatList
+          data={PRODUCTS}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => (
+            <Link href={`/product/${item.id}`} asChild>
+              <Pressable style={styles.card}>
+                <View style={[styles.badge, { backgroundColor: getCategoryColor(item.category) }]}>
+                  <Text style={styles.badgeText}>{item.category.charAt(0)}</Text>
+                </View>
+                <View style={styles.cardContent}>
+                  <Text style={styles.cardTitle}>{item.name}</Text>
+                  <Text style={styles.cardCategory}>{item.category}</Text>
+                </View>
+                <Text style={styles.cardPrice}>${item.price}</Text>
+              </Pressable>
+            </Link>
+          )}
+        />
 
-      <Link href="/categories" asChild>
-        <Pressable style={styles.browseButton}>
-          <Text style={styles.browseButtonText}>Browse All Categories</Text>
-        </Pressable>
-      </Link>
+        <Link href="/categories" asChild>
+          <Pressable style={styles.browseButton}>
+            <Text style={styles.browseButtonText}>Browse All Categories</Text>
+          </Pressable>
+        </Link>
+      </AIZone>
     </View>
   );
 }

@@ -25,16 +25,15 @@ config.resolver.extraNodeModules = {
   [pkg.name]: monorepoRoot,
 };
 
-// Resolve the library's package name imports to src/ for development
-// This bypasses the "exports" field in package.json that points to lib/module/
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === pkg.name || moduleName.startsWith(pkg.name + '/')) {
-    const subPath = moduleName.replace(pkg.name, '');
-    const srcPath = path.resolve(monorepoRoot, 'src', subPath || 'index');
-    return context.resolveRequest(context, srcPath, platform);
-  }
-  return context.resolveRequest(context, moduleName, platform);
-};
+// resolveRequest disabled — testing published npm package
+// config.resolver.resolveRequest = (context, moduleName, platform) => {
+//   if (moduleName === pkg.name || moduleName.startsWith(pkg.name + '/')) {
+//     const subPath = moduleName.replace(pkg.name, '');
+//     const srcPath = path.resolve(monorepoRoot, 'src', subPath || 'index');
+//     return context.resolveRequest(context, srcPath, platform);
+//   }
+//   return context.resolveRequest(context, moduleName, platform);
+// };
 
 // Block the parent's node_modules versions of react/react-native
 // from being resolved via watchFolders

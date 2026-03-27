@@ -177,8 +177,9 @@ export async function executeGoalLive(
   result: ExecutionResult;
   navRef: ReturnType<typeof createMockNavRef>;
   unmount: () => void;
+  renderer: any; // using any since @types/react-test-renderer is apparently missing in the project
 }> {
-  const { fiber, unmount } = renderToFiber(element);
+  const { fiber, renderer, unmount } = renderToFiber(element);
   const { runtime, navRef } = createLiveRuntime({
     fiber,
     nav: navConfig,
@@ -187,7 +188,7 @@ export async function executeGoalLive(
 
   const result = await runtime.execute(goal);
 
-  return { result, navRef, unmount };
+  return { result, navRef, unmount, renderer };
 }
 
 // ─── Scripted Provider (for deterministic edge-case tests) ──────

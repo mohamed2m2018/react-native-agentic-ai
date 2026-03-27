@@ -28,9 +28,13 @@ import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
-import { extractTouchLabel } from '../services/telemetry/TouchAutoCapture';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
+import { extractTouchLabel, checkRageClick } from '../services/telemetry/TouchAutoCapture';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
+import { HighlightOverlay } from './HighlightOverlay';
+import { IdleDetector } from '../core/IdleDetector';
+import { ProactiveHint } from './ProactiveHint';
+import { createEscalateTool } from '../support/escalateTool';
 
 // ─── Context ───────────────────────────────────────────────────
 
@@ -167,23 +171,30 @@ interface AIAgentProps {
    */
   useScreenMap?: boolean;
 
-  // ── Analytics (opt-in) ──────────────
+  // ── Analytics (opt-in) ── @internal — requires api.mobileai.dev ──
 
   /**
+   * @internal Requires api.mobileai.dev — not yet available.
    * Publishable analytics key (mobileai_pub_xxx).
-   * Enables telemetry to MobileAI Cloud. Write-only — cannot read data.
    */
   analyticsKey?: string;
   /**
+   * @internal Requires api.mobileai.dev — not yet available.
    * Proxy URL for enterprise customers — routes events through your backend.
-   * Replaces direct MobileAI Cloud API.
    */
   analyticsProxyUrl?: string;
   /**
+   * @internal Requires api.mobileai.dev — not yet available.
    * Custom headers for analyticsProxyUrl (e.g., auth tokens).
    */
   analyticsProxyHeaders?: Record<string, string>;
+
+  /**
+   * Proactive agent configuration (detects user hesitation)
+   */
+  proactiveHelp?: ProactiveHelpConfig;
 }
+
 
 // ─── Component ─────────────────────────────────────────────────
 
@@ -230,6 +241,7 @@ export function AIAgent({
   analyticsKey,
   analyticsProxyUrl,
   analyticsProxyHeaders,
+  proactiveHelp,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -249,6 +261,43 @@ export function AIAgent({
     setMessages([]);
     setLastResult(null);
   }, []);
+
+  // ─── Auto-create MobileAI escalation tool ─────────────────────
+  // When analyticsKey is present and consumer hasn't provided their own
+  // escalate_to_human tool, auto-wire the MobileAI platform provider.
+  // Human replies from the dashboard inbox are injected into chat messages.
+  const autoEscalateTool = useMemo(() => {
+    if (!analyticsKey) return null;
+    if (customTools?.['escalate_to_human']) return null; // consumer overrides
+    return createEscalateTool({
+      config: { provider: 'mobileai' },
+      analyticsKey,
+      getContext: () => ({
+        currentScreen: (navRef as any)?.getCurrentRoute?.()?.name ?? 'unknown',
+        originalQuery: '',
+        stepsBeforeEscalation: 0,
+      }),
+      getHistory: () =>
+        messages.map((m) => ({ role: m.role, content: m.content })),
+      onHumanReply: (reply: string) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `human-${Date.now()}`,
+            role: 'assistant' as const,
+            content: `👤 Human Agent: ${reply}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsKey, navRef, customTools]);
+
+  const mergedCustomTools = useMemo(() => {
+    if (!autoEscalateTool) return customTools;
+    return { escalate_to_human: autoEscalateTool, ...customTools };
+  }, [autoEscalateTool, customTools]);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -294,7 +343,7 @@ export function AIAgent({
     onAfterStep,
     onBeforeTask,
     onAfterTask,
-    customTools: mode === 'voice' ? { ...customTools, ask_user: null } : customTools,
+    customTools: mode === 'voice' ? { ...mergedCustomTools, ask_user: null } : mergedCustomTools,
     instructions,
     stepDelay,
     mcpServerUrl,
@@ -376,6 +425,20 @@ export function AIAgent({
     };
   }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, debug]);
 
+  // ─── Security warnings ──────────────────────────────────────
+
+  useEffect(() => {
+    // @ts-ignore
+    if (typeof __DEV__ !== 'undefined' && !__DEV__ && apiKey && !proxyUrl) {
+      console.warn(
+        '[MobileAI] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
+        'This exposes your LLM provider key in the app binary. ' +
+        'Use `apiProxyUrl` to route requests through your backend instead. ' +
+        'See docs for details.'
+      );
+    }
+  }, [apiKey, proxyUrl]);
+
   // Track screen changes via navRef
   useEffect(() => {
     if (!navRef?.addListener || !telemetryRef.current) return;
@@ -402,6 +465,42 @@ export function AIAgent({
       bridge.destroy();
     };
   }, [mcpServerUrl, runtime]);
+
+  // ─── Proactive Idle Agent ────────────────────────────────────
+
+  const idleDetectorRef = useRef<IdleDetector | null>(null);
+  const [proactiveStage, setProactiveStage] = useState<'hidden' | 'pulse' | 'badge'>('hidden');
+  const [proactiveBadgeText, setProactiveBadgeText] = useState('');
+
+  useEffect(() => {
+    if (proactiveHelp?.enabled === false) {
+      idleDetectorRef.current?.destroy();
+      idleDetectorRef.current = null;
+      setProactiveStage('hidden');
+      return;
+    }
+
+    if (!idleDetectorRef.current) {
+      idleDetectorRef.current = new IdleDetector();
+    }
+
+    idleDetectorRef.current.start({
+      pulseAfterMs: (proactiveHelp?.pulseAfterMinutes || 2) * 60000,
+      badgeAfterMs: (proactiveHelp?.badgeAfterMinutes || 4) * 60000,
+      onPulse: () => setProactiveStage('pulse'),
+      onBadge: (suggestion: string) => {
+        setProactiveBadgeText(suggestion);
+        setProactiveStage('badge');
+      },
+      onReset: () => setProactiveStage('hidden'),
+      generateSuggestion: () => proactiveHelp?.generateSuggestion?.(telemetryRef.current?.screen || 'Home') || proactiveHelp?.badgeText || "Need help with this screen?",
+    });
+
+    return () => {
+      idleDetectorRef.current?.destroy();
+      idleDetectorRef.current = null;
+    };
+  }, [proactiveHelp, telemetryRef]);
 
   // ─── Voice/Live Service Initialization ──────────────────────
 
@@ -839,13 +938,23 @@ export function AIAgent({
             // already tracked as `agent_step` events with full context.
             if (telemetryRef.current && !telemetryRef.current.isAgentActing) {
               const label = extractTouchLabel(event.nativeEvent);
-              if (label !== 'Unknown Element') {
+              if (label && label !== 'Unknown Element' && label !== '[pressable]') {
                 telemetryRef.current.track('user_interaction', {
                   type: 'tap',
                   label,
                   actor: 'user',
                   x: Math.round(event.nativeEvent.pageX),
                   y: Math.round(event.nativeEvent.pageY),
+                });
+
+                // Track if user is rage-tapping this specific element
+                checkRageClick(label, telemetryRef.current);
+              } else {
+                // Tapped an unlabelled/empty area
+                telemetryRef.current.track('dead_click', {
+                  x: Math.round(event.nativeEvent.pageX),
+                  y: Math.round(event.nativeEvent.pageY),
+                  screen: telemetryRef.current.screen,
                 });
               }
             }
@@ -854,6 +963,7 @@ export function AIAgent({
           }}
         >
           <AgentErrorBoundary
+            telemetryRef={telemetryRef}
             onError={(error, componentStack) => {
               const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
               lastAgentErrorRef.current = errorMsg;
@@ -864,14 +974,21 @@ export function AIAgent({
           </AgentErrorBoundary>
         </View>
 
-        {/* Floating UI — absolute-positioned View that passes touches through */}
-        {(showChatBar || isThinking) && (
-          <View style={styles.floatingLayer} pointerEvents="box-none">
-            {/* Overlay (shown while thinking) */}
-            <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
+        {/* Floating UI — absolute-positioned View that passes touches pass-through unless interacting */}
+        <View style={styles.floatingLayer} pointerEvents="box-none">
+          {/* Highlight Overlay (always active, listens to events) */}
+          <HighlightOverlay />
 
-            {/* Chat bar */}
-            {showChatBar && (
+          {/* Overlay (shown while thinking) */}
+          <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
+
+          {/* Chat bar wrapped in Proactive Hint */}
+          {showChatBar && (
+            <ProactiveHint
+              stage={proactiveStage}
+              badgeText={proactiveBadgeText}
+              onDismiss={() => idleDetectorRef.current?.dismiss()}
+            >
               <AgentChatBar
                 onSend={handleSend}
                 isThinking={isThinking}
@@ -919,11 +1036,10 @@ export function AIAgent({
                     audioOutputRef.current?.unmute();
                   }
                 }}
-
               />
-            )}
-          </View>
-        )}
+            </ProactiveHint>
+          )}
+        </View>
       </View>
     </AgentContext.Provider>
   );

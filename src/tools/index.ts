@@ -13,5 +13,8 @@ export { createSliderTool } from './sliderTool';
 export { createPickerTool } from './pickerTool';
 export { createDatePickerTool } from './datePickerTool';
 export { createKeyboardTool } from './keyboardTool';
+export { createGuideTool } from './guideTool';
+export { createSimplifyTool } from './simplifyTool';
+export { createRestoreTool } from './restoreTool';
 
 export type { AgentTool, ToolContext, ToolParameter } from './types';

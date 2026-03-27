@@ -42,20 +42,19 @@ const DEFAULT_CONTEXT: AgentContextValue = {
 
 export const AgentContext = createContext<AgentContextValue>(DEFAULT_CONTEXT);
 
+import { actionRegistry } from '../core/ActionRegistry';
+import type { ActionParameterDef } from '../core/types';
+
 // ─── useAction ────────────────────────────────────────────────
 
 export function useAction(
   name: string,
   description: string,
-  parameters: Record<string, string>,
+  parameters: Record<string, string | ActionParameterDef>,
   handler: (args: Record<string, any>) => any,
 ): void {
-  const { runtime: agentRuntime } = useContext(AgentContext);
-
   useEffect(() => {
-    if (!agentRuntime) return;
-
-    agentRuntime.registerAction({
+    actionRegistry.register({
       name,
       description,
       parameters,
@@ -63,7 +62,7 @@ export function useAction(
     });
 
     return () => {
-      agentRuntime.unregisterAction(name);
+      actionRegistry.unregister(name);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, description]);

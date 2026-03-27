@@ -33,14 +33,20 @@ import { MCPBridge } from '../../core/MCPBridge';
 
 // ─── Mock Runtime Factory ──────────────────────────────────────
 
-function createMockRuntime(isRunning = false) {
+function createMockRuntime(isRunning = false, serverMode: 'auto' | 'enabled' | 'disabled' = 'auto') {
   return {
+    getConfig: jest.fn().mockReturnValue({ mcpServerMode: serverMode }),
     getIsRunning: jest.fn().mockReturnValue(isRunning),
     execute: jest.fn().mockResolvedValue({
       success: true,
       message: 'Task completed',
       steps: [],
     }),
+    getTools: jest.fn().mockReturnValue([
+      { name: 'test_tool', description: 'A test tool', parameters: { id: { type: 'string', description: 'desc', required: true } } }
+    ]),
+    executeTool: jest.fn().mockResolvedValue('Tool ran successfully'),
+    getScreenContext: jest.fn().mockReturnValue('<screen>Test</screen>'),
   } as any;
 }
 
@@ -132,5 +138,68 @@ describe('MCPBridge', () => {
     expect((bridge as any).reconnectTimer).not.toBeNull();
 
     bridge.destroy();
+  });
+
+  describe('Server Mode (tools/list, tools/call, screen/state)', () => {
+    it('rejects server messages if server mode is disabled', async () => {
+      const runtime = createMockRuntime(false, 'disabled');
+      const bridge = new MCPBridge('ws://localhost:3101', runtime);
+      const ws = (bridge as any).ws as MockWebSocket;
+      ws.onopen?.();
+
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'tools/list', requestId: '1' }) });
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'tools/call', name: 'tool', requestId: '2' }) });
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'screen/state', requestId: '3' }) });
+
+      expect(ws.send).toHaveBeenCalledTimes(3);
+      const r1 = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(r1.payload.error).toContain('disabled');
+
+      bridge.destroy();
+    });
+
+    it('handles tools/list correctly when enabled', async () => {
+      const runtime = createMockRuntime(false, 'enabled');
+      const bridge = new MCPBridge('ws://localhost:3101', runtime);
+      const ws = (bridge as any).ws as MockWebSocket;
+      ws.onopen?.();
+
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'tools/list', requestId: '1' }) });
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      const res = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(res.payload.tools[0].name).toBe('test_tool');
+
+      bridge.destroy();
+    });
+
+    it('handles tools/call correctly when enabled', async () => {
+      const runtime = createMockRuntime(false, 'enabled');
+      const bridge = new MCPBridge('ws://localhost:3101', runtime);
+      const ws = (bridge as any).ws as MockWebSocket;
+      ws.onopen?.();
+
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'tools/call', name: 'test_tool', arguments: { id: 'x' }, requestId: '2' }) });
+      expect(runtime.executeTool).toHaveBeenCalledWith('test_tool', { id: 'x' });
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      const res = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(res.payload.result).toBe('Tool ran successfully');
+
+      bridge.destroy();
+    });
+
+    it('handles screen/state correctly when enabled', async () => {
+      const runtime = createMockRuntime(false, 'enabled');
+      const bridge = new MCPBridge('ws://localhost:3101', runtime);
+      const ws = (bridge as any).ws as MockWebSocket;
+      ws.onopen?.();
+
+      await ws.onmessage?.({ data: JSON.stringify({ type: 'screen/state', requestId: '3' }) });
+      expect(runtime.getScreenContext).toHaveBeenCalled();
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      const res = JSON.parse(ws.send.mock.calls[0][0]);
+      expect(res.payload.screen).toContain('Test');
+
+      bridge.destroy();
+    });
   });
 });

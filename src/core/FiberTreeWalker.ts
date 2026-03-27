@@ -48,19 +48,7 @@ const VIDEO_TYPES = new Set([
   'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer', 'VideoView',
 ]);
 
-// Overlay component names — these render ABOVE the active screen's subtree
-// (as siblings of the navigation container), so the screen-scoped walker misses them.
-// We detect these by name and walk them in a second pass.
-const OVERLAY_COMPONENT_NAMES = new Set([
-  // Toast libraries
-  'Toast', 'ToastContainer', 'ToastRender', 'FlashMessage', 'DropdownAlert',
-  'SnackBar', 'Snackbar', 'NotificationContainer',
-  // Dialog/Alert libraries
-  'Dialog', 'DialogContainer', 'AlertDialog',
-  // Modal/BottomSheet
-  'BottomSheet', 'ActionSheet', 'RBSheet', 'BottomSheetModal',
-  'Popup', 'PopupContainer', 'Tooltip',
-]);
+
 
 // Known RN internal component names to skip when walking up for context
 const RN_INTERNAL_NAMES = new Set([
@@ -442,70 +430,10 @@ export interface WalkResult {
   interactives: InteractiveElement[];
 }
 
-// ─── Overlay Detection ─────────────────────────────────────────
-
-/**
- * Scan the root fiber tree for visible overlay nodes (toasts, dialogs, modals)
- * that render OUTSIDE the active screen's subtree.
- *
- * Toast/dialog libraries (react-native-alert-notification, react-native-flash-message, etc.)
- * typically render their overlay as a SIBLING of the navigation container:
- *   <Root>
- *     {children}       ← navigation tree (contains screens)
- *     <Toast ... />     ← overlay (outside screen subtree)
- *   </Root>
- *
- * This function finds those overlay nodes so the main walker can include them.
- */
-function findOverlayNodes(rootFiber: any, screenSubtree: any): any[] {
-  const overlays: any[] = [];
-
-  function scan(node: any): void {
-    if (!node) return;
-
-    // Skip the screen subtree itself (already walked by main pass)
-    if (node === screenSubtree) {
-      // Don't scan children, but DO scan siblings
-      if (node.sibling) scan(node.sibling);
-      return;
-    }
-
-    const name = getComponentName(node);
-    const props = node.memoizedProps || {};
-    const style = props.style || {};
-    // Flatten array styles (StyleSheet.flatten equivalent)
-    const flatStyle = Array.isArray(style)
-      ? Object.assign({}, ...style.filter(Boolean))
-      : style;
-
-    // Detection: known overlay component name
-    const isOverlayByName = name && OVERLAY_COMPONENT_NAMES.has(name);
-
-    // Detection: position absolute with content (likely a floating overlay)
-    const isOverlayByStyle = flatStyle.position === 'absolute' &&
-      (flatStyle.zIndex > 100 || flatStyle.elevation > 10);
-
-    if (isOverlayByName || isOverlayByStyle) {
-      // Only include if the overlay has visible content (not empty/hidden)
-      const hasChildren = !!node.child;
-      const isHidden = flatStyle.opacity === 0 || flatStyle.display === 'none';
-      if (hasChildren && !isHidden) {
-        logger.debug('FiberTreeWalker', `Found overlay: ${name || 'unnamed'} (byName=${isOverlayByName}, byStyle=${isOverlayByStyle})`);
-        overlays.push(node);
-        // Don't scan children of found overlays (the main walker will handle them)
-        if (node.sibling) scan(node.sibling);
-        return;
-      }
-    }
-
-    // Continue scanning children and siblings
-    if (node.child) scan(node.child);
-    if (node.sibling) scan(node.sibling);
-  }
-
-  scan(rootFiber);
-  return overlays;
-}
+// ─── Note on overlays ──────────────────────────────────────────
+// Toasts, modals, and dialogs are now captured naturally because
+// walkFiberTree starts from the root Fiber and prunes only
+// display:none nodes (inactive screens). No separate overlay scan needed.
 
 // ─── Main Tree Walker ──────────────────────────────────────────
 
@@ -520,30 +448,49 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     return { elementsText: '', interactives: [] };
   }
 
-  // Scope to active screen's subtree if screenName is provided
-  let startNode = fiber;
+  // Always walk from the root Fiber — inactive screens are pruned inside
+  // processNode by checking for display:none, which React Navigation applies
+  // to all inactive screens. This ensures navigation chrome (tab bar, header)
+  // is always included without hardcoding any component names.
+  const startNode = fiber;
   if (config?.screenName) {
-    const screenFiber = findScreenFiberNode(fiber, config.screenName);
-    if (screenFiber) {
-      startNode = screenFiber;
-      logger.debug('FiberTreeWalker', `Walk scoped to screen "${config.screenName}" (component: ${getComponentName(screenFiber)})`);
-    } else {
-      logger.debug('FiberTreeWalker', `Screen "${config.screenName}" not found in Fiber tree — searching entire tree`);
-    }
+    logger.debug('FiberTreeWalker', `Walk active for screen "${config.screenName}" (inactive screens pruned via display:none)`);
   }
 
-  // Collect overlay nodes (toasts, dialogs, modals) that render outside the screen subtree.
-  // These are siblings of the navigation container at the root fiber level.
-  const overlayNodes = config?.screenName ? findOverlayNodes(fiber, startNode) : [];
+  // Overlay detection is superseded by root-level walk — all visible nodes
+  // (toasts, modals, overlays) are included naturally since they aren't hidden.
+  const overlayNodes: any[] = [];
 
   const interactives: InteractiveElement[] = [];
   let currentIndex = 0;
   const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
 
-  function processNode(node: any, depth: number = 0, isInsideInteractive: boolean = false, ancestorOnPress: any = null): string {
+  function processNode(
+    node: any, 
+    depth: number = 0, 
+    isInsideInteractive: boolean = false, 
+    ancestorOnPress: any = null,
+    currentZoneId: string | undefined = undefined
+  ): string {
     if (!node) return '';
 
     const props = node.memoizedProps || {};
+
+    // ── Prune inactive screens ──────────────────────────────────
+    // Two mechanisms cover all React Navigation setups:
+    //
+    // 1. react-native-screens (Expo default, recommended):
+    //    React Navigation sets activityState=0 on inactive tab screens.
+    //    Stack screens retain activityState=2 even in the background (NativeStack
+    //    never decreases activityState — confirmed from react-native-screens source).
+    //    Those are kept as useful navigation history context for the agent.
+    //
+    // 2. ResourceSavingScene (React Navigation fallback without react-native-screens):
+    //    Wraps inactive screen content with pointerEvents="none". Prune any such wrapper.
+    //
+    // Both are prop-based — no component names, no CSS display property.
+    if (props.activityState === 0) return '';
+    if (props.pointerEvents === 'none') return '';
 
     // ── Security Constraints ──
     if (props.aiIgnore === true) return '';
@@ -591,6 +538,25 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     const producesOutput = shouldInclude || isTextNode || isImageNode || isVideoNode;
     const childDepth = producesOutput ? depth + 1 : depth;
 
+    const nextZoneId = componentName === 'AIZone' && props.id ? props.id : currentZoneId;
+
+    const indent = '  '.repeat(depth);
+
+    // ── Zone Header Emission ──────────────────────────────────
+    // When entering an AIZone boundary, emit a section header so the agent
+    // knows this zone exists, what its id is, and what it's allowed to do.
+    // This is what lets the agent call simplify_zone / guide_user proactively.
+    let zoneHeader = '';
+    if (componentName === 'AIZone' && props.id) {
+      const permissions: string[] = [];
+      if (props.allowSimplify) permissions.push('simplify');
+      if (props.allowHighlight) permissions.push('highlight');
+      if (props.allowInjectHint) permissions.push('hint');
+      if (props.allowInjectCard) permissions.push('card');
+      const permStr = permissions.length ? ` | permissions: ${permissions.join(', ')}` : '';
+      zoneHeader = `${indent}[zone: ${props.id}${permStr}]\n`;
+    }
+
     // Process children
     let childrenText = '';
     let currentChild = node.child;
@@ -600,11 +566,15 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         childDepth,
         isInsideInteractive || !!shouldInclude,
         nextAncestorOnPress,
+        nextZoneId,
       );
       currentChild = currentChild.sibling;
     }
 
-    const indent = '  '.repeat(depth);
+    // Prepend zone header before children if this is a zone root
+    if (zoneHeader) {
+      childrenText = zoneHeader + childrenText;
+    }
 
     if (shouldInclude) {
       const resolvedType = elementType || 'pressable';
@@ -623,23 +593,40 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (!label && (props.testID || props.nativeID)) {
         label = props.testID || props.nativeID;
       }
-      // Fallback: Parent component context
+      // Fallback: Parent component context (skip internal RN context names)
       if (!label) {
         const parentContext = getNearestCustomComponentName(node);
-        if (parentContext) label = parentContext;
+        if (parentContext) {
+          // Skip React Native internal implementation names that leak as labels.
+          // These are never meaningful to the AI or developer.
+          const RN_INTERNAL_NAMES = new Set([
+            'ScrollViewContext', 'VirtualizedListContext', 'ViewabilityHelper',
+            'ScrollResponder', 'AnimatedComponent', 'TouchableOpacity',
+          ]);
+          if (!RN_INTERNAL_NAMES.has(parentContext)) {
+            label = parentContext;
+          }
+        }
       }
 
       interactives.push({
         index: currentIndex,
         type: resolvedType,
         label: label || `[${resolvedType}]`,
+        aiPriority: props.aiPriority,
+        zoneId: currentZoneId,
         fiberNode: node,
         props: { ...props },
       });
 
       // Build output tag with state attributes
       const stateAttrs = extractStateAttributes(props);
-      const attrStr = stateAttrs ? ` ${stateAttrs}` : '';
+      let attrStr = stateAttrs ? ` ${stateAttrs}` : '';
+      if (props.aiPriority) {
+        attrStr += ` aiPriority="${props.aiPriority}"`;
+        if (currentZoneId) attrStr += ` zoneId="${currentZoneId}"`;
+      }
+      
       const textContent = label || '';
       const elementOutput = `${indent}[${currentIndex}]<${resolvedType}${attrStr}>${textContent} />${childrenText.trim() ? '\n' + childrenText : ''}\n`;
       currentIndex++;
@@ -651,7 +638,8 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (isTextNode) {
       const textContent = extractRawText(props.children);
       if (textContent && textContent.trim() !== '') {
-        return `${indent}${textContent.trim()}\n`;
+        const priorityTag = props.aiPriority ? ` (aiPriority="${props.aiPriority}"${currentZoneId ? ` zoneId="${currentZoneId}"` : ''})` : '';
+        return `${indent}${textContent.trim()}${priorityTag}\n`;
       }
     }
 

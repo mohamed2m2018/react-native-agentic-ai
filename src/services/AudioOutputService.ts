@@ -10,6 +10,7 @@
 
 import { logger } from '../utils/logger';
 import { base64ToFloat32 } from '../utils/audioUtils';
+import { NativeModules } from 'react-native';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -44,6 +45,18 @@ export class AudioOutputService {
     try {
       let audioApi: any;
       try {
+        // Guard: NativeModules.AudioApiModule is only present in dev/prod builds.
+        // In Expo Go it is undefined, and require() throws a native bridge error
+        // that cannot be caught by a standard try/catch.
+        if (!NativeModules.AudioApiModule) {
+          const msg =
+            '[mobileai] react-native-audio-api native module not found. '
+            + 'Voice audio output requires a development build (not Expo Go). '
+            + 'Run: npx expo run:ios';
+          logger.warn('AudioOutput', msg);
+          this.config.onError?.(msg);
+          return false;
+        }
         const audioApiModule = ['react-native', 'audio-api'].join('-');
         audioApi = require(audioApiModule);
       } catch {
