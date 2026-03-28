@@ -256,6 +256,7 @@ export default function App() {
       <CartProvider>
         <AIAgent
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
+          analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY || ''}
           navRef={navRef}
           screenMap={screenMap}
           maxSteps={25}
