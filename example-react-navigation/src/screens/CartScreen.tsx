@@ -6,11 +6,17 @@ export default function CartScreen() {
   const { cart, removeFromCart, clearCart, getTotal } = useCart();
 
   // Expose checkout to the AI as a non-UI action with HARD SECURITY confirmation
-  useAction('checkout', 'Place the order and checkout', {}, async () => {
-    if (cart.length === 0) {
-      return { success: false, message: 'Cart is empty' };
-    }
-    const total = getTotal();
+  // We pass cart.length and getTotal() as dependencies so the AI's tool description
+  // dynamically updates to show the live item count and price.
+  useAction(
+    'checkout',
+    `Place the order and checkout (${cart.length} items for $${getTotal()})`,
+    {},
+    async () => {
+      if (cart.length === 0) {
+        return { success: false, message: 'Cart is empty' };
+      }
+      const total = getTotal();
 
     // 🔒 SECURITY: The AI's execution is paused here until the human actively confirms via Alert.
     return new Promise((resolve) => {
@@ -35,7 +41,7 @@ export default function CartScreen() {
         ]
       );
     });
-  });
+  }, [cart.length, getTotal()]);
 
   return (
     <View style={styles.container}>

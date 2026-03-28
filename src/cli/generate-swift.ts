@@ -48,7 +48,7 @@ import UIKit
     
     if (Object.keys(params).length > 0) {
       swiftCode += `        var queryItems: [URLQueryItem] = []\n`;
-      for (const [key, param] of Object.entries<any>(params)) {
+      for (const [key, _param] of Object.entries<any>(params)) {
         swiftCode += `        if let val = ${key} {\n`;
         swiftCode += `            queryItems.append(URLQueryItem(name: "${key}", value: String(describing: val)))\n`;
         swiftCode += `        }\n`;

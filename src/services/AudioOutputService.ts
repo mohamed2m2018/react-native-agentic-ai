@@ -57,8 +57,9 @@ export class AudioOutputService {
           this.config.onError?.(msg);
           return false;
         }
-        const audioApiModule = ['react-native', 'audio-api'].join('-');
-        audioApi = require(audioApiModule);
+        // Static require — Metro needs a literal string.
+        // The NativeModules guard above already prevents this from running in Expo Go.
+        audioApi = require('react-native-audio-api');
       } catch {
         const msg =
           'react-native-audio-api is required for audio output. Install with: npm install react-native-audio-api';

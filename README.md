@@ -588,23 +588,33 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ### `useAction` — Custom AI-Callable Business Logic
 
+Register isolated, headless logic for the AI to call (e.g., API requests, checkouts).
+The handler is kept automatically fresh internally, so you never get stuck with a stale closure. The optional `deps` array re-registers the action so the AI sees an updated description.
+
 ```tsx
 import { useAction } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 
 function CartScreen() {
   const { cart, clearCart, getTotal } = useCart();
 
-  useAction('checkout', 'Place the order and checkout', {}, async () => {
-    if (cart.length === 0) return { success: false, message: 'Cart is empty' };
+  // Passing [cart.length] ensures the AI receives the live item count in its context!
+  useAction(
+    'checkout',
+    `Place the order and checkout (${cart.length} items for $${getTotal()})`,
+    {},
+    async () => {
+      if (cart.length === 0) return { success: false, message: 'Cart is empty' };
 
-    // Human-in-the-loop: AI pauses until user taps Confirm
-    return new Promise((resolve) => {
-      Alert.alert('Confirm Order', `Place order for $${getTotal()}?`, [
-        { text: 'Cancel', onPress: () => resolve({ success: false, message: 'User denied.' }) },
-        { text: 'Confirm', onPress: () => { clearCart(); resolve({ success: true, message: `Order placed!` }); } },
-      ]);
-    });
-  });
+      // Human-in-the-loop: AI pauses until user taps Confirm
+      return new Promise((resolve) => {
+        Alert.alert('Confirm Order', `Place order for $${getTotal()}?`, [
+          { text: 'Cancel', onPress: () => resolve({ success: false, message: 'User denied.' }) },
+          { text: 'Confirm', onPress: () => { clearCart(); resolve({ success: true, message: `Order placed!` }); } },
+        ]);
+      });
+    },
+    [cart.length, getTotal]
+  );
 }
 ```
 

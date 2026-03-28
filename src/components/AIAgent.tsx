@@ -171,20 +171,17 @@ interface AIAgentProps {
    */
   useScreenMap?: boolean;
 
-  // ── Analytics (opt-in) ── @internal — requires api.mobileai.dev ──
+  // ── Analytics (opt-in) ──
 
   /**
-   * @internal Requires api.mobileai.dev — not yet available.
    * Publishable analytics key (mobileai_pub_xxx).
    */
   analyticsKey?: string;
   /**
-   * @internal Requires api.mobileai.dev — not yet available.
    * Proxy URL for enterprise customers — routes events through your backend.
    */
   analyticsProxyUrl?: string;
   /**
-   * @internal Requires api.mobileai.dev — not yet available.
    * Custom headers for analyticsProxyUrl (e.g., auth tokens).
    */
   analyticsProxyHeaders?: Record<string, string>;
