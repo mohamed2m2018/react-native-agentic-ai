@@ -22,6 +22,18 @@ export interface EscalationToolDeps {
   getContext: () => Omit<EscalationContext, 'conversationSummary'>;
   getHistory: () => Array<{ role: string; content: string }>;
   onHumanReply?: (reply: string) => void;
+  onEscalationStarted?: (ticketId: string, socket: EscalationSocket) => void;
+  onTypingChange?: (isTyping: boolean) => void;
+  userContext?: {
+    userId?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    plan?: string;
+    custom?: Record<string, string | number | boolean>;
+  };
+  pushToken?: string;
+  pushTokenType?: 'fcm' | 'expo' | 'apns';
 }
 
 export function createEscalateTool(deps: EscalationToolDeps): ToolDefinition;
@@ -46,7 +58,7 @@ export function createEscalateTool(
     deps = depsOrConfig as EscalationToolDeps;
   }
 
-  const { config, analyticsKey, getContext, getHistory, onHumanReply } = deps;
+  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, userContext, pushToken, pushTokenType } = deps;
 
   // Determine effective provider
   const provider = config.provider ?? (analyticsKey ? 'mobileai' : 'custom');
@@ -87,6 +99,9 @@ export function createEscalateTool(
                 screen: context.currentScreen,
                 history,
                 stepsBeforeEscalation: context.stepsBeforeEscalation,
+                userContext,
+                pushToken,
+                pushTokenType,
               }),
             });
 
@@ -100,14 +115,17 @@ export function createEscalateTool(
                 onReply: (reply) => {
                   console.log(`[Escalation] Human reply received for ticket ${ticketId}`);
                   onHumanReply?.(reply);
-                  socket?.disconnect();
-                  socket = null;
+                  // We do NOT disconnect the socket anymore so multi-turn can continue
                 },
+                onTypingChange,
                 onError: (err) => {
                   console.error('[Escalation] WebSocket error:', err);
                 },
               });
               socket.connect(wsUrl);
+              
+              // Pass the socket to UI
+              onEscalationStarted?.(ticketId, socket);
             } else {
               console.error('[Escalation] Failed to create ticket:', res.status);
             }

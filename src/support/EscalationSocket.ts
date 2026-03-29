@@ -19,6 +19,7 @@ export type SocketReplyHandler = (reply: string) => void;
 interface EscalationSocketOptions {
   onReply: SocketReplyHandler;
   onError?: (error: Event) => void;
+  onTypingChange?: (isTyping: boolean) => void;
   maxReconnectAttempts?: number;
 }
 
@@ -31,11 +32,13 @@ export class EscalationSocket {
 
   private readonly onReply: SocketReplyHandler;
   private readonly onError?: (error: Event) => void;
+  private readonly onTypingChange?: (isTyping: boolean) => void;
   private readonly maxReconnectAttempts: number;
 
   constructor(options: EscalationSocketOptions) {
     this.onReply = options.onReply;
     this.onError = options.onError;
+    this.onTypingChange = options.onTypingChange;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 3;
   }
 
@@ -43,6 +46,22 @@ export class EscalationSocket {
     this.wsUrl = wsUrl;
     this.intentionalClose = false;
     this.openConnection();
+  }
+
+  sendText(text: string): boolean {
+    if (this.ws?.readyState === 1) { // WebSocket.OPEN
+      this.ws.send(JSON.stringify({ type: 'user_message', content: text }));
+      return true;
+    }
+    return false;
+  }
+
+  sendTypingStatus(isTyping: boolean): boolean {
+    if (this.ws?.readyState === 1) {
+      this.ws.send(JSON.stringify({ type: isTyping ? 'typing_start' : 'typing_stop' }));
+      return true;
+    }
+    return false;
   }
 
   disconnect(): void {
@@ -68,16 +87,27 @@ export class EscalationSocket {
     }
 
     this.ws.onopen = () => {
-      console.log('[EscalationSocket] Connected:', this.wsUrl);
+      console.log('[EscalationSocket] ✅ Connected to:', this.wsUrl);
       this.reconnectAttempts = 0;
     };
 
     this.ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(String(event.data));
-        if (msg.type === 'ping') return; // heartbeat — ignore
+        const rawData = String(event.data);
+        console.log('[EscalationSocket] Message received:', rawData);
+        const msg = JSON.parse(rawData);
+        if (msg.type === 'ping') {
+          console.log('[EscalationSocket] Heartbeat ping received');
+          return;
+        }
         if (msg.type === 'reply' && msg.reply) {
+          console.log('[EscalationSocket] Human reply received:', msg.reply);
+          this.onTypingChange?.(false);
           this.onReply(msg.reply);
+        } else if (msg.type === 'typing_start') {
+          this.onTypingChange?.(true);
+        } else if (msg.type === 'typing_stop') {
+          this.onTypingChange?.(false);
         }
       } catch {
         // Non-JSON message — ignore
@@ -85,13 +115,13 @@ export class EscalationSocket {
     };
 
     this.ws.onerror = (event) => {
-      console.error('[EscalationSocket] Error:', event);
+      console.error('[EscalationSocket] ❌ WebSocket error. URL was:', this.wsUrl, event);
       this.onError?.(event);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      console.warn(`[EscalationSocket] Connection closed. Code=${event.code} Reason="${event.reason}" Intentional=${this.intentionalClose}`);
       if (this.intentionalClose) return;
-      console.warn('[EscalationSocket] Connection closed unexpectedly');
       this.scheduleReconnect();
     };
   }

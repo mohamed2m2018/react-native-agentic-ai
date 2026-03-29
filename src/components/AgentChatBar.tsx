@@ -51,6 +51,8 @@ interface AgentChatBarProps {
   isAISpeaking?: boolean;
   /** Voice WebSocket is connected */
   isVoiceConnected?: boolean;
+  /** Live human agent is typing */
+  isAgentTyping?: boolean;
   /** Full session cleanup (stop mic, audio, WebSocket, live mode) */
   onStopSession?: () => void;
   /** Color theme overrides */
@@ -63,16 +65,23 @@ function ModeSelector({
   modes,
   activeMode,
   onSelect,
+  isArabic = false,
 }: {
   modes: AgentMode[];
   activeMode: AgentMode;
   onSelect: (mode: AgentMode) => void;
+  isArabic?: boolean;
 }) {
   if (modes.length <= 1) return null;
 
   const labels: Record<AgentMode, { label: string }> = {
-    text: { label: 'Text' },
-    voice: { label: 'Live Agent' },
+    text:       { label: isArabic ? 'نص' : 'Text' },
+    voice:      { label: isArabic ? 'صوت' : 'Voice' },
+  };
+
+  const dotColor: Record<AgentMode, string> = {
+    text:       '#7B68EE',
+    voice:      '#34C759',
   };
 
   return (
@@ -93,7 +102,7 @@ function ModeSelector({
               width: 6,
               height: 6,
               borderRadius: 3,
-              backgroundColor: mode === 'voice' ? '#34C759' : '#7B68EE',
+              backgroundColor: dotColor[mode],
             }} />
           )}
           <Text
@@ -394,6 +403,7 @@ export function AgentChatBar({
   isSpeakerMuted = false,
   isAISpeaking,
   isVoiceConnected,
+  isAgentTyping,
   onStopSession,
   theme,
 }: AgentChatBarProps) {
@@ -500,6 +510,7 @@ export function AgentChatBar({
         modes={availableModes}
         activeMode={mode}
         onSelect={(m) => onModeChange?.(m)}
+        isArabic={isArabic}
       />
 
       {/* Result Bubble */}
@@ -526,14 +537,23 @@ export function AgentChatBar({
 
       {/* Mode-specific input */}
       {mode === 'text' && (
-        <TextInputRow
-          text={text}
-          setText={setText}
-          onSend={handleSend}
-          isThinking={isThinking}
-          isArabic={isArabic}
-          theme={theme}
-        />
+        <>
+          {isAgentTyping && (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
+              <Text style={{ fontSize: 12, color: theme?.textColor ? `${theme.textColor}99` : '#666', fontStyle: 'italic', textAlign: isArabic ? 'right' : 'left' }}>
+                {isArabic ? 'العميل يكتب...' : 'Agent is typing...'}
+              </Text>
+            </View>
+          )}
+          <TextInputRow
+            text={text}
+            setText={setText}
+            onSend={handleSend}
+            isThinking={isThinking}
+            isArabic={isArabic}
+            theme={theme}
+          />
+        </>
       )}
 
       {mode === 'voice' && (
@@ -549,6 +569,7 @@ export function AgentChatBar({
         />
       )}
 
+      {/* Voice controls removed since mode handles it */}
 
     </Animated.View>
   );
@@ -782,5 +803,23 @@ const audioStyles = StyleSheet.create({
   },
   statusDotConnecting: {
     backgroundColor: '#FFCC00',
+  },
+  humanStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 8,
+  },
+  humanStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF9500',
+  },
+  humanStatusText: {
+    color: '#FF9500',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

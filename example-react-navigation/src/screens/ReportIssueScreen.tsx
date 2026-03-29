@@ -6,20 +6,24 @@ import type { HomeStackParamList } from '../App';
 type Props = NativeStackScreenProps<HomeStackParamList, 'ReportIssue'>;
 
 export default function ReportIssueScreen({ route }: Props) {
-  const { dishName, reviewId } = route.params;
+  // Params are fully optional — screen must never crash when navigated to without context
+  const itemName = route.params?.itemName ?? 'this item';
+  const itemId   = route.params?.itemId   ?? 'N/A';
 
   const [issueType, setIssueType] = useState('');
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  const ISSUE_TYPES = ['Inaccurate Review', 'Spam', 'Offensive Content', 'Other'];
+  const ISSUE_TYPES = ['Inaccurate Information', 'Spam', 'Offensive Content', 'Other'];
 
   if (submitted) {
     return (
       <View style={styles.container}>
         <Text style={styles.successIcon}>✓</Text>
         <Text style={styles.successTitle}>Report Submitted</Text>
-        <Text style={styles.successText}>Thank you for your report about "{dishName}". We'll review it shortly.</Text>
+        <Text style={styles.successText}>
+          Thank you for your report about "{itemName}". We'll review it shortly.
+        </Text>
       </View>
     );
   }
@@ -27,7 +31,11 @@ export default function ReportIssueScreen({ route }: Props) {
   return (
     <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
       <Text style={styles.title}>Report Issue</Text>
-      <Text style={styles.subtitle}>Report a problem with a review for {dishName} (Review #{reviewId})</Text>
+      <Text style={styles.subtitle}>
+        {itemId !== 'N/A'
+          ? `Report a problem with "${itemName}" (ID: ${itemId})`
+          : 'Report a problem'}
+      </Text>
 
       <Text style={styles.label}>Issue Type</Text>
       {ISSUE_TYPES.map(type => (
