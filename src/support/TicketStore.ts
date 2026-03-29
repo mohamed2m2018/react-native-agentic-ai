@@ -22,9 +22,24 @@ interface PendingTicket {
 /** Try to load AsyncStorage at runtime. Optional peer dep — not bundled. */
 function getAsyncStorage(): any | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@react-native-async-storage/async-storage');
-    return mod?.default ?? mod?.AsyncStorage ?? null;
+    // Suppress the RN red box that AsyncStorage triggers when its native module
+    // isn't linked ("NativeModule: AsyncStorage is null").
+    const origError = console.error;
+    console.error = (...args: unknown[]) => {
+      const msg = args[0];
+      if (typeof msg === 'string' && msg.includes('AsyncStorage')) return;
+      origError.apply(console, args);
+    };
+    try {
+      const mod = require('@react-native-async-storage/async-storage');
+      const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
+      if (candidate && typeof candidate.getItem === 'function') {
+        return candidate;
+      }
+      return null;
+    } finally {
+      console.error = origError;
+    }
   } catch {
     return null;
   }

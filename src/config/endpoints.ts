@@ -8,7 +8,7 @@
  * to route telemetry through your own backend without touching this file.
  */
 
-const MOBILEAI_BASE = 'http://192.168.1.105:3001';
+const MOBILEAI_BASE = 'http://localhost:3001';
 
 export const ENDPOINTS = {
   /** Telemetry event ingest — receives batched SDK events */

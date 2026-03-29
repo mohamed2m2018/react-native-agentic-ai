@@ -18,7 +18,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import type { ExecutionResult, AgentMode, ChatBarTheme } from '../core/types';
+import type { ExecutionResult, AgentMode, ChatBarTheme, AIMessage } from '../core/types';
 import {
   MicIcon,
   SpeakerIcon,
@@ -28,6 +28,8 @@ import {
   AIBadge,
   CloseIcon,
 } from './Icons';
+import type { SupportTicket } from '../support/types';
+import { logger } from '../utils/logger';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -52,11 +54,30 @@ interface AgentChatBarProps {
   /** Voice WebSocket is connected */
   isVoiceConnected?: boolean;
   /** Live human agent is typing */
-  isAgentTyping?: boolean;
+  /** Live human agent is typing */
+  isAgentTyping?: boolean; // used by SupportChatModal via AIAgent
   /** Full session cleanup (stop mic, audio, WebSocket, live mode) */
   onStopSession?: () => void;
   /** Color theme overrides */
   theme?: ChatBarTheme;
+  /** Active support tickets (for human mode) */
+  tickets?: SupportTicket[];
+  /** Currently selected ticket ID */
+  selectedTicketId?: string | null;
+  /** Callback when user selects a ticket */
+  onTicketSelect?: (ticketId: string) => void;
+  /** Callback when user goes back to ticket list */
+  onBackToTickets?: () => void;
+  /** Incremented to trigger auto-expand */
+  autoExpandTrigger?: number;
+  /** Chat messages for selected ticket */
+  chatMessages?: AIMessage[];
+  /** The user's original typed query — shown in the result bubble instead of agent reasoning */
+  lastUserMessage?: string | null;
+  /** Unread message counts per ticket (ticketId -> count) */
+  unreadCounts?: Record<string, number>;
+  /** Total unread messages across all tickets */
+  totalUnread?: number;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -66,22 +87,26 @@ function ModeSelector({
   activeMode,
   onSelect,
   isArabic = false,
+  totalUnread = 0,
 }: {
   modes: AgentMode[];
   activeMode: AgentMode;
   onSelect: (mode: AgentMode) => void;
   isArabic?: boolean;
+  totalUnread?: number;
 }) {
   if (modes.length <= 1) return null;
 
   const labels: Record<AgentMode, { label: string }> = {
     text:       { label: isArabic ? 'نص' : 'Text' },
     voice:      { label: isArabic ? 'صوت' : 'Voice' },
+    human:      { label: isArabic ? 'دعم' : 'Human' },
   };
 
   const dotColor: Record<AgentMode, string> = {
     text:       '#7B68EE',
     voice:      '#34C759',
+    human:      '#FF9500',
   };
 
   return (
@@ -113,6 +138,14 @@ function ModeSelector({
           >
             {labels[mode].label}
           </Text>
+          {/* Unread indicator — inline after label */}
+          {mode === 'human' && totalUnread > 0 && (
+            <View style={styles.humanTabBadge}>
+              <Text style={styles.humanTabBadgeText}>
+                {totalUnread > 99 ? '99+' : totalUnread}
+              </Text>
+            </View>
+          )}
         </Pressable>
       ))}
     </View>
@@ -403,14 +436,25 @@ export function AgentChatBar({
   isSpeakerMuted = false,
   isAISpeaking,
   isVoiceConnected,
-  isAgentTyping,
   onStopSession,
   theme,
+  tickets = [],
+  selectedTicketId,
+  onTicketSelect,
+  autoExpandTrigger = 0,
+  lastUserMessage,
+  unreadCounts = {},
+  totalUnread = 0,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const { height } = useWindowDimensions();
   const isArabic = language === 'ar';
+
+  // Auto-expand when triggered (e.g. on escalation)
+  useEffect(() => {
+    if (autoExpandTrigger > 0) setIsExpanded(true);
+  }, [autoExpandTrigger]);
 
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
   const keyboardOffset = useRef(new Animated.Value(0)).current;
@@ -469,6 +513,14 @@ export function AgentChatBar({
     }
   };
 
+  // ─── HEAVY DEBUG LOGGING ──────────────────────────────────────
+  logger.info('ChatBar', '★★★ RENDER — mode:', mode,
+    '| selectedTicketId:', selectedTicketId,
+    '| tickets:', tickets.length,
+    '| availableModes:', availableModes,
+    '| lastResult:', lastResult ? lastResult.message.substring(0, 60) : 'null',
+    '| isExpanded:', isExpanded);
+
   // ─── FAB (Compressed) ──────────────────────────────────────
 
   if (!isExpanded) {
@@ -480,10 +532,18 @@ export function AgentChatBar({
         <Pressable
           style={[styles.fab, theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined]}
           onPress={() => setIsExpanded(true)}
-          accessibilityLabel="Open AI Agent Chat"
+          accessibilityLabel={totalUnread > 0 ? `Open AI Agent Chat - ${totalUnread} unread messages` : 'Open AI Agent Chat'}
         >
           {isThinking ? <LoadingDots size={28} color={theme?.textColor || '#fff'} /> : <AIBadge size={28} />}
         </Pressable>
+        {/* Unread badge on collapsed FAB */}
+        {totalUnread > 0 && (
+          <View style={styles.fabUnreadBadge} pointerEvents="none">
+            <Text style={styles.fabUnreadBadgeText}>
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </Text>
+          </View>
+        )}
       </Animated.View>
     );
   }
@@ -511,10 +571,11 @@ export function AgentChatBar({
         activeMode={mode}
         onSelect={(m) => onModeChange?.(m)}
         isArabic={isArabic}
+        totalUnread={totalUnread}
       />
 
-      {/* Result Bubble */}
-      {lastResult && (() => {
+      {/* Result Bubble — only show in text/voice modes, NOT in human mode */}
+      {lastResult && mode !== 'human' && (() => {
         const cleanMessage = lastResult.message.trim();
         return (
         <View style={[
@@ -523,8 +584,10 @@ export function AgentChatBar({
             ? [styles.resultSuccess, theme?.successColor ? { backgroundColor: theme.successColor } : undefined]
             : [styles.resultError, theme?.errorColor ? { backgroundColor: theme.errorColor } : undefined],
         ]}>
-          <ScrollView style={styles.resultScroll} nestedScrollEnabled>
-            <Text style={[styles.resultText, { textAlign: isArabic ? 'right' : 'left' }, theme?.textColor ? { color: theme.textColor } : undefined]}>{cleanMessage}</Text>
+        <ScrollView style={styles.resultScroll} nestedScrollEnabled>
+            <Text style={[styles.resultText, { textAlign: isArabic ? 'right' : 'left' }, theme?.textColor ? { color: theme.textColor } : undefined]}>
+              {lastUserMessage ?? cleanMessage}
+            </Text>
           </ScrollView>
           {onDismiss && (
             <Pressable style={styles.dismissButton} onPress={onDismiss} hitSlop={12}>
@@ -537,24 +600,56 @@ export function AgentChatBar({
 
       {/* Mode-specific input */}
       {mode === 'text' && (
-        <>
-          {isAgentTyping && (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
-              <Text style={{ fontSize: 12, color: theme?.textColor ? `${theme.textColor}99` : '#666', fontStyle: 'italic', textAlign: isArabic ? 'right' : 'left' }}>
-                {isArabic ? 'العميل يكتب...' : 'Agent is typing...'}
-              </Text>
-            </View>
-          )}
-          <TextInputRow
-            text={text}
-            setText={setText}
-            onSend={handleSend}
-            isThinking={isThinking}
-            isArabic={isArabic}
-            theme={theme}
-          />
-        </>
+        <TextInputRow
+          text={text}
+          setText={setText}
+          onSend={handleSend}
+          isThinking={isThinking}
+          isArabic={isArabic}
+          theme={theme}
+        />
       )}
+
+      {/* Human mode: ticket list or chat */}
+      {mode === 'human' && !selectedTicketId && (
+        <ScrollView style={styles.ticketList} nestedScrollEnabled>
+          {tickets.length === 0 ? (
+            <Text style={styles.emptyText}>No active tickets</Text>
+          ) : (
+            tickets.map(ticket => {
+              const unreadCount = unreadCounts[ticket.id] || 0;
+              return (
+                <Pressable
+                  key={ticket.id}
+                  style={styles.ticketCard}
+                  onPress={() => onTicketSelect?.(ticket.id)}
+                >
+                  <View style={styles.ticketTopRow}>
+                    <Text style={styles.ticketReason} numberOfLines={2}>
+                      {ticket.history.length > 0 ? (ticket.history[ticket.history.length - 1]?.content ?? ticket.reason) : ticket.reason}
+                    </Text>
+                    {unreadCount > 0 && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadBadgeText}>
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.ticketMeta}>
+                    <Text style={styles.ticketScreen}>{ticket.screen}</Text>
+                    <Text style={[styles.ticketStatus, ticket.status === 'open' && styles.statusOpen]}>
+                      {ticket.status}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
+
+      {mode === 'human' && selectedTicketId && null}
 
       {mode === 'voice' && (
         <VoiceControlsRow
@@ -714,6 +809,148 @@ const styles = StyleSheet.create({
   dictationButtonActive: {
     backgroundColor: 'rgba(255, 59, 48, 0.3)',
   },
+  ticketList: {
+    maxHeight: 260,
+    paddingHorizontal: 12,
+  },
+  ticketCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+  },
+  ticketTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  ticketReason: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  ticketMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  ticketScreen: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+  },
+  ticketStatus: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  statusOpen: {
+    color: '#FF9500',
+  },
+  emptyText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 30,
+  },
+  backBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  backBtnText: {
+    color: '#7B68EE',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  chatMessages: {
+    maxHeight: 200,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  msgBubble: {
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 6,
+    maxWidth: '85%',
+  },
+  msgBubbleUser: {
+    backgroundColor: 'rgba(123, 104, 238, 0.3)',
+    alignSelf: 'flex-end',
+  },
+  msgBubbleAgent: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignSelf: 'flex-start',
+  },
+  msgText: {
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  typingIndicator: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  typingText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontStyle: 'italic',
+  },
+  unreadBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  unreadBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  humanTabBadge: {
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+    marginLeft: 3,
+  },
+  humanTabBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '700',
+    lineHeight: 14,
+    textAlign: 'center',
+  },
+  fabUnreadBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#1a1a2e',
+  },
+  fabUnreadBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
 });
 
 const modeStyles = StyleSheet.create({
@@ -821,5 +1058,75 @@ const audioStyles = StyleSheet.create({
     color: '#FF9500',
     fontSize: 13,
     fontWeight: '600',
+  },
+  ticketList: {
+    maxHeight: 260,
+    paddingHorizontal: 12,
+  },
+  ticketCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+  },
+  ticketReason: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ticketMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  ticketScreen: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+  },
+  ticketStatus: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  statusOpen: {
+    color: '#FF9500',
+  },
+  emptyText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 30,
+  },
+  backBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  backBtnText: {
+    color: '#7B68EE',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  backText: {
+    color: '#7B68EE',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptyTickets: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyTicketsText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 14,
   },
 });

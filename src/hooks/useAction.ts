@@ -23,9 +23,9 @@ export interface AgentContextValue {
   lastResult: ExecutionResult | null;
   /** The full conversation history for custom chat UIs. */
   messages: AIMessage[];
-  /** Clear the conversation history. */
+  /** Clear conversation history. */
   clearMessages: () => void;
-  /** Cancel the currently running task. */
+  /** Cancel currently running task. */
   cancel: () => void;
 }
 

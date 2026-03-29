@@ -78,4 +78,5 @@ export type {
   CSATConfig,
   CSATRating,
   BusinessHoursConfig,
+  SupportTicket,
 } from './support';
