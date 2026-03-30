@@ -393,6 +393,20 @@ export function AIAgent({
     setLastResult(null);
   }, []);
 
+  const getResolvedScreenName = useCallback(() => {
+    const routeName = (navRef as any)?.getCurrentRoute?.()?.name;
+    if (typeof routeName === 'string' && routeName.trim().length > 0) {
+      return routeName;
+    }
+
+    const telemetryScreen = telemetryRef.current?.screen;
+    if (typeof telemetryScreen === 'string' && telemetryScreen !== 'Unknown') {
+      return telemetryScreen;
+    }
+
+    return 'unknown';
+  }, [navRef]);
+
   // ─── Auto-create MobileAI escalation tool ─────────────────────
   // When analyticsKey is present and consumer hasn't provided their own
   // escalate_to_human tool, auto-wire the MobileAI platform provider.
@@ -404,7 +418,7 @@ export function AIAgent({
       config: { provider: 'mobileai' },
       analyticsKey,
       getContext: () => ({
-        currentScreen: (navRef as any)?.getCurrentRoute?.()?.name ?? 'unknown',
+        currentScreen: getResolvedScreenName(),
         originalQuery: '',
         stepsBeforeEscalation: 0,
       }),
@@ -421,7 +435,7 @@ export function AIAgent({
         // Open SSE for reliable ticket_closed delivery
         openSSE(tid);
 
-        const currentScreen = (navRef as any)?.getCurrentRoute?.()?.name ?? 'unknown';
+        const currentScreen = getResolvedScreenName();
         setTickets(prev => {
           if (prev.find(t => t.id === tid)) {
             logger.info('AIAgent', '★★★ Ticket already in list, skipping add');
@@ -509,7 +523,7 @@ export function AIAgent({
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsKey, navRef, customTools]);
+  }, [analyticsKey, customTools, getResolvedScreenName, navRef, openSSE, userContext, pushToken, pushTokenType, messages, clearSupport]);
 
   // ─── Restore pending tickets on app start ──────────────────────
   useEffect(() => {
@@ -919,8 +933,13 @@ export function AIAgent({
       telemetryRef.current = telemetry;
       bindTelemetryService(telemetry);
       telemetry.start();
+
+      const initialRoute = navRef?.getCurrentRoute?.();
+      if (initialRoute?.name) {
+        telemetry.setScreen(initialRoute.name);
+      }
     }); // initDeviceId
-  }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, debug]);
+  }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, bindTelemetryService, debug, navRef]);
 
   // ─── Security warnings ──────────────────────────────────────
 
