@@ -1,6 +1,6 @@
 # AI Support That Resolves — Not Deflects
 
-> **Drop in one React Native component and your app gets AI support that answers questions, navigates users to the right screen, fills forms, and resolves issues end-to-end — with live human backup when needed. No backend integration required.**
+> **Drop in one React Native component and your app gets AI support that answers questions, navigates users to the right screen, fills forms, and resolves issues end-to-end — with live human backup when needed. No custom API connectors required — the app UI is already the integration.**
 
 **Two names, one package — pick whichever you prefer:**
 
@@ -15,14 +15,6 @@ npm install react-native-agentic-ai
 <p align="center">
   <img src="./assets/demo.gif" alt="AI Support Agent navigating the app and resolving user issues end-to-end" width="350" />
 </p>
-
-### 🧪 AI-Powered Testing — Test Your App in English, Not Code
-
-<p align="center">
-  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — finding bugs in React Native app without test code" width="700" />
-</p>
-
-> *Google Antigravity running 5 checks on the emulator and finding 5 real bugs — zero test code, zero selectors, just English.*
 
 ---
 
