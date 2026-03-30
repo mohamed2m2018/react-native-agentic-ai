@@ -4,9 +4,6 @@ import { Stack, useNavigationContainerRef } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-// import { AIAgent, MobileAI } from 'experimental-stuff'; // old
-// import { buildSupportPrompt, createEscalateTool } from 'experimental-stuff'; // old
-// import type { KnowledgeEntry } from 'experimental-stuff'; // old
 import { AIAgent } from '@mobileai/react-native';
 import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
