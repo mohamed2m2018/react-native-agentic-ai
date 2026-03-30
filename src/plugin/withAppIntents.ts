@@ -1,5 +1,4 @@
 import type { ConfigPlugin } from 'expo/config-plugins';
-import { withXcodeProject } from 'expo/config-plugins';
 import * as path from 'path';
 import * as fs from 'fs';
 import { extractIntentsFromAST } from '../cli/generate-intents';
@@ -13,7 +12,24 @@ interface PluginOptions {
 }
 
 const withAppIntents: ConfigPlugin<PluginOptions | void> = (config, options) => {
-  return withXcodeProject(config, async (config) => {
+  let withXcodeProject: ((config: any, action: (config: any) => any) => any) | undefined;
+  try {
+    ({ withXcodeProject } = require('expo/config-plugins'));
+  } catch {
+    console.warn(
+      '[MobileAI] `withAppIntents` requires `expo/config-plugins`. ' +
+      'Skipping App Intents generation because Expo config plugins are not available.'
+    );
+    return config;
+  }
+
+  if (!withXcodeProject) {
+    return config;
+  }
+
+  const applyWithXcodeProject = withXcodeProject;
+
+  return applyWithXcodeProject(config, async (config) => {
     const project = config.modResults;
     const projectName = config.modRequest.projectName || config.name;
     const projectRoot = config.modRequest.projectRoot;

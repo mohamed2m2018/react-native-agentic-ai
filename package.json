@@ -11,6 +11,11 @@
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
     },
+    "./withAppIntents": {
+      "source": "./src/plugin/withAppIntents.ts",
+      "types": "./lib/typescript/src/plugin/withAppIntents.d.ts",
+      "default": "./lib/module/plugin/withAppIntents.js"
+    },
     "./generate-map": "./generate-map.js",
     "./package.json": "./package.json"
   },
