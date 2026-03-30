@@ -23,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mohamed2m2018/react-native-agentic-ai"
+    "url": "https://github.com/MobileAIAgent/react-native"
   },
   "type": "module",
   "dependencies": {

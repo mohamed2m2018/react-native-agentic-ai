@@ -98,6 +98,6 @@ MCP_PORT=8080 WS_PORT=8081 npx @mobileai/mcp-server
 
 ## 🔗 Links
 
-- **Main Repository:** [github.com/mohamed2m2018/react-native-agentic-ai](https://github.com/mohamed2m2018/react-native-agentic-ai)
+- **Main Repository:** [github.com/MobileAIAgent/react-native](https://github.com/MobileAIAgent/react-native)
 - **React Native SDK:** [@mobileai/react-native](https://www.npmjs.com/package/@mobileai/react-native)
 - **MCP Specification:** [Model Context Protocol](https://modelcontextprotocol.io)
