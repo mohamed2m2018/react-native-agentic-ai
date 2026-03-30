@@ -1,6 +1,6 @@
 {
   "name": "experimental-stuff",
-  "version": "0.9.11",
+  "version": "0.9.12",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
