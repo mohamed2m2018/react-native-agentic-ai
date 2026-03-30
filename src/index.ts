@@ -51,6 +51,7 @@ export type {
   AIProviderName,
   ScreenMap,
   ScreenMapEntry,
+  InteractionMode,
 } from './core/types';
 
 export type {
