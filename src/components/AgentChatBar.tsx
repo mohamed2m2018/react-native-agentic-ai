@@ -637,7 +637,6 @@ export function AgentChatBar({
                     )}
                   </View>
                   <View style={styles.ticketMeta}>
-                    <Text style={styles.ticketScreen}>{ticket.screen}</Text>
                     <Text style={[styles.ticketStatus, ticket.status === 'open' && styles.statusOpen]}>
                       {ticket.status}
                     </Text>
@@ -837,10 +836,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 6,
   },
-  ticketScreen: {
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 12,
-  },
+
   ticketStatus: {
     fontSize: 11,
     fontWeight: '600',
@@ -1080,10 +1076,7 @@ const audioStyles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 6,
   },
-  ticketScreen: {
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 12,
-  },
+
   ticketStatus: {
     fontSize: 11,
     fontWeight: '600',

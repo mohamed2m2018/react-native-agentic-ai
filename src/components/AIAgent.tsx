@@ -37,6 +37,7 @@ import { IdleDetector } from '../core/IdleDetector';
 import { ProactiveHint } from './ProactiveHint';
 import { createEscalateTool } from '../support/escalateTool';
 import { EscalationSocket } from '../support/EscalationSocket';
+import { EscalationEventSource } from '../support/EscalationEventSource';
 import { SupportChatModal } from '../support/SupportChatModal';
 import { ENDPOINTS } from '../config/endpoints';
 
@@ -312,36 +313,80 @@ export function AIAgent({
   // Cache of live sockets by ticketId — keeps sockets alive even when user
   // navigates back to the ticket list, so new messages still trigger badge updates.
   const pendingSocketsRef = useRef<Map<string, EscalationSocket>>(new Map());
+  // SSE connections per ticket — reliable fallback for ticket_closed events
+  // when the WebSocket is disconnected. EventSource auto-reconnects.
+  const sseRef = useRef<Map<string, EscalationEventSource>>(new Map());
 
   const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
 
+  // CRITICAL: clearSupport uses REFS and functional setters — never closure values.
+  // This function is captured by long-lived callbacks (escalation sockets, restored
+  // sockets) that may hold stale references. Using refs guarantees the current
+  // selectedTicketId and supportSocket are always read, not snapshot values.
   const clearSupport = useCallback((ticketId?: string) => {
     if (ticketId) {
-      // Remove specific ticket + its cached socket
+      // Remove specific ticket + its cached socket and SSE
       const cached = pendingSocketsRef.current.get(ticketId);
       if (cached) { cached.disconnect(); pendingSocketsRef.current.delete(ticketId); }
+      const sse = sseRef.current.get(ticketId);
+      if (sse) { sse.disconnect(); sseRef.current.delete(ticketId); }
       setTickets(prev => prev.filter(t => t.id !== ticketId));
       setUnreadCounts(prev => { const n = { ...prev }; delete n[ticketId]; return n; });
-      if (selectedTicketId === ticketId) {
-        supportSocket?.disconnect();
-        setSupportSocket(null);
+
+      // If user was viewing this ticket, close the support modal + switch to ticket list
+      if (selectedTicketIdRef.current === ticketId) {
+        setSupportSocket(prev => { prev?.disconnect(); return null; });
         setSelectedTicketId(null);
         setIsLiveAgentTyping(false);
         setMessages([]);
       }
+
+      // If no tickets remain, switch back to text mode
+      setTickets(prev => {
+        if (prev.length === 0) {
+          setMode('text');
+        }
+        return prev;
+      });
     } else {
-      // Clear all — disconnect every cached socket
+      // Clear all — disconnect every cached socket and SSE
       pendingSocketsRef.current.forEach(s => s.disconnect());
       pendingSocketsRef.current.clear();
-      supportSocket?.disconnect();
-      setSupportSocket(null);
+      sseRef.current.forEach(s => s.disconnect());
+      sseRef.current.clear();
+      setSupportSocket(prev => { prev?.disconnect(); return null; });
       setSelectedTicketId(null);
       setTickets([]);
       setUnreadCounts({});
       setIsLiveAgentTyping(false);
       setMode('text');
     }
-  }, [supportSocket, selectedTicketId]);
+  }, []);
+
+  const openSSE = useCallback((ticketId: string) => {
+    if (sseRef.current.has(ticketId)) return;
+    if (!analyticsKey) return;
+
+    const sseUrl = `${ENDPOINTS.escalation}/api/v1/escalations/events?analyticsKey=${encodeURIComponent(analyticsKey)}&ticketId=${encodeURIComponent(ticketId)}`;
+    const sse = new EscalationEventSource({
+      url: sseUrl,
+      onTicketClosed: (tid) => {
+        logger.info('AIAgent', 'SSE: ticket_closed received for', tid);
+        setUnreadCounts(prev => {
+          const next = { ...prev };
+          delete next[tid];
+          return next;
+        });
+        clearSupport(tid);
+      },
+      onConnected: (tid) => {
+        logger.info('AIAgent', 'SSE: connected for ticket', tid);
+      },
+    });
+    sse.connect();
+    sseRef.current.set(ticketId, sse);
+    logger.info('AIAgent', 'SSE opened for ticket:', ticketId);
+  }, [analyticsKey, clearSupport]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -365,6 +410,7 @@ export function AIAgent({
       }),
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.content })),
+      getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
       userContext,
       pushToken,
       pushTokenType,
@@ -372,15 +418,42 @@ export function AIAgent({
         logger.info('AIAgent', '★★★ onEscalationStarted FIRED — ticketId:', tid);
         // Cache the live socket so handleTicketSelect can reuse it without reconnecting
         pendingSocketsRef.current.set(tid, socket);
+        // Open SSE for reliable ticket_closed delivery
+        openSSE(tid);
+
+        const currentScreen = (navRef as any)?.getCurrentRoute?.()?.name ?? 'unknown';
         setTickets(prev => {
           if (prev.find(t => t.id === tid)) {
             logger.info('AIAgent', '★★★ Ticket already in list, skipping add');
             return prev;
           }
-          const newList = [{ id: tid, reason: 'New escalation', screen: 'unknown', status: 'open', history: [], createdAt: new Date().toISOString(), wsUrl: '' }, ...prev];
+          const newList = [{ id: tid, reason: 'Connecting to agent...', screen: currentScreen, status: 'open', history: [], createdAt: new Date().toISOString(), wsUrl: '' }, ...prev];
           logger.info('AIAgent', '★★★ Tickets updated, new length:', newList.length);
           return newList;
         });
+
+        // Fetch real ticket data from backend to replace the placeholder
+        void (async () => {
+          try {
+            const res = await fetch(`${ENDPOINTS.escalation}/api/v1/escalations/${tid}?analyticsKey=${encodeURIComponent(analyticsKey!)}`);
+            if (res.ok) {
+              const data = await res.json();
+              setTickets(prev => prev.map(t => {
+                if (t.id !== tid) return t;
+                return {
+                  ...t,
+                  reason: data.reason || t.reason,
+                  screen: data.screen || t.screen,
+                  status: data.status || t.status,
+                  history: Array.isArray(data.history) ? data.history : t.history,
+                };
+              }));
+            }
+          } catch {
+            // Best-effort — placeholder is still usable
+          }
+        })();
+
         // Switch to human mode so the ticket LIST is visible — do NOT auto-select
         setMode('human');
         setAutoExpandTrigger(prev => {
@@ -432,7 +505,7 @@ export function AIAgent({
             return next;
           });
         }
-        clearSupport(selectedTicketId ?? undefined);
+        clearSupport(ticketId);
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -486,6 +559,11 @@ export function AIAgent({
         // setMode switches the widget to human mode so the list is immediately visible.
         setMode('human');
         setAutoExpandTrigger(prev => prev + 1);
+
+        // Open SSE for every restored ticket — reliable ticket_closed delivery
+        for (const t of fetchedTickets) {
+          openSSE(t.id);
+        }
 
         // If there is exactly one ticket, pre-wire its WebSocket so it is ready
         // the moment the user taps the card (no extra connect delay).
@@ -701,15 +779,19 @@ export function AIAgent({
   const handleBackToTickets = useCallback(() => {
     // Cache socket in pendingSocketsRef instead of disconnecting —
     // keeps the WS alive so new messages update unreadCounts in real time.
-    if (supportSocket && selectedTicketId) {
-      pendingSocketsRef.current.set(selectedTicketId, supportSocket);
-      logger.info('AIAgent', '★ Socket cached for ticket:', selectedTicketId, '— stays alive for badge updates');
-    }
-    setSupportSocket(null);
+    const currentTicketId = selectedTicketIdRef.current;
+    // Use functional setter to read + cache the current socket without closure dependency
+    setSupportSocket(prev => {
+      if (prev && currentTicketId) {
+        pendingSocketsRef.current.set(currentTicketId, prev);
+        logger.info('AIAgent', '★ Socket cached for ticket:', currentTicketId, '— stays alive for badge updates');
+      }
+      return null;
+    });
     setSelectedTicketId(null);
     setMessages([]);
     setIsLiveAgentTyping(false);
-  }, [supportSocket, selectedTicketId]);
+  }, []); // No dependencies — uses refs/functional setters
 
   const mergedCustomTools = useMemo(() => {
     if (!autoEscalateTool) return customTools;
@@ -1221,15 +1303,26 @@ export function AIAgent({
     logger.info('AIAgent', `User message: "${message}"`);
     setLastUserMessage(message.trim());
 
-    // Intercom-style transparent intercept: 
+    // Intercom-style transparent intercept:
     // If we're connected to a human agent, all text input goes directly to them.
     if (selectedTicketId && supportSocket) {
+      // Gate: do not allow sending if the ticket is closed/resolved.
+      const activeTicket = tickets.find(t => t.id === selectedTicketId);
+      const CLOSED_STATUSES = ['closed', 'resolved'];
+      if (activeTicket && CLOSED_STATUSES.includes(activeTicket.status)) {
+        setLastResult({
+          success: false,
+          message: 'This conversation is closed. Please start a new request.',
+          steps: [],
+        });
+        return;
+      }
+
       if (supportSocket.sendText(message)) {
         setMessages((prev) => [
           ...prev,
           { id: `user-${Date.now()}`, role: 'user', content: message.trim(), timestamp: Date.now() },
         ]);
-
         setIsThinking(true);
         setStatusText('Sending to agent...');
         setTimeout(() => {
@@ -1506,6 +1599,7 @@ export function AIAgent({
             isAgentTyping={isLiveAgentTyping}
             isThinking={isThinking}
             scrollToEndTrigger={chatScrollTrigger}
+            ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
           />
         </View>
       </View>

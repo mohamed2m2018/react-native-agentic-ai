@@ -76,13 +76,17 @@ export class TelemetryService {
   private config: TelemetryConfig;
   private sessionId: string;
   private currentScreen = 'Unknown';
+  private screenFlow: string[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private isFlushing = false;
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
-  /** Public getter for the current screen, used by auto-capture utilities */
   get screen(): string {
     return this.currentScreen;
+  }
+
+  getScreenFlow(): string[] {
+    return [...this.screenFlow];
   }
 
   /**
@@ -224,6 +228,7 @@ export class TelemetryService {
     if (this.currentScreen !== screenName) {
       const prevScreen = this.currentScreen;
       this.currentScreen = screenName;
+      this.screenFlow.push(screenName);
 
       this.track('screen_view', {
         screen: screenName,
