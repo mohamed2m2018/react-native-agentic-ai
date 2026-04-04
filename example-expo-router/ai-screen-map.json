@@ -1,69 +1,98 @@
 {
-  "generatedAt": "2026-03-24T09:54:57.209Z",
+  "generatedAt": "2026-04-01T18:25:17.080Z",
   "framework": "expo-router",
   "screens": {
     "(tabs)/chat": {
       "title": "Chat",
-      "description": "Try: go to profile, tap settings... (text-input), Send (button)"
+      "description": "Try: go to profile, tap settings... (text-input), Send (button), FlatList (list). scrollable list"
     },
     "(tabs)/index": {
       "title": "Home",
-      "description": "$ (button), Browse All Categories (button)"
+      "description": "Wireless Headphones (button), Running Shoes (button), Laptop Stand (button), Coffee Maker (button), Yoga Mat (button), Desk Lamp (button), Browse All Categories (button), FlatList (list). scrollable list, list with selectable rows, rows navigate to /product/[param]",
+      "navigatesTo": [
+        "product/[id]",
+        "categories"
+      ]
     },
     "(tabs)/settings": {
       "title": "Settings",
-      "description": "Notifications (button), Appearance (button), Language (button), About (button), Privacy Policy (button)"
+      "description": "Notifications (button), Appearance (button), Language (button), About (button), Privacy Policy (button)",
+      "navigatesTo": [
+        "notifications",
+        "appearance",
+        "language",
+        "about",
+        "privacy"
+      ]
     },
     "(tabs)/two": {
       "title": "Profile",
-      "description": "Edit Profile (button), Favorites (button), Order History (button), Saved Addresses (button)"
+      "description": "Edit Profile (button), Favorites (button), Order History (button), Saved Addresses (button)",
+      "navigatesTo": [
+        "edit-profile",
+        "favorites",
+        "order-history",
+        "addresses"
+      ]
     },
     "about": {
       "title": "About",
-      "description": "Screen content"
+      "description": "About ShopApp, Version 1.0.0, Expo Router (File-based routing), React Native, Google Gemini API, @mobileai/react-native (AI Agent)"
     },
     "addresses": {
       "title": "Addresses",
-      "description": "Screen content"
+      "description": "FlatList (list). scrollable list"
     },
     "appearance": {
       "title": "Appearance",
-      "description": "Screen content"
+      "description": "System (button), Light (button), Dark (button)"
     },
     "categories": {
       "title": "Categories",
-      "description": "Screen content"
+      "description": "Electronics (button), Fashion (button), Home & Garden (button), Sports & Outdoors (button), Books & Media (button)",
+      "navigatesTo": [
+        "category/[id]"
+      ]
     },
     "category/[id]": {
       "title": "Category",
-      "description": "› (button)"
+      "description": "count (button)",
+      "navigatesTo": [
+        "subcategory/[id]"
+      ]
     },
     "edit-profile": {
       "title": "Edit Profile",
-      "description": "text input (text-input), Save Changes (button)"
+      "description": "Full Name (text-input), Email (text-input), Phone (text-input), Bio (text-input), Save Changes (button)"
     },
     "favorites": {
       "title": "Favorites",
-      "description": "Screen content"
+      "description": "FlatList (list). scrollable list"
     },
     "help": {
       "title": "Help Center",
       "description": "Contact Support (button)"
     },
     "invite-friends": {
-      "description": "Copy Code (button), Friend's email address (text-input), 📤 Share via Other Apps (button)"
+      "description": "Friend's email address (text-input), Copy Code (button), ✓ Invite Sent! (button), Send Invite (button), 📤 Share via Other Apps (button)"
     },
     "item/[id]": {
       "title": "Item Details",
-      "description": "Add to Wishlist (switch), View Reviews & Questions (button), Add to Cart (button)"
+      "description": "Add to Wishlist (switch), View Reviews & Questions (button), Add to Cart (button)",
+      "navigatesTo": [
+        "item-reviews/[id]"
+      ]
     },
     "item-reviews/[id]": {
       "title": "Reviews",
-      "description": "✍️ Write a Review (button), Price Drop Alerts (switch), Notify on New Reviews (switch), Type your question about this product... (text-input), Submit Question (button)"
+      "description": "Type your question about this product... (text-input), Price Drop Alerts (switch), Notify on New Reviews (switch), ✍️ Write a Review (button), Submit Question (button)",
+      "navigatesTo": [
+        "write-review/[id]"
+      ]
     },
     "language": {
       "title": "Language",
-      "description": "Screen content"
+      "description": "English (button), Arabic (button), Spanish (button), French (button), German (button), Japanese (button)"
     },
     "modal": {
       "description": "Screen content"
@@ -74,28 +103,41 @@
     },
     "order-history": {
       "title": "Order History",
-      "description": "Screen content"
+      "description": "FlatList (list). scrollable list"
     },
     "privacy": {
       "title": "Privacy Policy",
-      "description": "Screen content"
+      "description": "Privacy Policy, Last updated: March 2026, Data Collection, AI Agent, Third-Party Services"
     },
     "product/[id]": {
       "title": "Product Details",
-      "description": "Screen content"
+      "description": "Product not found, Specifications"
     },
     "review-thanks/[id]": {
-      "description": "View Rewards Program (button), Back to Reviews (button)"
+      "description": "View Rewards Program (button), Back to Reviews (button)",
+      "navigatesTo": [
+        "rewards",
+        "item-reviews/[id]"
+      ]
     },
     "rewards": {
-      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 👥 (button)"
+      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), Invite Friends (button)",
+      "navigatesTo": [
+        "invite-friends"
+      ]
     },
     "subcategory/[id]": {
       "title": "Subcategory",
-      "description": "$ (button)"
+      "description": "rating (button)",
+      "navigatesTo": [
+        "item/[id]"
+      ]
     },
     "write-review/[id]": {
-      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), 👍 Yes (button), 👎 No (button), Submit Review (button)"
+      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), ★ (button), ☆ (button), 👍 Yes (button), 👎 No (button), Submit Review (button)",
+      "navigatesTo": [
+        "review-thanks/[id]"
+      ]
     }
   },
   "chains": [

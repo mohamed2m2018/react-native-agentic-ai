@@ -59,6 +59,12 @@ const RN_INTERNAL_NAMES = new Set([
   'AnimatedComponentWrapper', 'Animated',
 ]);
 
+const LOW_SIGNAL_RUNTIME_LABELS = new Set([
+  'button', 'buttons', 'label', 'labels', 'title', 'titles', 'name',
+  'text', 'value', 'values', 'content', 'card', 'cards', 'row', 'rows',
+  'item', 'items', 'component', 'screen',
+]);
+
 // ─── State Extraction ──
 
 /** Props to extract as state attributes — covers lazy devs who skip accessibility */
@@ -257,6 +263,56 @@ function isIconGlyph(text: string): boolean {
          (code >= 0x100000 && code <= 0x10FFFF);
 }
 
+function normalizeRuntimeLabel(text: string | null | undefined): string {
+  if (!text) return '';
+  return String(text).replace(/\s+/g, ' ').trim();
+}
+
+function scoreRuntimeLabel(text: string, source: 'accessibility' | 'deep-text' | 'placeholder' | 'icon' | 'test-id' | 'context'): number {
+  const normalized = normalizeRuntimeLabel(text);
+  if (!normalized) return Number.NEGATIVE_INFINITY;
+
+  let score = 0;
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const lowered = normalized.toLowerCase();
+
+  if (source === 'deep-text') score += 70;
+  if (source === 'accessibility') score += 80;
+  if (source === 'placeholder') score += 25;
+  if (source === 'context') score += 10;
+  if (source === 'icon') score -= 10;
+  if (source === 'test-id') score -= 25;
+
+  if (normalized.length >= 3 && normalized.length <= 32) score += 20;
+  else if (normalized.length > 60) score -= 10;
+
+  if (words.length >= 2 && words.length <= 8) score += 20;
+  else if (words.length === 1) score += 5;
+
+  if (/^[A-Z]/.test(normalized)) score += 8;
+  if (/[A-Za-z]/.test(normalized) && !/[_./]/.test(normalized)) score += 12;
+  if (/[_./]/.test(normalized)) score -= 20;
+  if (LOW_SIGNAL_RUNTIME_LABELS.has(lowered)) score -= 120;
+  if (source === 'accessibility' && !LOW_SIGNAL_RUNTIME_LABELS.has(lowered)) score += 15;
+
+  return score;
+}
+
+function chooseBestRuntimeLabel(candidates: Array<{
+  text: string | null | undefined;
+  source: 'accessibility' | 'deep-text' | 'placeholder' | 'icon' | 'test-id' | 'context';
+}>): string | null {
+  const best = candidates
+    .map(candidate => ({
+      text: normalizeRuntimeLabel(candidate.text),
+      score: scoreRuntimeLabel(String(candidate.text || ''), candidate.source),
+    }))
+    .filter(candidate => candidate.text)
+    .sort((a, b) => b.score - a.score)[0];
+
+  return best?.text || null;
+}
+
 /**
  * Extract raw text from React children prop.
  * Handles strings, numbers, arrays, and nested structures.
@@ -395,8 +451,12 @@ function getFiberFromRef(ref: any): any | null {
   if (ref.child || ref.memoizedProps) return ref;
 
   // Strategy 5: DevTools hook (dev-only last resort)
-  const rootFiber = getFiberRootFromDevTools();
-  if (rootFiber) return rootFiber;
+  // Guarded by __DEV__ to ensure production builds never reference
+  // __REACT_DEVTOOLS_GLOBAL_HOOK__ — avoids App Store automated scanner flags.
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    const rootFiber = getFiberRootFromDevTools();
+    if (rootFiber) return rootFiber;
+  }
 
   console.warn(
     '[AIAgent] Could not access React Fiber tree. ' +
@@ -578,36 +638,21 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
     if (shouldInclude) {
       const resolvedType = elementType || 'pressable';
-      // Primary: accessibilityLabel → deep text (pierces nested interactives)
-      let label = props.accessibilityLabel || extractDeepTextContent(node);
-
-      // Fallback: TextInput placeholder
-      if (!label && resolvedType === 'text-input' && props.placeholder) {
-        label = props.placeholder;
-      }
-      // Fallback: Icon/symbol name (any component with a `name` prop)
-      if (!label) {
-        label = extractIconName(node);
-      }
-      // Fallback: testID/nativeID
-      if (!label && (props.testID || props.nativeID)) {
-        label = props.testID || props.nativeID;
-      }
-      // Fallback: Parent component context (skip internal RN context names)
-      if (!label) {
-        const parentContext = getNearestCustomComponentName(node);
-        if (parentContext) {
-          // Skip React Native internal implementation names that leak as labels.
-          // These are never meaningful to the AI or developer.
-          const RN_INTERNAL_NAMES = new Set([
+      const parentContext = getNearestCustomComponentName(node);
+      const label = chooseBestRuntimeLabel([
+        { text: props.accessibilityLabel, source: 'accessibility' },
+        { text: extractDeepTextContent(node), source: 'deep-text' },
+        { text: resolvedType === 'text-input' ? props.placeholder : null, source: 'placeholder' },
+        { text: extractIconName(node), source: 'icon' },
+        { text: props.testID || props.nativeID, source: 'test-id' },
+        {
+          text: parentContext && !new Set([
             'ScrollViewContext', 'VirtualizedListContext', 'ViewabilityHelper',
             'ScrollResponder', 'AnimatedComponent', 'TouchableOpacity',
-          ]);
-          if (!RN_INTERNAL_NAMES.has(parentContext)) {
-            label = parentContext;
-          }
-        }
-      }
+          ]).has(parentContext) ? parentContext : null,
+          source: 'context',
+        },
+      ]);
 
       interactives.push({
         index: currentIndex,
@@ -927,4 +972,3 @@ function resolveNativeScrollRef(fiberNode: any): any {
   logger.debug('FiberTreeWalker', 'Could not resolve native scroll ref — returning stateNode as fallback');
   return stateNode;
 }
-

@@ -42,23 +42,23 @@ export function checkRageClick(label: string, telemetry: TelemetryService): void
 }
 
 /**
- * Extract a label from a GestureResponderEvent's native target.
+ * Extract a label from a GestureResponderEvent.
  *
- * @param nativeEvent - The nativeEvent from onStartShouldSetResponderCapture
- * @param rootRef - The root View ref (to resolve relative positions)
+ * @param event - The GestureResponderEvent from onStartShouldSetResponderCapture
  * @returns A descriptive label string for the tapped element
  */
-export function extractTouchLabel(nativeEvent: any): string {
+export function extractTouchLabel(event: any): string {
   // Try accessible properties first (most reliable)
-  const target = nativeEvent?.target;
+  const target = event?.nativeEvent?.target;
 
   if (!target) return 'Unknown Element';
 
-  // React Native internal: _internalFiberInstanceHandleDEV or _nativeTag
+  // React Native internal: _targetInst (synthetic event Fiber ref)
   // We can walk the Fiber tree from the target to find text
   try {
-    // Strategy 1: Walk up the Fiber tree from the touched element
-    let fiber = getFiberFromNativeTag(target);
+    // Strategy 1: Fiber from the SyntheticEvent (works in dev and production RN >= 0.60)
+    // Strategy 2: Walk up the Fiber tree from the touched element via DevTools hook
+    let fiber = event?._targetInst || getFiberFromNativeTag(target);
     if (fiber) {
       // Walk up looking for text content or accessibility labels
       let current: any = fiber;

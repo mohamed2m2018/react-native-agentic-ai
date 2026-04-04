@@ -48,6 +48,33 @@ export interface SupportModeConfig {
    * Example: ['billing dispute', 'account deletion', 'legal']
    */
   autoEscalateTopics?: string[];
+
+  /**
+   * Options for the AI's persona and tone.
+   */
+  persona?: {
+    /** The agent's name to use in conversation. */
+    agentName?: string;
+    /** The tone of the AI (e.g., 'professional', 'casual', 'empathetic'). Default: 'empathetic' */
+    tone?: string;
+    /** How the AI signs off at the end of a resolution (e.g., 'Best, Support Team') */
+    signOff?: string;
+  };
+
+  /**
+   * Consumer-defined "WOW actions" — special tools the AI can use to surprise/delight
+   * the user (e.g. apply discount, extend trial) when they've had a frustrating experience.
+   */
+  wowActions?: Array<{
+    /** Internal name for the tool (e.g., 'apply_discount') */
+    name: string;
+    /** What the action does */
+    description: string;
+    /** Instructions specifying exactly when the AI should trigger this action */
+    triggerHint: string;
+    /** Callback when the AI executes this action */
+    handler: (args: Record<string, any>) => Promise<string | void>;
+  }>;
 }
 
 // ─── Quick Replies ────────────────────────────────────────
@@ -102,7 +129,10 @@ export interface CSATConfig {
   /** Enable CSAT survey after conversation. Default: true if support mode enabled */
   enabled?: boolean;
 
-  /** Question text. Default: "How was your experience?" */
+  /** Which survey to show. 'csat' = Customer Satisfaction, 'ces' = Customer Effort Score. Default: 'csat' */
+  surveyType?: 'csat' | 'ces';
+
+  /** Question text. Default varies by surveyType ("How was your experience?" or "How easy was it to resolve your issue?") */
   question?: string;
 
   /** Rating type. Default: 'emoji' */
@@ -126,6 +156,7 @@ export interface CSATRating {
     stepsCount: number;
     wasEscalated: boolean;
     screen: string;
+    ticketId?: string;
   };
 }
 
@@ -152,4 +183,39 @@ export interface SupportTicket {
   wsUrl: string;
   /** Number of unread messages (computed by backend = history.length - readMessageCount) */
   unreadCount?: number;
+}
+
+export type ReportedIssueCustomerStatus =
+  | 'acknowledged'
+  | 'investigating'
+  | 'answered'
+  | 'resolved'
+  | 'escalated';
+
+export interface ReportedIssueStatusUpdate {
+  id: string;
+  status: ReportedIssueCustomerStatus;
+  message: string;
+  source: 'ai' | 'operator' | 'system';
+  timestamp: string;
+}
+
+export interface ReportedIssue {
+  id: string;
+  issueType: string;
+  complaintSummary: string;
+  verificationStatus: string;
+  severity: string;
+  confidence?: number | null;
+  screen: string;
+  evidenceSummary?: string | null;
+  aiSummary?: string | null;
+  recommendedAction?: string | null;
+  sourceScreens?: string[] | null;
+  screenFlow?: string[] | null;
+  customerStatus: ReportedIssueCustomerStatus;
+  statusHistory: ReportedIssueStatusUpdate[];
+  createdAt: string;
+  updatedAt: string;
+  linkedEscalationTicketId?: string | null;
 }

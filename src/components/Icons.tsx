@@ -251,3 +251,113 @@ export function AIBadge({ size = 28 }: { size?: number }) {
     </View>
   );
 }
+// ─── History Icon (clock face: circle + hour + minute hands) ──
+
+export function HistoryIcon({ size = 18, color = '#fff' }: { size?: number; color?: string }) {
+  const half = size / 2;
+  const stroke = Math.max(1.5, size * 0.09);
+  const ringSize = size * 0.9;
+  const minuteLen = half * 0.72; // from center to 12 o'clock
+  const hourLen = half * 0.52;   // from center to 3 o'clock
+
+  return (
+    <View style={{ width: size, height: size }}>
+      {/* Outer ring */}
+      <View style={{
+        position: 'absolute',
+        width: ringSize,
+        height: ringSize,
+        borderRadius: ringSize / 2,
+        borderWidth: stroke,
+        borderColor: color,
+        top: (size - ringSize) / 2,
+        left: (size - ringSize) / 2,
+      }} />
+      {/* Minute hand — straight up from center to 12 */}
+      <View style={{
+        position: 'absolute',
+        width: stroke,
+        height: minuteLen,
+        backgroundColor: color,
+        borderRadius: stroke,
+        top: half - minuteLen,
+        left: half - stroke / 2,
+      }} />
+      {/* Hour hand — straight right from center to 3 */}
+      <View style={{
+        position: 'absolute',
+        width: hourLen,
+        height: stroke,
+        backgroundColor: color,
+        borderRadius: stroke,
+        top: half - stroke / 2,
+        left: half,
+      }} />
+      {/* Center dot */}
+      <View style={{
+        position: 'absolute',
+        width: stroke * 2,
+        height: stroke * 2,
+        borderRadius: stroke,
+        backgroundColor: color,
+        top: half - stroke,
+        left: half - stroke,
+      }} />
+    </View>
+  );
+}
+
+
+// ─── New Chat Icon (chat bubble + plus) ───────────────────────
+
+export function NewChatIcon({ size = 18, color = '#fff' }: { size?: number; color?: string }) {
+  const stroke = size * 0.1;
+  const armLen = size * 0.35;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Bubble body */}
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: size * 0.72,
+        height: size * 0.62,
+        borderRadius: size * 0.15,
+        borderWidth: stroke,
+        borderColor: color,
+      }} />
+      {/* Bubble tail */}
+      <View style={{
+        position: 'absolute',
+        bottom: size * 0.22,
+        left: size * 0.1,
+        width: 0,
+        height: 0,
+        borderTopWidth: size * 0.14,
+        borderTopColor: color,
+        borderRightWidth: size * 0.1,
+        borderRightColor: 'transparent',
+      }} />
+      {/* Plus — horizontal bar */}
+      <View style={{
+        position: 'absolute',
+        top: size * 0.09,
+        right: 0,
+        width: armLen,
+        height: stroke,
+        backgroundColor: color,
+        borderRadius: stroke,
+      }} />
+      {/* Plus — vertical bar */}
+      <View style={{
+        position: 'absolute',
+        top: size * 0.09 - armLen / 2 + stroke / 2,
+        right: armLen / 2 - stroke / 2,
+        width: stroke,
+        height: armLen,
+        backgroundColor: color,
+        borderRadius: stroke,
+      }} />
+    </View>
+  );
+}

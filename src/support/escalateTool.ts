@@ -24,6 +24,7 @@ export interface EscalationToolDeps {
   analyticsKey?: string;
   getContext: () => Omit<EscalationContext, 'conversationSummary'>;
   getHistory: () => Array<{ role: string; content: string }>;
+  getToolCalls?: () => Array<{ name: string; input: Record<string, unknown>; output: string }>;
   getScreenFlow?: () => string[];
   onHumanReply?: (reply: string, ticketId?: string) => void;
   onEscalationStarted?: (ticketId: string, socket: EscalationSocket) => void;
@@ -63,7 +64,7 @@ export function createEscalateTool(
     deps = depsOrConfig as EscalationToolDeps;
   }
 
-  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, onTicketClosed, userContext, pushToken, pushTokenType, getScreenFlow } = deps;
+  const { config, analyticsKey, getContext, getHistory, getToolCalls, onHumanReply, onEscalationStarted, onTypingChange, onTicketClosed, userContext, pushToken, pushTokenType, getScreenFlow } = deps;
 
   // Determine effective provider
   const provider = config.provider ?? (analyticsKey ? 'mobileai' : 'custom');
@@ -110,6 +111,7 @@ export function createEscalateTool(
                   device: getDeviceMetadata(),
                 },
                 screenFlow: getScreenFlow?.() ?? [],
+                toolCalls: getToolCalls?.() ?? [],
                 pushToken,
                 pushTokenType,
                 deviceId: getDeviceId(),
@@ -153,7 +155,9 @@ export function createEscalateTool(
             logger.error('Escalation', 'Network error:', (err as Error).message);
           }
 
-          const message = config.escalationMessage ?? 'Connecting you to a human agent...';
+          const message =
+            config.escalationMessage ??
+            "Your request has been sent to our support team. A human agent will reply here as soon as possible.";
           return `ESCALATED: ${message}`;
         }
       }
@@ -167,7 +171,9 @@ export function createEscalateTool(
       };
       config.onEscalate?.(escalationContext);
 
-      const message = config.escalationMessage ?? 'Connecting you to a human agent...';
+      const message =
+        config.escalationMessage ??
+        "Your request has been sent to our support team. A human agent will reply here as soon as possible.";
       return `ESCALATED: ${message}`;
     },
   };

@@ -41,7 +41,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    zIndex: 9999,
+    zIndex: 100001,
+    elevation: 1000,
   },
   pill: {
     flexDirection: 'row',
@@ -70,4 +71,3 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
 });
-

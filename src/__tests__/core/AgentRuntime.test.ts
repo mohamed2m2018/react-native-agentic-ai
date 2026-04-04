@@ -101,7 +101,11 @@ const defaultConfig: AgentConfig = {
 };
 
 function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfig> = {}): AgentRuntime {
-  const config = { ...defaultConfig, ...configOverrides };
+  const config = {
+    ...defaultConfig,
+    onAskUser: jest.fn().mockResolvedValue('yes'),
+    ...configOverrides,
+  };
   const mockNavRef = {
     isReady: () => true,
     getRootState: () => ({
@@ -149,7 +153,9 @@ describe('AgentRuntime', () => {
         createToolResponse('tap', { index: 0 }),
         createToolResponse('done', { text: 'Done after tap', success: true }),
       ]);
-      const runtime = createRuntime(provider);
+      const runtime = createRuntime(provider, {
+        onAskUser: jest.fn().mockResolvedValue('yes'),
+      });
       const result = await runtime.execute('Tap and finish');
 
       expect(result.success).toBe(true);
@@ -205,6 +211,48 @@ describe('AgentRuntime', () => {
       // Clean up first task
       runtime.cancel();
       await firstTask;
+    });
+
+    it('requires explicit approval before the first UI action in copilot mode', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('yes');
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Do the thing');
+
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'approval',
+          question: expect.stringContaining('control the app for you'),
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('stops if the user does not approve starting the task', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('no');
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Do the thing');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("won't take any action");
+    });
+
+    it('acknowledges when the user already completed the action themselves', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_ALREADY_DONE__');
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Do the thing');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('already completed that step yourself');
     });
   });
 
@@ -263,6 +311,25 @@ describe('AgentRuntime', () => {
 
       // Should not crash — the runtime should handle unknown tools
       expect(result).toBeDefined();
+    });
+
+    it('emits detailed audit traces during execution', async () => {
+      const onTrace = jest.fn();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Recovered', success: true }),
+      ]);
+      const runtime = createRuntime(provider, { onTrace });
+      await runtime.execute('Trace me');
+
+      const stages = onTrace.mock.calls.map(([event]) => event.stage);
+      expect(stages).toContain('task_started');
+      expect(stages).toContain('screen_dehydrated');
+      expect(stages).toContain('provider_response');
+      expect(stages).toContain('tool_selected');
+      expect(stages).toContain('tool_execution_started');
+      expect(stages).toContain('tool_result');
+      expect(stages).toContain('task_completed');
     });
   });
 

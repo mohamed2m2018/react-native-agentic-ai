@@ -7,23 +7,19 @@
  */
 
 import { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  Animated,
-} from 'react-native';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 
 interface DiscoveryTooltipProps {
   language: 'en' | 'ar';
   primaryColor?: string;
   onDismiss: () => void;
+  side?: 'left' | 'right';
+  message?: string;
 }
 
 const LABELS = {
-  en: '✨ I can help you navigate the app and do things for you!',
-  ar: '✨ أقدر أساعدك تتنقل في التطبيق وأعمل حاجات بدالك!',
+  en: 'Ask me to find items, answer questions, or complete tasks for you.',
+  ar: 'اطلب مني ألاقي العناصر، أجاوب على الأسئلة، أو أكمل المهام عنك.',
 };
 
 const AUTO_DISMISS_MS = 6000;
@@ -32,6 +28,8 @@ export function DiscoveryTooltip({
   language,
   primaryColor,
   onDismiss,
+  side = 'left',
+  message,
 }: DiscoveryTooltipProps) {
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -83,6 +81,7 @@ export function DiscoveryTooltip({
     <Animated.View
       style={[
         styles.container,
+        side === 'right' ? styles.containerRight : styles.containerLeft,
         {
           backgroundColor: bgColor,
           transform: [{ scale: scaleAnim }],
@@ -92,12 +91,18 @@ export function DiscoveryTooltip({
     >
       <Pressable onPress={dismissWithAnimation} style={styles.contentArea}>
         <Text style={[styles.text, isArabic && styles.textRTL]}>
-          {LABELS[language]}
+          {message || LABELS[language]}
         </Text>
       </Pressable>
 
       {/* Triangle pointer toward FAB */}
-      <View style={[styles.pointer, { borderTopColor: bgColor }]} />
+      <View
+        style={[
+          styles.pointer,
+          side === 'right' ? styles.pointerRight : styles.pointerLeft,
+          { borderTopColor: bgColor },
+        ]}
+      />
     </Animated.View>
   );
 }
@@ -106,8 +111,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 70,
-    right: -4,
-    minWidth: 200,
+    width: 220,
     maxWidth: 260,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -117,6 +121,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
+  },
+  containerLeft: {
+    right: -4,
+  },
+  containerRight: {
+    left: -4,
   },
   contentArea: {
     flexDirection: 'row',
@@ -135,7 +145,6 @@ const styles = StyleSheet.create({
   pointer: {
     position: 'absolute',
     bottom: -8,
-    right: 22,
     width: 0,
     height: 0,
     borderLeftWidth: 8,
@@ -144,5 +153,11 @@ const styles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: '#1a1a2e',
+  },
+  pointerLeft: {
+    right: 22,
+  },
+  pointerRight: {
+    left: 22,
   },
 });

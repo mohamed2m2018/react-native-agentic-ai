@@ -1,20 +1,28 @@
-MIT License
+MobileAI Agent SDK License Agreement
 
-Copyright (c) 2026 Mohamed Salah
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright (c) 2026 Mohamed Salah. All rights reserved.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+END USER LICENSE AGREEMENT
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPORTANT - READ CAREFULLY: This End User License Agreement ("EULA") is a legal agreement between you (either an individual or a single entity) and Mohamed Salah ("Licensor") for the MobileAI Agent SDK software product, which includes computer software and may include associated media, printed materials, and "online" or electronic documentation ("SOFTWARE PRODUCT"). By installing, copying, or otherwise using the SOFTWARE PRODUCT, you agree to be bound by the terms of this EULA. If you do not agree to the terms of this EULA, do not install or use the SOFTWARE PRODUCT.
+
+1. GRANT OF LICENSE.
+Licensor grants you a non-exclusive, non-transferable, limited license to use the SOFTWARE PRODUCT solely for the purpose of integrating it into your application(s) that interconnect with the MobileAI online services, in accordance with the provided documentation and subject to your continued payment of applicable subscription or usage fees for the MobileAI services.
+
+2. RESTRICTIONS.
+- You may NOT modify, translate, reverse engineer, decompile, disassemble, or create derivative works based on the SOFTWARE PRODUCT.
+- You may NOT rent, lease, lend, sell, redistribute, or sublicense the SOFTWARE PRODUCT.
+- You may NOT use the SOFTWARE PRODUCT to develop a competitive service or product.
+- You may NOT remove any proprietary notices or labels on the SOFTWARE PRODUCT.
+
+3. COPYRIGHT.
+All title, including but not limited to copyrights, in and to the SOFTWARE PRODUCT and any copies thereof are owned by Licensor or its suppliers. All title and intellectual property rights in and to the content which may be accessed through use of the SOFTWARE PRODUCT is the property of the respective content owner and may be protected by applicable copyright or other intellectual property laws and treaties.
+
+4. TERMINATION.
+Without prejudice to any other rights, Licensor may terminate this EULA if you fail to comply with the terms and conditions of this EULA. In such event, you must destroy all copies of the SOFTWARE PRODUCT in your possession.
+
+5. NO WARRANTIES.
+The SOFTWARE PRODUCT is provided "as is" without warranty of any kind. Licensor disclaims all warranties, either express or implied, including the warranties of merchantability and fitness for a particular purpose.
+
+6. LIMITATION OF LIABILITY.
+In no event shall Licensor be liable for any damages whatsoever (including, without limitation, damages for loss of business profits, business interruption, loss of business information, or any other pecuniary loss) arising out of the use of or inability to use this SOFTWARE PRODUCT.
