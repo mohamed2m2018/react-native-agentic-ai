@@ -10,6 +10,7 @@
  */
 
 import { walkFiberTree } from '../core/FiberTreeWalker';
+import { getParent, getProps } from '../core/FiberAdapter';
 import type { AgentTool, ToolContext } from './types';
 
 export function createLongPressTool(context: ToolContext): AgentTool {
@@ -38,10 +39,10 @@ export function createLongPressTool(context: ToolContext): AgentTool {
       }
 
       // Strategy 2: Bubble up fiber tree
-      let fiber = element.fiberNode?.return;
+      let fiber = getParent(element.fiberNode);
       let bubbleDepth = 0;
       while (fiber && bubbleDepth < 5) {
-        const parentProps = fiber.memoizedProps || {};
+        const parentProps = getProps(fiber);
         if (parentProps.onLongPress && typeof parentProps.onLongPress === 'function') {
           try {
             parentProps.onLongPress();
@@ -51,7 +52,7 @@ export function createLongPressTool(context: ToolContext): AgentTool {
             return `❌ Error long-pressing parent of [${args.index}]: ${error.message}`;
           }
         }
-        fiber = fiber.return;
+        fiber = getParent(fiber);
         bubbleDepth++;
       }
 

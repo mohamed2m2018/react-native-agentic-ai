@@ -8,12 +8,21 @@
  * to route telemetry through your own backend without touching this file.
  */
 
+import { Platform } from 'react-native';
+
 const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV === 'development';
+
+const getDevLocalhost = () => {
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:3001';
+  }
+  return 'http://localhost:3001';
+};
 
 const MOBILEAI_BASE =
   process.env.EXPO_PUBLIC_MOBILEAI_BASE_URL ||
   process.env.NEXT_PUBLIC_MOBILEAI_BASE_URL ||
-  (isDev ? 'http://localhost:3001' : 'https://api.mobileai.dev');
+  (isDev ? getDevLocalhost() : 'https://api.mobileai.dev');
 
 export const ENDPOINTS = {
   /** Telemetry event ingest — receives batched SDK events */

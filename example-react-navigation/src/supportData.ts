@@ -5,6 +5,48 @@ export type OrderTimelineEntry = {
   timestamp: string;
 };
 
+export type DeviceSession = {
+  id: string;
+  deviceName: string;
+  location: string;
+  lastActive: string;
+  isCurrentDevice: boolean;
+  status: 'active' | 'revoked';
+};
+
+export type FraudInvestigationRecord = {
+  id: string;
+  accountId: string;
+  status: 'locked' | 'reviewing' | 'cleared' | 'banned';
+  lockReason: string;
+  recentDevices: DeviceSession[];
+  securityQuestions: Array<{
+    id: string;
+    question: string;
+    options: string[];
+    correctIndex: number;
+  }>;
+  flaggedTransactions: Array<{
+    id: string;
+    amount: number;
+    vendor: string;
+    date: string;
+  }>;
+};
+
+export type LogisticsDisputeRecord = {
+  id: string;
+  orderId: string;
+  courierName: string;
+  status: 'pending_user_action' | 'investigating' | 'resolved';
+  deliveryCoordinates: { lat: number; lng: number };
+  customerCoordinates: { lat: number; lng: number };
+  gpsMatchStatus: 'match' | 'mismatch' | 'unknown';
+  driverLogs: Array<{ time: string; action: string }>;
+  resolutionOptions: Array<{ type: 'refund' | 'credit' | 'reorder'; value: number }>;
+};
+
+
 export type OrderRecord = {
   id: string;
   restaurant: string;
@@ -579,3 +621,64 @@ function toSubscriptionSummary(
     issueSummary: subscription.issueSummary,
   };
 }
+
+const mockFraudRecord: FraudInvestigationRecord = {
+  id: 'fraud_9001',
+  accountId: 'usr_abc123',
+  status: 'locked',
+  lockReason: 'Suspicious login attempt from unauthorized location',
+  recentDevices: [
+    { id: 'dev_1', deviceName: 'iPhone 15 Pro', location: 'New York, NY', lastActive: 'Currently Active', isCurrentDevice: true, status: 'active' },
+    { id: 'dev_2', deviceName: 'Chrome on Windows 11', location: 'Moscow, RU', lastActive: '2 hours ago', isCurrentDevice: false, status: 'active' },
+    { id: 'dev_3', deviceName: 'Safari on macOS', location: 'New York, NY', lastActive: '5 days ago', isCurrentDevice: false, status: 'active' },
+  ],
+  securityQuestions: [
+    {
+      id: 'sq_1',
+      question: 'Which of the following restaurants have you ordered from in the last 30 days?',
+      options: ['Golden Curry House', 'Sushi Zen', 'Taco Fiesta', 'Pasta Bella'],
+      correctIndex: 0,
+    },
+    {
+      id: 'sq_2',
+      question: 'Identify the last four digits of the credit card linked to your Family Workspace:',
+      options: ['1234', '8820', '9911', '4242'],
+      correctIndex: 1,
+    }
+  ],
+  flaggedTransactions: [
+    { id: 'tx_88', amount: 350.00, vendor: 'High-End Steakhouse', date: '2 hours ago' },
+    { id: 'tx_89', amount: 120.50, vendor: 'Liquor Depot', date: '1 hour ago' }
+  ]
+};
+
+const mockLogisticsRecord: LogisticsDisputeRecord = {
+  id: 'log_8001',
+  orderId: 'ord_1002', // Links to the delivered order missing Mango Lassi
+  courierName: 'Alex D.',
+  status: 'pending_user_action',
+  deliveryCoordinates: { lat: 40.7128, lng: -74.0060 },
+  customerCoordinates: { lat: 40.7135, lng: -74.0055 },
+  gpsMatchStatus: 'mismatch',
+  driverLogs: [
+    { time: '7:15 PM', action: 'Assigned to order' },
+    { time: '7:30 PM', action: 'Arrived at pickup' },
+    { time: '7:32 PM', action: 'Left pickup, heading to dropoff' },
+    { time: '7:45 PM', action: 'Approaching geo-fence' },
+    { time: '7:47 PM', action: 'Marked delivered with photo' }
+  ],
+  resolutionOptions: [
+    { type: 'refund', value: 28.15 },
+    { type: 'credit', value: 35.00 },
+    { type: 'reorder', value: 0 }
+  ]
+};
+
+export async function fetchFraudInvestigation(accountId: string): Promise<FraudInvestigationRecord> {
+  return delay(mockFraudRecord, 1100);
+}
+
+export async function fetchLogisticsDispute(disputeId: string): Promise<LogisticsDisputeRecord> {
+  return delay(mockLogisticsRecord, 900);
+}
+

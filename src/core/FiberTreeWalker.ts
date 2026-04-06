@@ -8,6 +8,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { getChild, getSibling, getParent, getProps, getStateNode, getType, getDisplayName } from './FiberAdapter';
 import type { InteractiveElement, ElementType } from './types';
 
 // ─── Walk Configuration ─────────
@@ -120,14 +121,14 @@ export function hasAnyEventHandler(props: any): boolean {
  * This provides semantic context for media elements (e.g., an Image inside "ProfileHeader").
  */
 function getNearestCustomComponentName(fiber: any, maxDepth: number = 8): string | null {
-  let current = fiber?.return;
+  let current = getParent(fiber);
   let depth = 0;
   while (current && depth < maxDepth) {
     const name = getComponentName(current);
     if (name && !RN_INTERNAL_NAMES.has(name) && !PRESSABLE_TYPES.has(name)) {
       return name;
     }
-    current = current.return;
+    current = getParent(current);
     depth++;
   }
   return null;
@@ -139,18 +140,20 @@ function getNearestCustomComponentName(fiber: any, maxDepth: number = 8): string
  * Get the display name of a Fiber node's component type.
  */
 function getComponentName(fiber: any): string | null {
-  if (!fiber || !fiber.type) return null;
+  const type = getType(fiber);
+  if (!type) return null;
 
   // Host components (View, Text, etc.) — type is a string
-  if (typeof fiber.type === 'string') return fiber.type;
+  if (typeof type === 'string') return type;
 
   // Function/Class components — type has displayName or name
-  if (fiber.type.displayName) return fiber.type.displayName;
-  if (fiber.type.name) return fiber.type.name;
+  const displayName = getDisplayName(fiber);
+  if (displayName) return displayName;
+  if (type.name) return type.name;
 
   // ForwardRef components
-  if (fiber.type.render?.displayName) return fiber.type.render.displayName;
-  if (fiber.type.render?.name) return fiber.type.render.name;
+  if (type.render?.displayName) return type.render.displayName;
+  if (type.render?.name) return type.render.name;
 
   return null;
 }
@@ -160,7 +163,7 @@ function getComponentName(fiber: any): string | null {
  */
 function getElementType(fiber: any): ElementType | null {
   const name = getComponentName(fiber);
-  const props = fiber.memoizedProps || {};
+  const props = getProps(fiber);
 
   // Check by component name (known React Native types)
   if (name && PRESSABLE_TYPES.has(name)) return 'pressable';
@@ -203,7 +206,7 @@ function getElementType(fiber: any): ElementType | null {
  * Check if element is disabled.
  */
 function isDisabled(fiber: any): boolean {
-  const props = fiber.memoizedProps || {};
+  const props = getProps(fiber);
   return props.disabled === true || props.editable === false;
 }
 
@@ -221,10 +224,10 @@ function extractDeepTextContent(fiber: any, maxDepth: number = 10): string {
 
   const parts: string[] = [];
 
-  let child = fiber.child;
+  let child = getChild(fiber);
   while (child) {
     const childName = getComponentName(child);
-    const childProps = child.memoizedProps || {};
+    const childProps = getProps(child);
 
     // Text node — extract content
     if (childName && TEXT_TYPES.has(childName)) {
@@ -241,7 +244,7 @@ function extractDeepTextContent(fiber: any, maxDepth: number = 10): string {
       if (nestedText) parts.push(nestedText);
     }
 
-    child = child.sibling;
+    child = getSibling(child);
   }
 
   return parts.join(' ').trim();
@@ -350,10 +353,10 @@ function extractRawText(children: any): string {
 function extractIconName(fiber: any, maxDepth: number = 5): string {
   if (!fiber || maxDepth <= 0) return '';
 
-  let child = fiber.child;
+  let child = getChild(fiber);
   while (child) {
     const componentName = getComponentName(child);
-    const childProps = child.memoizedProps || {};
+    const childProps = getProps(child);
 
     // Generic icon detection: non-RN-internal component with a string `name` prop
     if (
@@ -371,7 +374,7 @@ function extractIconName(fiber: any, maxDepth: number = 5): string {
     const found = extractIconName(child, maxDepth - 1);
     if (found) return found;
 
-    child = child.sibling;
+    child = getSibling(child);
   }
   return '';
 }
@@ -426,44 +429,78 @@ function getFiberRootFromDevTools(): any | null {
 function getFiberFromRef(ref: any): any | null {
   if (!ref) return null;
 
-  // Strategy 1: __reactFiber$ keys (React DOM/RN style)
-  // Works in both dev AND release builds — primary strategy.
+  // Strategy 1a: __reactFiber$ keys (Old Architecture / Bridge)
+  // Strategy 1b: __internalInstanceHandle (New Architecture / Fabric)
+  //
+  // In the Old Architecture, React attaches __reactFiber$<hash> to native nodes.
+  // In the New Architecture (Fabric, RN 0.73+), native refs are ReactNativeElement
+  // instances with __internalInstanceHandle — which IS the Fiber node directly.
+  // Both strategies are checked in a single Object.keys pass for performance.
   try {
     const keys = Object.keys(ref);
+    logger.info('FiberTreeWalker', `Ref keys (${keys.length}): ${keys.join(', ')}`);
+
+    // 1a: __reactFiber$ / __reactInternalInstance$ (Old Architecture)
     const fiberKey = keys.find(
       key => key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$'),
     );
     if (fiberKey) {
-      logger.debug('FiberTreeWalker', 'Accessed Fiber tree via __reactFiber$ key');
-      return (ref as any)[fiberKey];
+      const fiber = (ref as any)[fiberKey];
+      logger.info('FiberTreeWalker', `✅ Strategy 1a SUCCESS (Old Arch): Fiber via "${fiberKey}" (has child: ${!!fiber?.child})`);
+      return fiber;
     }
-  } catch {
-    // Object.keys may fail on some native nodes
+
+    // 1b: __internalInstanceHandle (New Architecture / Fabric)
+    // ReactNativeElement stores the Fiber node reference here.
+    // It has .child, .sibling, .return, .memoizedProps — the full Fiber structure.
+    if (keys.includes('__internalInstanceHandle')) {
+      const handle = (ref as any).__internalInstanceHandle;
+      if (handle && (handle.child !== undefined || handle.memoizedProps !== undefined)) {
+        logger.info('FiberTreeWalker', `✅ Strategy 1b SUCCESS (Fabric): Fiber via __internalInstanceHandle (has child: ${!!handle.child})`);
+        return handle;
+      }
+      logger.warn('FiberTreeWalker', '⚠️ __internalInstanceHandle found but does not look like a Fiber node');
+    }
+
+    logger.warn('FiberTreeWalker', '❌ Strategy 1 FAILED: No __reactFiber$ or __internalInstanceHandle key found');
+  } catch (e: any) {
+    logger.warn('FiberTreeWalker', `❌ Strategy 1 ERROR: ${e.message}`);
   }
 
   // Strategy 2: _reactInternals (class components)
-  if (ref._reactInternals) return ref._reactInternals;
+  if (ref._reactInternals) {
+    logger.info('FiberTreeWalker', '✅ Strategy 2 SUCCESS: _reactInternals');
+    return ref._reactInternals;
+  }
 
   // Strategy 3: _reactInternalInstance (older React)
-  if (ref._reactInternalInstance) return ref._reactInternalInstance;
+  if (ref._reactInternalInstance) {
+    logger.info('FiberTreeWalker', '✅ Strategy 3 SUCCESS: _reactInternalInstance');
+    return ref._reactInternalInstance;
+  }
 
   // Strategy 4: Direct fiber node properties (ref IS a fiber — used in tests)
-  if (ref.child || ref.memoizedProps) return ref;
+  if (ref.child || ref.memoizedProps) {
+    logger.info('FiberTreeWalker', '✅ Strategy 4 SUCCESS: ref is directly a Fiber node');
+    return ref;
+  }
 
   // Strategy 5: DevTools hook (dev-only last resort)
   // Guarded by __DEV__ to ensure production builds never reference
   // __REACT_DEVTOOLS_GLOBAL_HOOK__ — avoids App Store automated scanner flags.
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     const rootFiber = getFiberRootFromDevTools();
-    if (rootFiber) return rootFiber;
+    if (rootFiber) {
+      logger.info('FiberTreeWalker', '✅ Strategy 5 SUCCESS: DevTools hook');
+      return rootFiber;
+    }
   }
 
-  console.warn(
-    '[AIAgent] Could not access React Fiber tree. ' +
-    'The AI agent will not be able to detect interactive elements. ' +
-    'Ensure the rootRef is attached to a rendered <View>.'
+  logger.error('FiberTreeWalker',
+    'ALL Fiber access strategies FAILED. ' +
+    `Ref type: ${typeof ref}, constructor: ${ref?.constructor?.name || 'unknown'}. ` +
+    'The AI agent will not detect interactive elements.'
   );
-  logger.warn('FiberTreeWalker', 'All Fiber access strategies failed');
   return null;
 }
 
@@ -476,7 +513,7 @@ function getFiberFromRef(ref: any): any | null {
  */
 function matchesRefList(node: any, refs?: React.RefObject<any>[]): boolean {
   if (!refs || refs.length === 0) return false;
-  const stateNode = node.stateNode;
+  const stateNode = getStateNode(node);
   if (!stateNode) return false;
 
   for (const ref of refs) {
@@ -534,7 +571,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   ): string {
     if (!node) return '';
 
-    const props = node.memoizedProps || {};
+    const props = getProps(node);
 
     // ── Prune inactive screens ──────────────────────────────────
     // Two mechanisms cover all React Navigation setups:
@@ -556,10 +593,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (props.aiIgnore === true) return '';
     if (matchesRefList(node, config?.interactiveBlacklist)) {
       let childText = '';
-      let currentChild = node.child;
+      let currentChild = getChild(node);
       while (currentChild) {
         childText += processNode(currentChild, depth, isInsideInteractive);
-        currentChild = currentChild.sibling;
+        currentChild = getSibling(currentChild);
       }
       return childText;
     }
@@ -589,7 +626,8 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // Only visible nodes (interactives, text, images, videos) should increment
     // depth. Structural View wrappers are transparent — they pass through the
     // same depth so indentation stays flat and doesn't waste LLM tokens.
-    const typeStr = node.type && typeof node.type === 'string' ? node.type : 
+    const type = getType(node);
+    const typeStr = type && typeof type === 'string' ? type : 
                    (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
     const componentName = getComponentName(node);
     const isTextNode = typeStr === 'RCTText' || typeStr === 'Text';
@@ -619,7 +657,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
     // Process children
     let childrenText = '';
-    let currentChild = node.child;
+    let currentChild = getChild(node);
     while (currentChild) {
       childrenText += processNode(
         currentChild,
@@ -628,7 +666,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         nextAncestorOnPress,
         nextZoneId,
       );
-      currentChild = currentChild.sibling;
+      currentChild = getSibling(currentChild);
     }
 
     // Prepend zone header before children if this is a zone root
@@ -748,8 +786,20 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     }
   }
 
-  // Clean up excessive blank lines
-  elementsText = elementsText.replace(/\n{3,}/g, '\n\n');
+  // Clean up excessive blank lines safely to avoid regex stack depth limit on very large grids
+  const lines = elementsText.split('\n');
+  const cleanLines = [];
+  let emptyCount = 0;
+  for (const line of lines) {
+    if (line.trim() === '') {
+      emptyCount++;
+      if (emptyCount < 2) cleanLines.push(line);
+    } else {
+      emptyCount = 0;
+      cleanLines.push(line);
+    }
+  }
+  elementsText = cleanLines.join('\n');
   
   logger.info('FiberTreeWalker', `Found ${interactives.length} interactive elements`);
   return { elementsText: elementsText.trim(), interactives };
@@ -819,11 +869,11 @@ function findScreenFiberNode(rootFiber: any, screenName: string): any | null {
     }
 
     // Depth-first: search children first, then siblings
-    let child = node.child;
+    let child = getChild(node);
     while (child) {
       const found = search(child);
       if (found) return found;
-      child = child.sibling;
+      child = getSibling(child);
     }
 
     return null;
@@ -882,7 +932,7 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
       // For scrollable containers, we need the native scroll ref.
       // FlatList Fiber stateNode may be the component instance — 
       // we need to find the underlying native ScrollView.
-      let scrollRef = isPagerLike ? node.stateNode : resolveNativeScrollRef(node);
+      let scrollRef = isPagerLike ? getStateNode(node) : resolveNativeScrollRef(node);
 
       if (scrollRef) {
         containers.push({
@@ -897,10 +947,10 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
     }
 
     // Recurse into children and siblings
-    let child = node.child;
+    let child = getChild(node);
     while (child) {
       walk(child);
-      child = child.sibling;
+      child = getSibling(child);
     }
   }
 
@@ -917,9 +967,9 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
  * - FlatList/VirtualizedList: stateNode is a component instance,
  *   need to find the inner ScrollView via getNativeScrollRef() or
  *   by walking down the Fiber tree to find the RCTScrollView child
- */
+*/
 function resolveNativeScrollRef(fiberNode: any): any {
-  const stateNode = fiberNode.stateNode;
+  const stateNode = getStateNode(fiberNode);
 
   // Case 1: stateNode has scrollTo (native ScrollView or RCTScrollView)
   if (stateNode && typeof stateNode.scrollTo === 'function') {
@@ -953,20 +1003,23 @@ function resolveNativeScrollRef(fiberNode: any): any {
   }
 
   // Case 5: Walk down Fiber tree to find an RCTScrollView child
-  let child = fiberNode.child;
+  let child = getChild(fiberNode);
   while (child) {
     const childName = getComponentName(child);
-    if (childName === 'RCTScrollView' && child.stateNode) {
-      return child.stateNode;
+    const childStateNode = getStateNode(child);
+    if (childName === 'RCTScrollView' && childStateNode) {
+      return childStateNode;
     }
     // Go one level deeper for wrapper patterns
-    if (child.child) {
-      const grandchildName = getComponentName(child.child);
-      if (grandchildName === 'RCTScrollView' && child.child.stateNode) {
-        return child.child.stateNode;
+    const grandchild = getChild(child);
+    if (grandchild) {
+      const grandchildName = getComponentName(grandchild);
+      const grandchildStateNode = getStateNode(grandchild);
+      if (grandchildName === 'RCTScrollView' && grandchildStateNode) {
+        return grandchildStateNode;
       }
     }
-    child = child.sibling;
+    child = getSibling(child);
   }
 
   logger.debug('FiberTreeWalker', 'Could not resolve native scroll ref — returning stateNode as fallback');

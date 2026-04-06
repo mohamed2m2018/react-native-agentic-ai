@@ -521,15 +521,6 @@ export function AgentChatBar({
   useEffect(() => {
     const wasThinking = previousThinkingRef.current;
 
-    if (!wasThinking && isThinking && mode === 'text' && !pendingApprovalQuestion) {
-      if (isExpanded) {
-        setIsExpanded(false);
-        autoCollapsedForThinkingRef.current = true;
-      } else {
-        autoCollapsedForThinkingRef.current = false;
-      }
-    }
-
     if (pendingApprovalQuestion) {
       setIsExpanded(true);
       autoCollapsedForThinkingRef.current = false;
@@ -942,7 +933,7 @@ export function AgentChatBar({
               {pendingApprovalQuestion && onPendingApprovalAction && (
                 <View style={styles.approvalPanel}>
                   <Text style={styles.approvalHint}>
-                    I can do this in the app for you by tapping and typing where needed, or I can guide you step by step. Tap "Do it" if you want me to do it in the app, or "Don’t do it" if you’d rather do it yourself.
+                    The AI agent is requesting permission to perform this action. Tap "Do it" to approve, or "Don’t do it" to cancel.
                   </Text>
                   <View style={styles.approvalActions}>
                     <Pressable

@@ -33,6 +33,11 @@ import type { ToolDefinition } from '../../core/types';
 
 // ─── Helpers ───────────────────────────────────────────────────
 
+/**
+ * Build a mock SDK response for an agent_step function call.
+ * The runtime sends args via action_input (a JSON string) to avoid Gemini's
+ * schema flattening limit with large toolsets.
+ */
 const mockSuccessResponse = (actionName: string, args: Record<string, any> = {}, plan = 'test plan') => ({
   candidates: [{
     content: {
@@ -41,10 +46,10 @@ const mockSuccessResponse = (actionName: string, args: Record<string, any> = {},
           name: 'agent_step',
           args: {
             action_name: actionName,
+            action_input: JSON.stringify(args),   // <-- JSON string envelope
             plan,
             previous_goal_eval: 'Success',
             memory: 'test memory',
-            ...args,
           },
         },
       }],
@@ -208,10 +213,14 @@ describe('GeminiProvider', () => {
       expect(agentStep.parameters.properties.previous_goal_eval).toBeDefined();
       expect(agentStep.parameters.properties.memory).toBeDefined();
 
-      // Tool params should be flattened into properties
-      expect(agentStep.parameters.properties.index).toBeDefined();
-      expect(agentStep.parameters.properties.text).toBeDefined();
-      expect(agentStep.parameters.properties.success).toBeDefined();
+      // The schema uses action_input as a JSON string — tool params are NOT flattened
+      // (this avoids Gemini's 'too many branches' error for large toolsets)
+      expect(agentStep.parameters.properties.action_input).toBeDefined();
+      expect(agentStep.parameters.properties.action_input.type).toBe('STRING');
+
+      // The action description should enumerate tool names
+      expect(agentStep.parameters.properties.action_name.enum).toContain('tap');
+      expect(agentStep.parameters.properties.action_name.enum).toContain('done');
     });
   });
 

@@ -13,14 +13,22 @@
  * - Sends screen context (DOM text) for live mode
  */
 
+// @ts-ignore — TS can't find declarations for the deep path at build time
 // Platform-specific import: Metro can't resolve '@google/genai/web' sub-path
-// export, so we use the full path to the web bundle. This is what the SDK
-// recommends ('use a platform specific import') — RN's WebSocket API is
-// browser-compatible so the web bundle works correctly.
-// @ts-ignore — TS can't find declarations for the deep path
-import { GoogleGenAI, Modality } from '@google/genai/dist/web/index.mjs';
-// @ts-ignore
+// so we use the full path to the web bundle (works because RN's WebSocket = browser API).
 import type { Session } from '@google/genai/dist/web/index.mjs';
+
+function loadVoiceGenAI() {
+  try {
+    const mod = require('@google/genai/dist/web/index.mjs');
+    return { GoogleGenAI: mod.GoogleGenAI, Modality: mod.Modality };
+  } catch (e: any) {
+    throw new Error(
+      '[mobileai] @google/genai is required for Voice Mode. ' +
+      'Install it: npm install @google/genai'
+    );
+  }
+}
 import { logger } from '../utils/logger';
 import type { ToolDefinition } from '../core/types';
 
@@ -107,6 +115,7 @@ export class VoiceService {
         throw new Error('[mobileai] Must provide apiKey or proxyUrl');
       }
 
+      const { GoogleGenAI, Modality } = loadVoiceGenAI();
       const ai = new GoogleGenAI(genAiConfig);
 
       const toolDeclarations = this.buildToolDeclarations();

@@ -228,7 +228,7 @@ export function AIConsentDialog({
   const providerInfo = PROVIDER_INFO[provider] || PROVIDER_INFO.gemini;
   const theme = { ...DEFAULT_THEME, ...(config.theme || {}) };
   const providerLabel = config.providerLabel || (isArabic ? 'خدمة الذكاء الاصطناعي المفعلة في التطبيق' : 'the AI service configured for this app');
-  const providerCompany = config.providerCompany || '';
+
   const providerUrl = config.providerUrl || providerInfo.url;
   const showProviderBadge = config.showProviderBadge === true;
 
@@ -247,8 +247,8 @@ export function AIConsentDialog({
     : (config.title || 'AI Assistant');
 
   const sharedDataItems = isArabic
-    ? (config.sharedDataItemsAr || ['رسالتك', 'محتوى الشاشة الظاهر الآن'])
-    : (config.sharedDataItems || ['Your message', 'What is currently visible on screen']);
+    ? (config.sharedDataItemsAr || ['رسالتك', 'نقدر خصوصيتك، لا نرى شاشتك بأي شكل، نحن ندرك فقط سياق التطبيق الحالي'])
+    : (config.sharedDataItems || ['Your message', "We appreciate your privacy, we don't see your screen in any way, we are just aware of current app context"]);
 
   const handlePrivacyPolicy = useCallback(() => {
     if (config.privacyPolicyUrl) {

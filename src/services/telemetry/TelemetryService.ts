@@ -245,7 +245,17 @@ export class TelemetryService {
 
   /** Send queued events to the cloud API */
   async flush(): Promise<void> {
-    if (!this.isEnabled() || this.queue.length === 0 || this.isFlushing) return;
+    if (!this.isEnabled() || this.isFlushing) return;
+
+    // Extract any pending SDK debug logs to sink them natively to the backend
+    const unflushedLogs = logger.extractUnflushedLines();
+    if (unflushedLogs.length > 0) {
+      this.track('sdk_trace_dump', {
+        logs: unflushedLogs.join('\n'),
+      });
+    }
+
+    if (this.queue.length === 0) return;
 
     this.isFlushing = true;
     const eventsToSend = [...this.queue];

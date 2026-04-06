@@ -143,8 +143,8 @@ export interface AgentConfig {
    */
   voiceProxyHeaders?: Record<string, string>;
 
-  model?: string;  
-  
+  model?: string;
+
   /** Maximum steps per task */
   maxSteps?: number;
 

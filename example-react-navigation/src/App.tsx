@@ -43,6 +43,16 @@ import GiftHistoryScreen from './screens/GiftHistoryScreen';
 import GiftDetailsScreen from './screens/GiftDetailsScreen';
 import AccountSecurityScreen from './screens/AccountSecurityScreen';
 
+// Advanced Support Scenarios
+import AdvancedSupportDashboardScreen from './screens/AdvancedSupportDashboardScreen';
+import FraudLockdownScreen from './screens/FraudLockdownScreen';
+import FraudQuizScreen from './screens/FraudQuizScreen';
+import FraudDeviceScreen from './screens/FraudDeviceScreen';
+import FraudResolutionScreen from './screens/FraudResolutionScreen';
+import LogisticsEvidenceScreen from './screens/LogisticsEvidenceScreen';
+import LogisticsChecklistScreen from './screens/LogisticsChecklistScreen';
+import LogisticsResolutionScreen from './screens/LogisticsResolutionScreen';
+
 // ─── Navigation Types ───────────────────────────────────────
 
 export type AuthStackParamList = {
@@ -86,6 +96,14 @@ export type ProfileStackParamList = {
   GiftDetails: { giftId: string };
   AccountSecurity: undefined;
   ProfileNotificationPrefs: undefined;
+  AdvancedSupportDashboard: undefined;
+  FraudLockdown: undefined;
+  FraudQuiz: undefined;
+  FraudDevice: undefined;
+  FraudResolution: { revokedCount: number };
+  LogisticsEvidence: { disputeId: string };
+  LogisticsChecklist: { disputeId: string };
+  LogisticsResolution: { disputeId: string };
 };
 
 // ─── Navigators ─────────────────────────────────────────────
@@ -263,6 +281,46 @@ function ProfileStackNavigator() {
         name="ProfileNotificationPrefs"
         component={NotificationPrefsScreen}
         options={{ title: 'Notification Preferences' }}
+      />
+      <ProfileStack.Screen
+        name="AdvancedSupportDashboard"
+        component={AdvancedSupportDashboardScreen}
+        options={{ title: 'Advanced Support' }}
+      />
+      <ProfileStack.Screen
+        name="FraudLockdown"
+        component={FraudLockdownScreen}
+        options={{ title: 'Account Locked', gestureEnabled: false, headerBackVisible: false }}
+      />
+      <ProfileStack.Screen
+        name="FraudQuiz"
+        component={FraudQuizScreen}
+        options={{ title: 'Step 1: Identity' }}
+      />
+      <ProfileStack.Screen
+        name="FraudDevice"
+        component={FraudDeviceScreen}
+        options={{ title: 'Step 2: Devices' }}
+      />
+      <ProfileStack.Screen
+        name="FraudResolution"
+        component={FraudResolutionScreen}
+        options={{ title: 'Step 3: Verification Complete', gestureEnabled: false, headerBackVisible: false }}
+      />
+      <ProfileStack.Screen
+        name="LogisticsEvidence"
+        component={LogisticsEvidenceScreen}
+        options={{ title: 'Missing Order Investigation' }}
+      />
+      <ProfileStack.Screen
+        name="LogisticsChecklist"
+        component={LogisticsChecklistScreen}
+        options={{ title: 'Mandatory Checks' }}
+      />
+      <ProfileStack.Screen
+        name="LogisticsResolution"
+        component={LogisticsResolutionScreen}
+        options={{ title: 'Select Resolution' }}
       />
     </ProfileStack.Navigator>
   );
