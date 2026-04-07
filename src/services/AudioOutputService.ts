@@ -10,8 +10,6 @@
 
 import { logger } from '../utils/logger';
 import { base64ToFloat32 } from '../utils/audioUtils';
-import { NativeModules } from 'react-native';
-
 // ─── Types ─────────────────────────────────────────────────────
 
 /** Gemini Live API outputs 24kHz 16-bit mono PCM */
@@ -45,20 +43,7 @@ export class AudioOutputService {
     try {
       let audioApi: any;
       try {
-        // Guard: NativeModules.AudioApiModule is only present in dev/prod builds.
-        // In Expo Go it is undefined, and require() throws a native bridge error
-        // that cannot be caught by a standard try/catch.
-        if (!NativeModules.AudioApiModule) {
-          const msg =
-            '[mobileai] react-native-audio-api native module not found. '
-            + 'Voice audio output requires a development build (not Expo Go). '
-            + 'Run: npx expo run:ios';
-          logger.warn('AudioOutput', msg);
-          this.config.onError?.(msg);
-          return false;
-        }
         // Static require — Metro needs a literal string.
-        // The NativeModules guard above already prevents this from running in Expo Go.
         audioApi = require('react-native-audio-api');
       } catch {
         const msg =

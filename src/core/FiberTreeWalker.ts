@@ -9,6 +9,7 @@
 
 import { logger } from '../utils/logger';
 import { getChild, getSibling, getParent, getProps, getStateNode, getType, getDisplayName } from './FiberAdapter';
+import { getActiveAlert } from './NativeAlertInterceptor';
 import type { InteractiveElement, ElementType } from './types';
 
 // ─── Walk Configuration ─────────
@@ -20,6 +21,8 @@ export interface WalkConfig {
   interactiveWhitelist?: React.RefObject<any>[];
   /** Optional screen name to scope interactives to the active screen */
   screenName?: string;
+  /** Whether to inject intercepted native UI elements */
+  interceptNativeAlerts?: boolean;
 }
 
 // ─── Fiber Node Type Detection ─────────────────────────────────
@@ -801,6 +804,29 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   }
   elementsText = cleanLines.join('\n');
   
+  // ── Inject Native OS Alerts (Virtual Elements) ──
+  if (config?.interceptNativeAlerts) {
+    const alert = getActiveAlert();
+    if (alert) {
+      elementsText += `\n\n<system_alert>\n  <title>${alert.title}</title>\n  <message>${alert.message}</message>\n`;
+      alert.buttons.forEach((btn, idx) => {
+        elementsText += `  [${currentIndex}]<pressable role="button">"${btn.text}" />\n`;
+        interactives.push({
+          index: currentIndex++,
+          type: 'pressable',
+          label: btn.text,
+          props: {},
+          fiberNode: null,
+          virtual: {
+            kind: 'alert_button',
+            alertButtonIndex: idx,
+          },
+        });
+      });
+      elementsText += `</system_alert>`;
+    }
+  }
+
   logger.info('FiberTreeWalker', `Found ${interactives.length} interactive elements`);
   return { elementsText: elementsText.trim(), interactives };
 }

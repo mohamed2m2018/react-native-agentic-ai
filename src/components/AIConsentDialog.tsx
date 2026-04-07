@@ -26,6 +26,7 @@ import {
   Animated,
 } from 'react-native';
 import type { AIProviderName } from '../core/types';
+import { isNativeOverlayActive } from './FloatingOverlayWrapper';
 
 // ─── AsyncStorage Helper ──────────────────────────────────────
 
@@ -256,14 +257,21 @@ export function AIConsentDialog({
     }
   }, [config.privacyPolicyUrl]);
 
+  const ContentWrapper = isNativeOverlayActive ? View : Modal;
+  const wrapperProps = isNativeOverlayActive
+    ? { style: [StyleSheet.absoluteFill, { zIndex: 99999, elevation: 99999 }], pointerEvents: 'auto' as const }
+    : {
+        visible,
+        transparent: true,
+        animationType: "none" as const,
+        statusBarTranslucent: true,
+        onRequestClose: onDecline,
+      };
+
+  if (!visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={onDecline}
-    >
+    <ContentWrapper {...(wrapperProps as any)}>
       <View style={[dialogStyles.backdrop, { backgroundColor: theme.backdrop }]}>
         <Animated.View
           style={[
@@ -365,7 +373,7 @@ export function AIConsentDialog({
           </View>
         </Animated.View>
       </View>
-    </Modal>
+    </ContentWrapper>
   );
 }
 

@@ -13,6 +13,7 @@
 
 import { walkFiberTree } from '../core/FiberTreeWalker';
 import { getParent, getProps } from '../core/FiberAdapter';
+import { dismissAlert } from '../core/NativeAlertInterceptor';
 import type { AgentTool, ToolContext } from './types';
 
 export function createTapTool(context: ToolContext): AgentTool {
@@ -33,6 +34,13 @@ export function createTapTool(context: ToolContext): AgentTool {
       // Pre-tap snapshot for change detection (Pattern from Maestro: hierarchyBasedTap)
       const elementCountBefore = elements.length;
       const screenBefore = context.getCurrentScreenName();
+
+      // Strategy 0: Virtual elements (Native OS dialogs)
+      if (element.virtual?.kind === 'alert_button') {
+        dismissAlert(element.virtual.alertButtonIndex);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return `✅ Tapped native alert button [${args.index}] "${element.label}" → dialog dismissed`;
+      }
 
       // Strategy 1: Switch → onValueChange
       if (element.type === 'switch' && element.props.onValueChange) {
