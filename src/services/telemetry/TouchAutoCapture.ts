@@ -15,29 +15,72 @@
 // React Native imports not needed — we use Fiber internals directly
 import type { TelemetryService } from './TelemetryService';
 
-const recentTaps: { label: string; ts: number }[] = [];
-const RAGE_WINDOW_MS = 2000;
+// ─── Rage Click Detection ──────────────────────────────────────────
+//
+// Industry-standard approach (FullStory, PostHog, LogRocket):
+// - 3+ taps on the SAME element within a SHORT window
+// - Must be on the SAME screen (screen changes = intentional navigation)
+// - Navigation-style labels ("Next", "Continue") are excluded
+// - 1-second window (PostHog standard) instead of 2s to reduce false positives
+
+interface TapRecord {
+  label: string;
+  screen: string;
+  ts: number;
+}
+
+const recentTaps: TapRecord[] = [];
+const RAGE_WINDOW_MS = 1000; // PostHog uses 1s — tighter = fewer false positives
 const RAGE_THRESHOLD = 3;
+const MAX_TAP_BUFFER = 8;
+
+// Labels that are naturally tapped multiple times in sequence (wizards, onboarding, etc.)
+const NAVIGATION_LABELS = new Set([
+  'next', 'continue', 'skip', 'back', 'done', 'ok', 'cancel',
+  'previous', 'dismiss', 'close', 'got it', 'confirm', 'proceed',
+  'التالي', 'متابعة', 'تخطي', 'رجوع', 'تم', 'إلغاء', 'إغلاق', 'حسناً',
+]);
+
+function isNavigationLabel(label: string): boolean {
+  return NAVIGATION_LABELS.has(label.toLowerCase().trim());
+}
 
 /**
- * Checks if the user is repeatedly tapping the same element in frustration.
- * If rage click detected, emits 'rage_click' event to telemetry.
+ * Checks if the user is rage-tapping an element.
+ *
+ * Industry best-practice criteria:
+ * 1. Same label tapped 3+ times within 1 second
+ * 2. Taps must be on the SAME screen (screen change = not rage, it's navigation)
+ * 3. Navigation labels ("Next", "Skip", etc.) are excluded
  */
 export function checkRageClick(label: string, telemetry: TelemetryService): void {
-  const now = Date.now();
-  recentTaps.push({ label, ts: now });
-  
-  // Keep buffer unbounded size of 5
-  if (recentTaps.length > 5) recentTaps.shift();
+  // Skip navigation-style labels — sequential tapping is by design
+  if (isNavigationLabel(label)) return;
 
-  const recent = recentTaps.filter(t => t.label === label && now - t.ts < RAGE_WINDOW_MS);
-  if (recent.length >= RAGE_THRESHOLD) {
-    telemetry.track('rage_click', { 
-      label, 
-      count: recent.length, 
-      screen: telemetry.screen 
+  const now = Date.now();
+  const currentScreen = telemetry.screen;
+
+  recentTaps.push({ label, screen: currentScreen, ts: now });
+
+  // Keep buffer bounded
+  if (recentTaps.length > MAX_TAP_BUFFER) recentTaps.shift();
+
+  // Count taps on the SAME label AND SAME screen within the time window
+  const matching = recentTaps.filter(
+    (t) =>
+      t.label === label &&
+      t.screen === currentScreen &&
+      now - t.ts < RAGE_WINDOW_MS
+  );
+
+  if (matching.length >= RAGE_THRESHOLD) {
+    telemetry.track('rage_click', {
+      label,
+      count: matching.length,
+      screen: currentScreen,
     });
-    recentTaps.length = 0; // reset buffer after emitting to avoid spam
+    // Reset buffer after emitting to avoid duplicate rage events
+    recentTaps.length = 0;
   }
 }
 
