@@ -18,6 +18,7 @@ jest.mock('../../utils/logger', () => ({
 // Mock __REACT_DEVTOOLS_GLOBAL_HOOK__ — FiberTreeWalker uses this to access the fiber root
 // We bypass it and pass the fiber root directly via getFiberFromRef fallback patterns
 import { walkFiberTree, hasAnyEventHandler } from '../../core/FiberTreeWalker';
+import { logger } from '../../utils/logger';
 
 // ─── Fiber Node Factory ────────────────────────────────────────
 
@@ -121,6 +122,68 @@ describe('FiberTreeWalker', () => {
 
       expect(result.interactives).toHaveLength(1);
       expect(result.interactives[0]!.type).toBe('switch');
+    });
+
+    it('detects radio buttons by component name without relying on accessibility', () => {
+      const radioNode = createFiberNode('RadioButton', {
+        onPress: () => {},
+        status: 'unchecked',
+      }, [createFiberNode('Text', { children: 'English' })]);
+      const root = createFiberNode('View', {}, [radioNode]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('radio');
+      expect(result.interactives[0]!.label).toBe('English');
+    });
+
+    it('detects radio group items from common library patterns and infers checked state', () => {
+      const radioItem = createFiberNode('RadioGroupItem', {
+        value: 'en',
+      });
+      const labelBlock = createFiberNode('View', {}, [
+        createFiberNode('Text', { children: 'English' }),
+      ]);
+      const row = createFiberNode('View', {}, [labelBlock, radioItem]);
+      const group = createFiberNode('RadioGroup', {
+        value: 'en',
+        onValueChange: () => {},
+      }, [row]);
+      const root = createFiberNode('View', {}, [group]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('radio');
+      expect(result.interactives[0]!.label).toBe('English');
+      expect(result.interactives[0]!.props.checked).toBe(true);
+      expect(result.elementsText).toContain('checked="true"');
+    });
+
+    it('does not treat a bare adjustable container as a slider', () => {
+      const adjustableContainer = createFiberNode('View', {
+        accessibilityRole: 'adjustable',
+      });
+      const root = createFiberNode('View', {}, [adjustableContainer]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(0);
+    });
+
+    it('detects custom adjustable controls with numeric value semantics as sliders', () => {
+      const sliderNode = createFiberNode('CustomAdjustable', {
+        accessibilityRole: 'adjustable',
+        onValueChange: () => {},
+        value: 0.5,
+      });
+      const root = createFiberNode('View', {}, [sliderNode]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('slider');
     });
   });
 
@@ -234,6 +297,58 @@ describe('FiberTreeWalker', () => {
 
       // Different onPress references = separate actions
       expect(result.interactives).toHaveLength(2);
+    });
+
+    it('keeps nested switch controls with distinct onValueChange handlers', () => {
+      const switchNode = createFiberNode('Switch', { onValueChange: () => {}, value: false });
+      const labelBlock = createFiberNode('View', {}, [
+        createFiberNode('Text', { children: 'Express Delivery' }),
+        createFiberNode('Text', { children: 'Arrives in 1-2 business days' }),
+      ]);
+      const outer = createFiberNode('Pressable', { onPress: () => {} }, [labelBlock, switchNode]);
+      const root = createFiberNode('View', {}, [outer]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(2);
+      const nestedSwitch = result.interactives.find(el => el.type === 'switch');
+      expect(nestedSwitch).toBeDefined();
+      expect(nestedSwitch!.label).toContain('Express Delivery');
+    });
+
+    it('keeps child switches inside adjustable containers and labels them from sibling text', () => {
+      const switchNode = createFiberNode('Switch', { onValueChange: () => {}, value: false });
+      const labelBlock = createFiberNode('View', {}, [
+        createFiberNode('Text', { children: 'Gift Wrapping' }),
+        createFiberNode('Text', { children: 'Include a personalized message' }),
+      ]);
+      const adjustableContainer = createFiberNode('View', { accessibilityRole: 'adjustable' }, [labelBlock, switchNode]);
+      const root = createFiberNode('View', {}, [adjustableContainer]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('switch');
+      expect(result.interactives[0]!.label).toContain('Gift Wrapping');
+    });
+
+    it('suppresses nested radio indicators that reuse the row tap handler', () => {
+      const handler = () => {};
+      const radioIndicator = createFiberNode('RadioButton', {
+        onPress: handler,
+        status: 'checked',
+      });
+      const row = createFiberNode('Pressable', { onPress: handler }, [
+        createFiberNode('Text', { children: 'Arabic' }),
+        radioIndicator,
+      ]);
+      const root = createFiberNode('View', {}, [row]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('pressable');
+      expect(result.interactives[0]!.label).toContain('Arabic');
     });
   });
 
@@ -372,11 +487,12 @@ describe('FiberTreeWalker', () => {
     });
 
     it('returns empty result and warns when all strategies fail', () => {
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const originalHook = (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
       delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
 
       try {
+        (logger.warn as jest.Mock).mockClear();
+
         // Pass an object with no fiber access patterns
         const opaqueRef = { someRandomProp: 42 };
 
@@ -384,11 +500,11 @@ describe('FiberTreeWalker', () => {
 
         expect(result.elementsText).toBe('');
         expect(result.interactives).toEqual([]);
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Could not access React Fiber tree')
+        expect(logger.warn).toHaveBeenCalledWith(
+          'FiberTreeWalker',
+          'Could not access Fiber tree from ref'
         );
       } finally {
-        consoleWarnSpy.mockRestore();
         if (originalHook) {
           (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = originalHook;
         }

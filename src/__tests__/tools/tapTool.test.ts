@@ -1,7 +1,7 @@
 /**
  * tapTool tests.
  *
- * Covers: direct onPress, switch toggle, bubble-up, element not found, no handler.
+ * Covers: direct onPress, switch toggle, radio selection, bubble-up, element not found, no handler.
  */
 
 import { createTapTool } from '../../tools/tapTool';
@@ -61,6 +61,37 @@ describe('tapTool', () => {
     expect(onValueChange).toHaveBeenCalledWith(true);
     expect(result).toContain('✅');
     expect(result).toContain('Toggled');
+  });
+
+  it('selects a radio item via its own onPress handler', async () => {
+    const onPress = jest.fn();
+    const elements = [
+      { index: 0, type: 'radio' as const, label: 'English', props: { onPress, checked: false, value: 'en' }, fiberNode: {} },
+    ];
+    mockWalkFiberTree.mockReturnValue({ elementsText: '', interactives: elements });
+
+    const tool = createTapTool(createMockContext());
+    const result = await tool.execute({ index: 0 });
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(result).toContain('✅');
+    expect(result).toContain('Selected');
+  });
+
+  it('selects a radio item through a parent group onValueChange using the item value', async () => {
+    const onValueChange = jest.fn();
+    const parentFiber = { memoizedProps: { onValueChange }, return: null };
+    const elements = [
+      { index: 0, type: 'radio' as const, label: 'Arabic', props: { value: 'ar', checked: false }, fiberNode: { return: parentFiber } },
+    ];
+    mockWalkFiberTree.mockReturnValue({ elementsText: '', interactives: elements });
+
+    const tool = createTapTool(createMockContext());
+    const result = await tool.execute({ index: 0 });
+
+    expect(onValueChange).toHaveBeenCalledWith('ar');
+    expect(result).toContain('✅');
+    expect(result).toContain('parent group');
   });
 
   it('returns error when element index not found', async () => {

@@ -9,6 +9,7 @@ import * as path from 'path';
 import { parse } from '@babel/parser';
 import * as _traverse from '@babel/traverse';
 import * as t from '@babel/types';
+import { resolveComponentPath, scoreScreenCandidate } from './shared';
 
 const traverse = (_traverse as any).default || _traverse;
 import { extractContentFromAST, buildDescription } from '../extractors/ast-extractor';
@@ -101,30 +102,6 @@ interface ScreenDefinition {
   componentName: string;
   filePath: string;
   title?: string;
-}
-
-function scoreScreenCandidate(screen: ScannedScreen): number {
-  let score = 0;
-
-  if (fs.existsSync(screen.filePath)) score += 20;
-  if (screen.description && screen.description !== 'Screen content') score += 80;
-  if (screen.navigationLinks.length > 0) score += 12;
-  if (screen.title) score += 4;
-
-  const describedElements = screen.description
-    .split(',')
-    .map(part => part.trim())
-    .filter(part => part && part !== 'Screen content').length;
-  score += Math.min(describedElements, 8) * 6;
-
-  const componentOnlyElements = screen.description
-    .split(',')
-    .map(part => part.trim())
-    .filter(part => part.endsWith('(component)')).length;
-  if (componentOnlyElements > 0) score -= componentOnlyElements * 20;
-  if (describedElements > 0 && componentOnlyElements === describedElements) score -= 120;
-
-  return score;
 }
 
 /**
@@ -358,114 +335,4 @@ function extractTitleFromOptions(optionsNode: any): string | null {
     }
   }
   return null;
-}
-
-/**
- * Resolve a component name to its source file path via imports.
- * Also handles dot-notation intermediate tracing (e.g., StackRoute.Login)
- */
-function resolveComponentPath(
-  componentName: string,
-  imports: Map<string, string>,
-  currentFile: string,
-  _projectRoot: string
-): string {
-  const parts = componentName.split('.');
-  const baseComponent: string | undefined = parts[0];
-  const property: string | undefined = parts[1];
-
-  if (!baseComponent) return currentFile;
-
-  const importPath = imports.get(baseComponent);
-  if (!importPath) return currentFile;
-
-  let resolvedBase = currentFile;
-  if (importPath.startsWith('.')) {
-    const dir = path.dirname(currentFile);
-    const resolved = path.resolve(dir, importPath);
-
-    const extensions = ['.tsx', '.ts', '.jsx', '.js'];
-    let found = false;
-    for (const ext of extensions) {
-      if (fs.existsSync(resolved + ext)) {
-        resolvedBase = resolved + ext;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      for (const ext of extensions) {
-        const indexPath = path.join(resolved, `index${ext}`);
-        if (fs.existsSync(indexPath)) {
-          resolvedBase = indexPath;
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found) resolvedBase = resolved;
-  }
-
-  if (!property || resolvedBase === currentFile) return resolvedBase;
-
-  return traceExportProperty(resolvedBase, baseComponent, property) || resolvedBase;
-}
-
-/**
- * Traces an exported object property through an intermediate file to its deep source file.
- */
-function traceExportProperty(filePath: string, objectName: string, propertyName: string): string | null {
-  if (!fs.existsSync(filePath)) return null;
-  const sourceCode = fs.readFileSync(filePath, 'utf-8');
-  let ast: ReturnType<typeof parse>;
-  try {
-    ast = parse(sourceCode, { sourceType: 'module', plugins: ['jsx', 'typescript', 'decorators-legacy'] });
-  } catch { return null; }
-
-  const innerImports = new Map<string, string>();
-  let targetIdentifier: string | null = null;
-
-  traverse(ast, {
-    ImportDeclaration(nodePath: any) {
-      const source = nodePath.node.source.value;
-      for (const specifier of nodePath.node.specifiers) {
-        if (t.isImportDefaultSpecifier(specifier) || t.isImportSpecifier(specifier)) {
-          innerImports.set(specifier.local.name, source);
-        }
-      }
-    },
-    VariableDeclarator(nodePath: any) {
-      if (t.isIdentifier(nodePath.node.id) && nodePath.node.id.name === objectName) {
-        if (t.isObjectExpression(nodePath.node.init)) {
-          for (const prop of nodePath.node.init.properties) {
-            if (t.isObjectProperty(prop) && t.isIdentifier(prop.key)) {
-              const keyName = prop.key.name;
-              if (keyName === propertyName) {
-                if (t.isIdentifier(prop.value)) {
-                  targetIdentifier = prop.value.name;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  });
-
-  if (!targetIdentifier) return null;
-
-  const importPath = innerImports.get(targetIdentifier);
-  if (!importPath || !importPath.startsWith('.')) return null;
-
-  const dir = path.dirname(filePath);
-  const resolved = path.resolve(dir, importPath);
-  const extensions = ['.tsx', '.ts', '.jsx', '.js'];
-  for (const ext of extensions) {
-    if (fs.existsSync(resolved + ext)) return resolved + ext;
-  }
-  for (const ext of extensions) {
-    const indexPath = path.join(resolved, `index${ext}`);
-    if (fs.existsSync(indexPath)) return indexPath;
-  }
-  return resolved;
 }

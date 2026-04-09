@@ -21,7 +21,7 @@ export type AIProviderName = 'gemini' | 'openai';
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 
-export type ElementType = 'pressable' | 'text-input' | 'switch' | 'scrollable'
+export type ElementType = 'pressable' | 'text-input' | 'switch' | 'radio' | 'scrollable'
   | 'slider' | 'picker' | 'date-picker';
 
 export interface InteractiveElement {
@@ -45,6 +45,7 @@ export interface InteractiveElement {
    * - Picker: onValueChange, items, selectedValue
    * - DatePicker: onChange, onDateChange, mode
    * - Switch: onValueChange, value
+   * - Radio: onPress, onValueChange/onChange, value, checked
    */
   props: Record<string, any>;
   /**

@@ -36,6 +36,7 @@ import type {
   AgentTraceEvent,
   AgentStep,
   ExecutionResult,
+  InteractiveElement,
   ToolDefinition,
   TokenUsage,
 } from './types';
@@ -54,6 +55,9 @@ const APPROVAL_ALREADY_DONE_TOKEN = '__APPROVAL_ALREADY_DONE__';
 const USER_ALREADY_COMPLETED_MESSAGE = '✅ It looks like you already completed that step yourself. Great — let me know if you want help with anything else.';
 
 const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
+
+type AppActionApprovalScope = 'none' | 'workflow';
+type AppActionApprovalSource = 'none' | 'explicit_button' | 'user_input';
 
 // ─── Agent Runtime ─────────────────────────────────────────────
 
@@ -82,17 +86,98 @@ export class AgentRuntime {
   private originalReportErrorsAsExceptions: boolean | undefined = undefined;
 
   // ─── App-action approval gate ────────────────────────────────
-  // Tracks whether the support consent flow (ask_user + request_app_action=true)
-  // has been issued and whether the user has explicitly approved it via button tap.
-  // Only UI-altering tools are gated; informational tools (done, query_knowledge) are not.
-  private appActionApproved = false;        // true only after __APPROVAL_GRANTED__ received
-  // Tools that physically alter the app — must be gated by appAction approval
+  // Copilot uses a workflow-scoped approval model:
+  // - none: routine UI actions are blocked
+  // - workflow: routine UI actions are allowed for the current task
+  // Final irreversible commits are still protected separately by prompt rules
+  // and aiConfirm-based confirmation checks.
+  private appActionApprovalScope: AppActionApprovalScope = 'none';
+  private appActionApprovalSource: AppActionApprovalSource = 'none';
+  // Tools that physically alter the app — must be gated by workflow approval
   private static readonly APP_ACTION_TOOLS = new Set([
-    'tap', 'type', 'scroll', 'navigate', 'long_press', 'slider', 'picker', 'date_picker', 'keyboard',
+    'tap', 'type', 'scroll', 'navigate', 'long_press', 'adjust_slider', 'select_picker', 'set_date', 'dismiss_keyboard',
   ]);
 
   public getConfig(): AgentConfig {
     return this.config;
+  }
+
+  private resetAppActionApproval(reason: string): void {
+    this.appActionApprovalScope = 'none';
+    this.appActionApprovalSource = 'none';
+    logger.info('AgentRuntime', `🔒 Workflow approval cleared (${reason})`);
+  }
+
+  private grantWorkflowApproval(source: AppActionApprovalSource, reason: string): void {
+    this.appActionApprovalScope = 'workflow';
+    this.appActionApprovalSource = source;
+    logger.info('AgentRuntime', `✅ Workflow approval granted via ${source} (${reason})`);
+  }
+
+  private hasWorkflowApproval(): boolean {
+    return this.appActionApprovalScope === 'workflow' && this.appActionApprovalSource !== 'none';
+  }
+
+  private debugLogChunked(label: string, text: string, chunkSize: number = 1600): void {
+    if (!text) {
+      logger.debug('AgentRuntime', `${label}: (empty)`);
+      return;
+    }
+
+    logger.debug('AgentRuntime', `${label} (length=${text.length})`);
+    for (let start = 0; start < text.length; start += chunkSize) {
+      const end = Math.min(start + chunkSize, text.length);
+      const chunkIndex = Math.floor(start / chunkSize) + 1;
+      const chunkCount = Math.ceil(text.length / chunkSize);
+      logger.debug(
+        'AgentRuntime',
+        `${label} [chunk ${chunkIndex}/${chunkCount}]`,
+        text.slice(start, end),
+      );
+    }
+  }
+
+  private formatInteractiveForDebug(element: InteractiveElement): string {
+    const props = element.props || {};
+    const stateParts: string[] = [];
+
+    if (props.accessibilityRole) stateParts.push(`role=${String(props.accessibilityRole)}`);
+    if (props.value !== undefined && typeof props.value !== 'function') stateParts.push(`value=${String(props.value)}`);
+    if (props.checked !== undefined && typeof props.checked !== 'function') stateParts.push(`checked=${String(props.checked)}`);
+    if (props.selected !== undefined && typeof props.selected !== 'function') stateParts.push(`selected=${String(props.selected)}`);
+    if (props.enabled !== undefined && typeof props.enabled !== 'function') stateParts.push(`enabled=${String(props.enabled)}`);
+    if (props.disabled === true) stateParts.push('disabled=true');
+    if (element.aiPriority) stateParts.push(`aiPriority=${element.aiPriority}`);
+    if (element.zoneId) stateParts.push(`zoneId=${element.zoneId}`);
+    if (element.requiresConfirmation) stateParts.push('requiresConfirmation=true');
+
+    const summary = `[${element.index}] <${element.type}> "${element.label}"`;
+    return stateParts.length > 0 ? `${summary} | ${stateParts.join(' | ')}` : summary;
+  }
+
+  private debugScreenSnapshot(
+    screenName: string,
+    elements: InteractiveElement[],
+    rawElementsText: string,
+    transformedScreenContent: string,
+    contextMessage?: string,
+  ): void {
+    const interactiveSummary = elements.length > 0
+      ? elements.map((element) => this.formatInteractiveForDebug(element)).join('\n')
+      : '(no interactive elements)';
+
+    logger.debug(
+      'AgentRuntime',
+      `Screen snapshot for "${screenName}" | interactiveCount=${elements.length}`,
+    );
+    this.debugLogChunked('Interactive inventory', interactiveSummary);
+    this.debugLogChunked('Raw dehydrated elementsText', rawElementsText);
+    if (transformedScreenContent !== rawElementsText) {
+      this.debugLogChunked('Transformed screen content', transformedScreenContent);
+    }
+    if (contextMessage) {
+      this.debugLogChunked('Full provider context message', contextMessage);
+    }
   }
 
   constructor(
@@ -277,10 +362,15 @@ export class AgentRuntime {
     // ask_user — ask for clarification
     this.tools.set('ask_user', {
       name: 'ask_user',
-      description: 'Communicate with the user. Use this to ask questions, request permission for app actions, OR answer a question the user asked.',
+      description: 'Communicate with the user. Use this to ask questions, request explicit permission for app actions, answer a direct user question, or collect missing low-risk workflow data that can authorize routine in-flow steps.',
       parameters: {
         question: { type: 'string', description: 'The message or question to say to the user', required: true },
         request_app_action: { type: 'boolean', description: 'Set to true when requesting permission to take an action in the app (navigate, tap, investigate). Shows explicit approval buttons to the user.', required: true },
+        grants_workflow_approval: {
+          type: 'boolean',
+          description: 'Optional. Set to true only when asking for missing low-risk input or a low-risk selection that you will directly apply in the current action workflow. If the user answers, their answer authorizes routine in-flow actions like typing/selecting/toggling, but NOT irreversible final commits or support investigations.',
+          required: false,
+        },
       },
       execute: async (args) => {
         // Strip any leaked bracketed indices like [41] safely
@@ -288,12 +378,16 @@ export class AgentRuntime {
         if (typeof cleanQuestion === 'string') {
           cleanQuestion = cleanQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
         }
-        const kind = args.request_app_action ? 'approval' : 'freeform';
+        const wantsExplicitAppApproval = args.request_app_action === true;
+        const grantsWorkflowApproval = args.grants_workflow_approval === true;
+        const kind = wantsExplicitAppApproval ? 'approval' : 'freeform';
 
-        // Mark that the support approval flow has been initiated
-        if (args.request_app_action) {
-          this.appActionApproved = false; // reset until user taps Allow
-          logger.info('AgentRuntime', '🔒 App action gate: approval requested, UI tools now BLOCKED until granted');
+        // Mark that an explicit approval checkpoint is now pending.
+        if (wantsExplicitAppApproval) {
+          this.resetAppActionApproval('explicit approval requested');
+          logger.info('AgentRuntime', '🔒 App action gate: explicit approval requested, UI tools now BLOCKED until granted');
+        } else if (grantsWorkflowApproval) {
+          logger.info('AgentRuntime', '📝 ask_user will grant workflow approval if the user answers with routine action data');
         }
 
         logger.info('AgentRuntime', `❓ ask_user emitted (kind=${kind}): "${cleanQuestion}"`);
@@ -306,13 +400,18 @@ export class AgentRuntime {
 
           // Resolve approval gate based on button response
           if (answer === '__APPROVAL_GRANTED__') {
-            this.appActionApproved = true;
-            logger.info('AgentRuntime', '✅ App action gate: APPROVED — UI tools unblocked');
+            this.grantWorkflowApproval('explicit_button', 'user tapped Allow');
           } else if (answer === '__APPROVAL_REJECTED__') {
-            this.appActionApproved = false;
+            this.resetAppActionApproval('explicit approval rejected');
             logger.info('AgentRuntime', '🚫 App action gate: REJECTED — UI tools remain blocked');
+          } else if (
+            grantsWorkflowApproval &&
+            typeof answer === 'string' &&
+            answer.trim().length > 0
+          ) {
+            this.grantWorkflowApproval('user_input', 'user supplied requested workflow data');
           }
-          // Any other text answer (conversational interruption) leaves appActionApproved as-is
+          // Any other text answer leaves workflow approval unchanged.
 
           return `User answered: ${answer}`;
         }
@@ -881,9 +980,9 @@ ${screen.elementsText}
         this.config.interactionMode !== 'autopilot' &&
         this.config.onAskUser &&
         AgentRuntime.APP_ACTION_TOOLS.has(toolName) &&
-        !this.appActionApproved
+        !this.hasWorkflowApproval()
       ) {
-        const blockedMsg = `🚫 APP ACTION BLOCKED: You are attempting to use "${toolName}" but have not yet received explicit user approval. You MUST first call ask_user(request_app_action=true) and wait for the user to explicitly tap 'Allow' before executing ANY UI actions (including navigate, tap, scroll, etc).`;
+        const blockedMsg = `🚫 APP ACTION BLOCKED: You are attempting to use "${toolName}" without workflow approval. Before routine UI actions, either (1) call ask_user(request_app_action=true) and wait for the user to tap 'Allow', or (2) if you are collecting missing low-risk input/selection for the current action workflow, call ask_user(grants_workflow_approval=true) so the user's answer authorizes routine in-flow actions. Never use option (2) for support investigations or irreversible final commits.`;
         logger.warn('AgentRuntime', blockedMsg);
         this.emitTrace('app_action_gate_blocked', { tool: toolName, args }, stepIndex);
         return blockedMsg;
@@ -1359,8 +1458,8 @@ ${screen.elementsText}
     this.currentTraceId = generateTraceId();
     this.observations = [];
     this.lastScreenName = '';
-    // Reset app-action approval gate for each new task
-    this.appActionApproved = false;
+    // Reset workflow approval for each new task
+    this.resetAppActionApproval('new task');
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
     const stepDelay = this.config.stepDelay ?? 300;
 
@@ -1537,6 +1636,13 @@ ${screen.elementsText}
         const contextMessage = this.assembleUserPrompt(
           step, maxSteps, contextualMessage, screenName, screenContent, chatHistory
         );
+        this.debugScreenSnapshot(
+          screen.screenName,
+          screen.elements,
+          screen.elementsText,
+          screenContent,
+          contextMessage,
+        );
 
         // 4.5. Capture screenshot for Gemini vision (optional)
         const screenshot = await this.captureScreenshot();
@@ -1550,7 +1656,7 @@ ${screen.elementsText}
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
         logger.debug('AgentRuntime', 'System prompt length:', systemPrompt.length);
-        logger.debug('AgentRuntime', 'User context message:', contextMessage.substring(0, 300));
+        logger.debug('AgentRuntime', 'User context preview:', contextMessage.substring(0, 300));
 
         const response = await this.provider.generateContent(
           systemPrompt,

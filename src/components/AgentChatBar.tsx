@@ -933,20 +933,20 @@ export function AgentChatBar({
               {pendingApprovalQuestion && onPendingApprovalAction && (
                 <View style={styles.approvalPanel}>
                   <Text style={styles.approvalHint}>
-                    The AI agent is requesting permission to perform this action. Tap "Do it" to approve, or "Don’t do it" to cancel.
+                    The AI agent is requesting permission to perform this action. Tap "Allow" to approve, or "Don’t Allow" to cancel.
                   </Text>
                   <View style={styles.approvalActions}>
                     <Pressable
                       style={[styles.approvalActionBtn, styles.approvalActionSecondary]}
                       onPress={() => onPendingApprovalAction('reject')}
                     >
-                      <Text style={[styles.approvalActionText, styles.approvalActionSecondaryText]}>Don’t do it</Text>
+                      <Text style={[styles.approvalActionText, styles.approvalActionSecondaryText]}>Don’t Allow</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.approvalActionBtn, styles.approvalActionPrimary]}
                       onPress={() => onPendingApprovalAction('approve')}
                     >
-                      <Text style={[styles.approvalActionText, styles.approvalActionPrimaryText]}>Do it</Text>
+                      <Text style={[styles.approvalActionText, styles.approvalActionPrimaryText]}>Allow</Text>
                     </Pressable>
                   </View>
                 </View>

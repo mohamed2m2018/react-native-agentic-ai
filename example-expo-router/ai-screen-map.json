@@ -1,22 +1,24 @@
 {
-  "generatedAt": "2026-04-01T18:25:17.080Z",
+  "generatedAt": "2026-04-09T21:11:14.560Z",
   "framework": "expo-router",
   "screens": {
     "(tabs)/chat": {
       "title": "Chat",
-      "description": "Try: go to profile, tap settings... (text-input), Send (button), FlatList (list). scrollable list"
+      "description": "Try: go to profile, tap settings... (text-input), Send (button), FlatList (list)",
+      "navigatesTo": [
+        "(tabs)/chat"
+      ]
     },
     "(tabs)/index": {
       "title": "Home",
-      "description": "Wireless Headphones (button), Running Shoes (button), Laptop Stand (button), Coffee Maker (button), Yoga Mat (button), Desk Lamp (button), Browse All Categories (button), FlatList (list). scrollable list, list with selectable rows, rows navigate to /product/[param]",
+      "description": "Street Address (text-input), City (text-input), Zip / Postal Code (text-input), Express Delivery (switch), Gift Wrapping (switch), Advanced Shipping Options (button), name (button), category (button)",
       "navigatesTo": [
-        "product/[id]",
         "categories"
       ]
     },
     "(tabs)/settings": {
       "title": "Settings",
-      "description": "Notifications (button), Appearance (button), Language (button), About (button), Privacy Policy (button)",
+      "description": "Notifications (button), › (button), Appearance (button), Language (button), About (button), Privacy Policy (button)",
       "navigatesTo": [
         "notifications",
         "appearance",
@@ -27,7 +29,7 @@
     },
     "(tabs)/two": {
       "title": "Profile",
-      "description": "Edit Profile (button), Favorites (button), Order History (button), Saved Addresses (button)",
+      "description": "Edit Profile (button), › (button), Favorites (button), Order History (button), Saved Addresses (button)",
       "navigatesTo": [
         "edit-profile",
         "favorites",
@@ -37,11 +39,11 @@
     },
     "about": {
       "title": "About",
-      "description": "About ShopApp, Version 1.0.0, Expo Router (File-based routing), React Native, Google Gemini API, @mobileai/react-native (AI Agent)"
+      "description": "About ShopApp, Version 1.0.0, ShopApp is a demo application showcasing the integration of AI agents with Expo Router. This app demonstrates how an AI assistant can navigate between screens, fill forms, tap buttons, and interact with your React Native app's live UI., Built with @mobileai/react-native — the drop-in AI agent for React Native apps., Technologies, Expo Router (File-based routing)"
     },
     "addresses": {
       "title": "Addresses",
-      "description": "FlatList (list). scrollable list"
+      "description": "FlatList (list)"
     },
     "appearance": {
       "title": "Appearance",
@@ -49,17 +51,11 @@
     },
     "categories": {
       "title": "Categories",
-      "description": "Electronics (button), Fashion (button), Home & Garden (button), Sports & Outdoors (button), Books & Media (button)",
-      "navigatesTo": [
-        "category/[id]"
-      ]
+      "description": "icon (button), name (button), count (button), items (button)"
     },
     "category/[id]": {
       "title": "Category",
-      "description": "count (button)",
-      "navigatesTo": [
-        "subcategory/[id]"
-      ]
+      "description": "name (button), count (button), items (button), › (button)"
     },
     "edit-profile": {
       "title": "Edit Profile",
@@ -67,7 +63,7 @@
     },
     "favorites": {
       "title": "Favorites",
-      "description": "FlatList (list). scrollable list"
+      "description": "FlatList (list)"
     },
     "help": {
       "title": "Help Center",
@@ -78,24 +74,18 @@
     },
     "item/[id]": {
       "title": "Item Details",
-      "description": "Add to Wishlist (switch), View Reviews & Questions (button), Add to Cart (button)",
-      "navigatesTo": [
-        "item-reviews/[id]"
-      ]
+      "description": "Add to Wishlist (switch), View Reviews & Questions (button), › (button), Add to Cart (button)"
     },
     "item-reviews/[id]": {
       "title": "Reviews",
-      "description": "Type your question about this product... (text-input), Price Drop Alerts (switch), Notify on New Reviews (switch), ✍️ Write a Review (button), Submit Question (button)",
-      "navigatesTo": [
-        "write-review/[id]"
-      ]
+      "description": "Type your question about this product... (text-input), Price Drop Alerts (switch), Notify on New Reviews (switch), ✍️ Write a Review (button), Submit Question (button)"
     },
     "language": {
       "title": "Language",
       "description": "English (button), Arabic (button), Spanish (button), French (button), German (button), Japanese (button)"
     },
     "modal": {
-      "description": "Screen content"
+      "description": "EditScreenInfo (component)"
     },
     "notifications": {
       "title": "Notifications",
@@ -103,95 +93,34 @@
     },
     "order-history": {
       "title": "Order History",
-      "description": "FlatList (list). scrollable list"
+      "description": "FlatList (list)"
     },
     "privacy": {
       "title": "Privacy Policy",
-      "description": "Privacy Policy, Last updated: March 2026, Data Collection, AI Agent, Third-Party Services"
+      "description": "Privacy Policy, Last updated: March 2026, Data Collection, This demo app does not collect or store any personal data. All interactions with the AI agent are processed in real-time and are not persisted., AI Agent, The AI agent reads your screen's UI hierarchy to understand context and perform actions. It does not access any data marked with content masking or security gating."
     },
     "product/[id]": {
       "title": "Product Details",
-      "description": "Product not found, Specifications"
+      "description": "Product not found, name, category, $, price, description"
     },
     "review-thanks/[id]": {
       "description": "View Rewards Program (button), Back to Reviews (button)",
       "navigatesTo": [
-        "rewards",
-        "item-reviews/[id]"
+        "rewards"
       ]
     },
     "rewards": {
-      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), Invite Friends (button)",
+      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 👥 (button), Invite Friends (button), Earn 100 points per referral (button), › (button)",
       "navigatesTo": [
         "invite-friends"
       ]
     },
     "subcategory/[id]": {
       "title": "Subcategory",
-      "description": "rating (button)",
-      "navigatesTo": [
-        "item/[id]"
-      ]
+      "description": "name (button), ★ (button), rating (button), $ (button), price (button)"
     },
     "write-review/[id]": {
-      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), ★ (button), ☆ (button), 👍 Yes (button), 👎 No (button), Submit Review (button)",
-      "navigatesTo": [
-        "review-thanks/[id]"
-      ]
+      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), ★ (button), ☆ (button), 👍 Yes (button), 👎 No (button), Submit Review (button)"
     }
-  },
-  "chains": [
-    [
-      "(tabs)/index",
-      "categories",
-      "category/[id]",
-      "subcategory/[id]",
-      "item/[id]",
-      "item-reviews/[id]",
-      "write-review/[id]",
-      "review-thanks/[id]",
-      "rewards",
-      "invite-friends"
-    ],
-    [
-      "(tabs)/index",
-      "product/[id]"
-    ],
-    [
-      "(tabs)/settings",
-      "notifications"
-    ],
-    [
-      "(tabs)/settings",
-      "appearance"
-    ],
-    [
-      "(tabs)/settings",
-      "language"
-    ],
-    [
-      "(tabs)/settings",
-      "about"
-    ],
-    [
-      "(tabs)/settings",
-      "privacy"
-    ],
-    [
-      "(tabs)/two",
-      "edit-profile"
-    ],
-    [
-      "(tabs)/two",
-      "favorites"
-    ],
-    [
-      "(tabs)/two",
-      "order-history"
-    ],
-    [
-      "(tabs)/two",
-      "addresses"
-    ]
-  ]
+  }
 }

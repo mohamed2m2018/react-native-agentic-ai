@@ -43,6 +43,7 @@ const SLIDER_TYPES = new Set(['Slider', 'RNCSlider', 'RCTSlider']);
 const PICKER_TYPES = new Set(['Picker', 'RNCPicker', 'RNPickerSelect', 'DropDownPicker', 'SelectDropdown']);
 const DATE_PICKER_TYPES = new Set(['DateTimePicker', 'RNDateTimePicker', 'DatePicker', 'RNDatePicker']);
 const TEXT_TYPES = new Set(['Text', 'RCTText']);
+const RADIO_TYPES = new Set(['Radio', 'RadioButton', 'RadioItem', 'RadioButtonItem', 'RadioGroupItem']);
 
 // Media component types for Component-Context Media Inference
 const IMAGE_TYPES = new Set([
@@ -69,10 +70,58 @@ const LOW_SIGNAL_RUNTIME_LABELS = new Set([
   'item', 'items', 'component', 'screen',
 ]);
 
+const EXTERNALLY_LABELED_TYPES = new Set<ElementType>([
+  'switch',
+  'radio',
+  'slider',
+  'picker',
+  'date-picker',
+]);
+
+type RuntimeLabelSource =
+  | 'accessibility'
+  | 'deep-text'
+  | 'sibling-text'
+  | 'placeholder'
+  | 'icon'
+  | 'test-id'
+  | 'context';
+
+interface InteractionSignature {
+  type: ElementType;
+  channel:
+  | 'onPress'
+  | 'onLongPress'
+  | 'onChangeText'
+  | 'onValueChange'
+  | 'onSlidingComplete'
+  | 'onChange'
+  | 'onDateChange'
+  | 'onCheckedChange'
+  | 'onSelect';
+  handler: Function;
+}
+
+interface RadioSelectionController {
+  channel?: 'onValueChange' | 'onChange' | 'onCheckedChange' | 'onSelect';
+  handler?: Function;
+  selectedValue?: string | number | boolean;
+}
+
+interface RadioSelectionHandler {
+  channel: 'onValueChange' | 'onChange' | 'onCheckedChange' | 'onSelect';
+  handler: Function;
+}
+
 // ─── State Extraction ──
 
 /** Props to extract as state attributes — covers lazy devs who skip accessibility */
 const STATE_PROPS = ['value', 'checked', 'selected', 'active', 'on', 'isOn', 'toggled', 'enabled'];
+const RADIO_SELECTION_KEYS = ['checked', 'selected', 'isChecked', 'isSelected'] as const;
+const RADIO_TRUE_VALUES = new Set(['true', 'checked', 'selected', 'on']);
+const RADIO_FALSE_VALUES = new Set(['false', 'unchecked', 'unselected', 'off']);
+const RADIO_DECORATION_PATTERN = /(indicator|icon|label|provider|context)$/i;
+const RADIO_GROUP_PATTERN = /(radiobuttongroup|radiogroup)/i;
 
 /**
  * Extract state attributes from a fiber node's props.
@@ -161,6 +210,230 @@ function getComponentName(fiber: any): string | null {
   return null;
 }
 
+function hasSliderLikeSemantics(props: any): boolean {
+  if (!props || typeof props !== 'object') return false;
+
+  if (typeof props.onSlidingComplete === 'function') return true;
+
+  const hasOnValueChange = typeof props.onValueChange === 'function';
+  if (!hasOnValueChange) return false;
+
+  const hasExplicitRange = props.minimumValue !== undefined || props.maximumValue !== undefined;
+  if (hasExplicitRange) return true;
+
+  const accessibilityValue = props.accessibilityValue;
+  const hasAccessibilityRange = !!accessibilityValue && typeof accessibilityValue === 'object' &&
+    (accessibilityValue.min !== undefined || accessibilityValue.max !== undefined);
+  if (hasAccessibilityRange) return true;
+
+  return typeof props.value === 'number';
+}
+
+function isScalarSelectionValue(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function coerceRadioBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (RADIO_TRUE_VALUES.has(normalized)) return true;
+    if (RADIO_FALSE_VALUES.has(normalized)) return false;
+  }
+  return undefined;
+}
+
+function getOwnRadioCheckedState(props: any): boolean | undefined {
+  if (!props || typeof props !== 'object') return undefined;
+
+  if (props.accessibilityState && typeof props.accessibilityState === 'object') {
+    const accessibilityChecked = coerceRadioBoolean(props.accessibilityState.checked);
+    if (accessibilityChecked !== undefined) return accessibilityChecked;
+  }
+
+  for (const key of RADIO_SELECTION_KEYS) {
+    const checked = coerceRadioBoolean(props[key]);
+    if (checked !== undefined) return checked;
+  }
+
+  const statusChecked = coerceRadioBoolean(props.status);
+  if (statusChecked !== undefined) return statusChecked;
+
+  return undefined;
+}
+
+function getRadioSelectionValue(props: any): string | number | boolean | undefined {
+  if (!props || typeof props !== 'object') return undefined;
+  return isScalarSelectionValue(props.value) ? props.value : undefined;
+}
+
+function isRadioGroupComponentName(name: string | null): boolean {
+  if (!name) return false;
+  return RADIO_GROUP_PATTERN.test(name) && !/(item|option)/i.test(name);
+}
+
+function isRadioLikeComponentName(name: string | null): boolean {
+  if (!name || !/radio/i.test(name)) return false;
+  if (RADIO_TYPES.has(name)) return true;
+  if (RADIO_DECORATION_PATTERN.test(name)) return false;
+  if (isRadioGroupComponentName(name)) return false;
+  return true;
+}
+
+function getRadioSelectionHandler(props: any): RadioSelectionHandler | null {
+  if (!props || typeof props !== 'object') return null;
+  if (typeof props.onValueChange === 'function') {
+    return { channel: 'onValueChange', handler: props.onValueChange as Function };
+  }
+  if (typeof props.onCheckedChange === 'function') {
+    return { channel: 'onCheckedChange', handler: props.onCheckedChange as Function };
+  }
+  if (typeof props.onChange === 'function') {
+    return { channel: 'onChange', handler: props.onChange as Function };
+  }
+  if (typeof props.onSelect === 'function') {
+    return { channel: 'onSelect', handler: props.onSelect as Function };
+  }
+  return null;
+}
+
+function findAncestorRadioSelectionController(fiber: any, maxDepth: number = 8): RadioSelectionController | null {
+  let current = getParent(fiber);
+  let depth = 0;
+
+  while (current && depth < maxDepth) {
+    const name = getComponentName(current);
+    const props = getProps(current);
+    const role = props.accessibilityRole || props.role;
+    const handler = getRadioSelectionHandler(props);
+    const selectedValue = isScalarSelectionValue(props.selectedValue)
+      ? props.selectedValue
+      : (isScalarSelectionValue(props.value) ? props.value : undefined);
+
+    if (isRadioGroupComponentName(name) || role === 'radiogroup') {
+      return {
+        channel: handler?.channel,
+        handler: handler?.handler,
+        selectedValue,
+      };
+    }
+
+    current = getParent(current);
+    depth++;
+  }
+
+  return null;
+}
+
+function inferRadioCheckedState(fiber: any, props: any): boolean | undefined {
+  const ownState = getOwnRadioCheckedState(props);
+  if (ownState !== undefined) return ownState;
+
+  const itemValue = getRadioSelectionValue(props);
+  if (itemValue === undefined) return undefined;
+
+  const controller = findAncestorRadioSelectionController(fiber);
+  if (controller?.selectedValue !== undefined) {
+    return controller.selectedValue === itemValue;
+  }
+
+  return undefined;
+}
+
+function hasRadioLikeSemantics(fiber: any, name: string | null, props: any): boolean {
+  if (!props || typeof props !== 'object') return false;
+
+  const role = props.accessibilityRole || props.role;
+  if (role === 'radio') return true;
+
+  if (!isRadioLikeComponentName(name)) return false;
+
+  if (typeof props.onPress === 'function' || typeof props.onLongPress === 'function') return true;
+  if (getRadioSelectionHandler(props)) return true;
+  if (getOwnRadioCheckedState(props) !== undefined) return true;
+
+  const itemValue = getRadioSelectionValue(props);
+  if (itemValue !== undefined && findAncestorRadioSelectionController(fiber)) return true;
+
+  return false;
+}
+
+function buildDerivedElementProps(fiber: any, elementType: ElementType, props: any): Record<string, any> {
+  const derivedProps = { ...props };
+
+  if (elementType === 'radio') {
+    const checked = inferRadioCheckedState(fiber, props);
+    if (checked !== undefined && derivedProps.checked === undefined) {
+      derivedProps.checked = checked;
+    }
+  }
+
+  return derivedProps;
+}
+
+function getInteractionSignature(elementType: ElementType | null, props: any): InteractionSignature | null {
+  if (!elementType || !props || typeof props !== 'object') return null;
+
+  if (elementType === 'pressable') {
+    if (typeof props.onPress === 'function') {
+      return { type: elementType, channel: 'onPress', handler: props.onPress as Function };
+    }
+    if (typeof props.onLongPress === 'function') {
+      return { type: elementType, channel: 'onLongPress', handler: props.onLongPress as Function };
+    }
+    return null;
+  }
+
+  if (elementType === 'text-input' && typeof props.onChangeText === 'function') {
+    return { type: elementType, channel: 'onChangeText', handler: props.onChangeText as Function };
+  }
+
+  if (elementType === 'switch' && typeof props.onValueChange === 'function') {
+    return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+  }
+
+  if (elementType === 'radio') {
+    if (typeof props.onPress === 'function') {
+      return { type: elementType, channel: 'onPress', handler: props.onPress as Function };
+    }
+    const selectionHandler = getRadioSelectionHandler(props);
+    if (selectionHandler) {
+      return { type: elementType, channel: selectionHandler.channel, handler: selectionHandler.handler };
+    }
+    return null;
+  }
+
+  if (elementType === 'slider') {
+    if (typeof props.onSlidingComplete === 'function') {
+      return { type: elementType, channel: 'onSlidingComplete', handler: props.onSlidingComplete as Function };
+    }
+    if (typeof props.onValueChange === 'function') {
+      return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+    }
+    return null;
+  }
+
+  if (elementType === 'picker' && typeof props.onValueChange === 'function') {
+    return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+  }
+
+  if (elementType === 'date-picker') {
+    if (typeof props.onChange === 'function') {
+      return { type: elementType, channel: 'onChange', handler: props.onChange as Function };
+    }
+    if (typeof props.onDateChange === 'function') {
+      return { type: elementType, channel: 'onDateChange', handler: props.onDateChange as Function };
+    }
+  }
+
+  return null;
+}
+
+function interactionSignaturesMatch(a: InteractionSignature | null, b: InteractionSignature | null): boolean {
+  if (!a || !b) return false;
+  return a.channel === b.channel && a.handler === b.handler;
+}
+
 /**
  * Check if a fiber node represents an interactive element.
  */
@@ -168,19 +441,24 @@ function getElementType(fiber: any): ElementType | null {
   const name = getComponentName(fiber);
   const props = getProps(fiber);
 
+  if (isRadioGroupComponentName(name)) return null;
+
   // Check by component name (known React Native types)
   if (name && PRESSABLE_TYPES.has(name)) return 'pressable';
   if (name && TEXT_INPUT_TYPES.has(name)) return 'text-input';
   if (name && SWITCH_TYPES.has(name)) return 'switch';
+  if (hasRadioLikeSemantics(fiber, name, props)) return 'radio';
   if (name && SLIDER_TYPES.has(name)) return 'slider';
   if (name && PICKER_TYPES.has(name)) return 'picker';
   if (name && DATE_PICKER_TYPES.has(name)) return 'date-picker';
 
   // Check by accessibilityRole (covers custom components with proper ARIA)
   const role = props.accessibilityRole || props.role;
+  if (role === 'radiogroup') return null;
+  if (role === 'radio') return 'radio';
   if (role === 'switch') return 'switch';
-  if (role === 'adjustable') return 'slider';
-  if (role === 'button' || role === 'link' || role === 'checkbox' || role === 'radio') {
+  if (role === 'adjustable' && hasSliderLikeSemantics(props)) return 'slider';
+  if (role === 'button' || role === 'link' || role === 'checkbox') {
     return 'pressable';
   }
 
@@ -190,14 +468,12 @@ function getElementType(fiber: any): ElementType | null {
   // TextInput detection by props
   if (props.onChangeText && typeof props.onChangeText === 'function') return 'text-input';
 
-  // Slider detection by props (has both onValueChange AND min/max values)
-  if (props.onSlidingComplete && typeof props.onSlidingComplete === 'function') return 'slider';
-  if (props.onValueChange && typeof props.onValueChange === 'function' &&
-      (props.minimumValue !== undefined || props.maximumValue !== undefined)) return 'slider';
+  // Slider detection by props
+  if (hasSliderLikeSemantics(props)) return 'slider';
 
   // DatePicker detection by props
   if (props.onChange && typeof props.onChange === 'function' &&
-      (props.mode === 'date' || props.mode === 'time' || props.mode === 'datetime')) return 'date-picker';
+    (props.mode === 'date' || props.mode === 'time' || props.mode === 'datetime')) return 'date-picker';
 
   // Switch detection by props (custom switches with onValueChange — no min/max)
   if (props.onValueChange && typeof props.onValueChange === 'function') return 'switch';
@@ -265,8 +541,8 @@ function isIconGlyph(text: string): boolean {
   if (trimmed.length === 0 || trimmed.length > 2) return false; // Glyphs are 1-2 chars (surrogate pairs)
   const code = trimmed.codePointAt(0) || 0;
   return (code >= 0xE000 && code <= 0xF8FF) ||
-         (code >= 0xF0000 && code <= 0xFFFFF) ||
-         (code >= 0x100000 && code <= 0x10FFFF);
+    (code >= 0xF0000 && code <= 0xFFFFF) ||
+    (code >= 0x100000 && code <= 0x10FFFF);
 }
 
 function normalizeRuntimeLabel(text: string | null | undefined): string {
@@ -274,7 +550,7 @@ function normalizeRuntimeLabel(text: string | null | undefined): string {
   return String(text).replace(/\s+/g, ' ').trim();
 }
 
-function scoreRuntimeLabel(text: string, source: 'accessibility' | 'deep-text' | 'placeholder' | 'icon' | 'test-id' | 'context'): number {
+function scoreRuntimeLabel(text: string, source: RuntimeLabelSource): number {
   const normalized = normalizeRuntimeLabel(text);
   if (!normalized) return Number.NEGATIVE_INFINITY;
 
@@ -283,6 +559,7 @@ function scoreRuntimeLabel(text: string, source: 'accessibility' | 'deep-text' |
   const lowered = normalized.toLowerCase();
 
   if (source === 'deep-text') score += 70;
+  if (source === 'sibling-text') score += 58;
   if (source === 'accessibility') score += 80;
   if (source === 'placeholder') score += 25;
   if (source === 'context') score += 10;
@@ -306,7 +583,7 @@ function scoreRuntimeLabel(text: string, source: 'accessibility' | 'deep-text' |
 
 function chooseBestRuntimeLabel(candidates: Array<{
   text: string | null | undefined;
-  source: 'accessibility' | 'deep-text' | 'placeholder' | 'icon' | 'test-id' | 'context';
+  source: RuntimeLabelSource;
 }>): string | null {
   const best = candidates
     .map(candidate => ({
@@ -317,6 +594,25 @@ function chooseBestRuntimeLabel(candidates: Array<{
     .sort((a, b) => b.score - a.score)[0];
 
   return best?.text || null;
+}
+
+function extractSiblingTextLabel(fiber: any): string {
+  const parent = getParent(fiber);
+  if (!parent) return '';
+
+  const candidates: Array<{ text: string; source: RuntimeLabelSource }> = [];
+  let sibling = getChild(parent);
+  while (sibling) {
+    if (sibling !== fiber) {
+      const text = extractDeepTextContent(sibling, 4);
+      if (text) {
+        candidates.push({ text, source: 'sibling-text' });
+      }
+    }
+    sibling = getSibling(sibling);
+  }
+
+  return chooseBestRuntimeLabel(candidates) || '';
 }
 
 /**
@@ -568,10 +864,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
 
   function processNode(
-    node: any, 
-    depth: number = 0, 
-    isInsideInteractive: boolean = false, 
-    ancestorOnPress: any = null,
+    node: any,
+    depth: number = 0,
+    isInsideInteractive: boolean = false,
+    ancestorInteractionSignature: InteractionSignature | null = null,
     currentZoneId: string | undefined = undefined
   ): string {
     if (!node) return '';
@@ -612,17 +908,18 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       let childText = '';
       let currentChild = getChild(node);
       while (currentChild) {
-        childText += processNode(currentChild, depth, isInsideInteractive);
+        childText += processNode(currentChild, depth, isInsideInteractive, ancestorInteractionSignature, currentZoneId);
         currentChild = getSibling(currentChild);
       }
       return childText;
     }
 
-    // Interactive check — nested interactives with a DIFFERENT onPress than
-    // their ancestor are separate actions (e.g. "+" button inside a dish card).
-    // Only suppress true wrapper duplicates (same onPress reference).
+    // Interactive check — nested interactives should only be suppressed when
+    // they reuse the same actionable handler as their interactive ancestor.
+    // This keeps real child controls like switches, pickers, and text inputs.
     const isWhitelisted = matchesRefList(node, config?.interactiveWhitelist);
     const elementType = getElementType(node);
+    const ownInteractionSignature = getInteractionSignature(elementType, props);
     let shouldInclude = false;
     if (hasWhitelist) {
       shouldInclude = isWhitelisted;
@@ -630,22 +927,23 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (!isInsideInteractive) {
         shouldInclude = true;
       } else {
-        // Inside an ancestor interactive — only include if onPress is DIFFERENT
-        const ownOnPress = props.onPress;
-        shouldInclude = !!ownOnPress && ownOnPress !== ancestorOnPress;
+        shouldInclude = !!ownInteractionSignature &&
+          !interactionSignaturesMatch(ownInteractionSignature, ancestorInteractionSignature);
       }
     }
 
-    // Track the onPress for descendant dedup
-    const nextAncestorOnPress = shouldInclude ? (props.onPress || ancestorOnPress) : ancestorOnPress;
+    // Track the actionable signature for descendant dedup.
+    const nextAncestorInteractionSignature = shouldInclude
+      ? (ownInteractionSignature || ancestorInteractionSignature)
+      : ancestorInteractionSignature;
 
     // Determine if this node produces visible output (affects depth for children)
     // Only visible nodes (interactives, text, images, videos) should increment
     // depth. Structural View wrappers are transparent — they pass through the
     // same depth so indentation stays flat and doesn't waste LLM tokens.
     const type = getType(node);
-    const typeStr = type && typeof type === 'string' ? type : 
-                   (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
+    const typeStr = type && typeof type === 'string' ? type :
+      (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
     const componentName = getComponentName(node);
     const isTextNode = typeStr === 'RCTText' || typeStr === 'Text';
     const isImageNode = !!(componentName && IMAGE_TYPES.has(componentName));
@@ -680,7 +978,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         currentChild,
         childDepth,
         isInsideInteractive || !!shouldInclude,
-        nextAncestorOnPress,
+        nextAncestorInteractionSignature,
         nextZoneId,
       );
       currentChild = getSibling(currentChild);
@@ -693,13 +991,18 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
     if (shouldInclude) {
       const resolvedType = elementType || 'pressable';
+      const derivedProps = buildDerivedElementProps(node, resolvedType, props);
       const parentContext = getNearestCustomComponentName(node);
+      const siblingTextLabel = EXTERNALLY_LABELED_TYPES.has(resolvedType)
+        ? extractSiblingTextLabel(node)
+        : null;
       const label = chooseBestRuntimeLabel([
-        { text: props.accessibilityLabel, source: 'accessibility' },
+        { text: derivedProps.accessibilityLabel, source: 'accessibility' },
         { text: extractDeepTextContent(node), source: 'deep-text' },
-        { text: resolvedType === 'text-input' ? props.placeholder : null, source: 'placeholder' },
+        { text: siblingTextLabel, source: 'sibling-text' },
+        { text: resolvedType === 'text-input' ? derivedProps.placeholder : null, source: 'placeholder' },
         { text: extractIconName(node), source: 'icon' },
-        { text: props.testID || props.nativeID, source: 'test-id' },
+        { text: derivedProps.testID || derivedProps.nativeID, source: 'test-id' },
         {
           text: parentContext && !new Set([
             'ScrollViewContext', 'VirtualizedListContext', 'ViewabilityHelper',
@@ -716,22 +1019,22 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         aiPriority: props.aiPriority,
         zoneId: currentZoneId,
         fiberNode: node,
-        props: { ...props },
-        requiresConfirmation: props.aiConfirm === true,
+        props: derivedProps,
+        requiresConfirmation: derivedProps.aiConfirm === true,
       });
 
       // Build output tag with state attributes
-      const stateAttrs = extractStateAttributes(props);
+      const stateAttrs = extractStateAttributes(derivedProps);
       let attrStr = stateAttrs ? ` ${stateAttrs}` : '';
-      if (props.aiPriority) {
-        attrStr += ` aiPriority="${props.aiPriority}"`;
+      if (derivedProps.aiPriority) {
+        attrStr += ` aiPriority="${derivedProps.aiPriority}"`;
         if (currentZoneId) attrStr += ` zoneId="${currentZoneId}"`;
       }
-      
-      if (props.aiConfirm === true) {
+
+      if (derivedProps.aiConfirm === true) {
         attrStr += ' aiConfirm';
       }
-      
+
       const textContent = label || '';
       const elementOutput = `${indent}[${currentIndex}]<${resolvedType}${attrStr}>${textContent} />${childrenText.trim() ? '\n' + childrenText : ''}\n`;
       currentIndex++;
@@ -817,7 +1120,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     }
   }
   elementsText = cleanLines.join('\n');
-  
+
   // ── Inject Native OS Alerts (Virtual Elements) ──
   if (config?.interceptNativeAlerts) {
     const alert = getActiveAlert();

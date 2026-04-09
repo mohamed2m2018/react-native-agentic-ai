@@ -286,7 +286,7 @@ export function extractContentFromAST(sourceCode: string, filePath: string): Ext
 export function buildDescription(extracted: ExtractedContent): string {
   if (extracted.elements.length > 0 && extracted.elements.every(element => extractCategoryTag(element) === 'component')) {
     return extracted.visibleText?.length
-      ? extracted.visibleText.join(', ')
+      ? summarizeVisibleText(extracted.visibleText)
       : extracted.structuralHints?.length
         ? extracted.structuralHints.join(', ')
         : 'Screen content';
@@ -297,7 +297,7 @@ export function buildDescription(extracted: ExtractedContent): string {
     parts.push(extracted.elements.join(', '));
   }
   if (parts.length === 0 && extracted.visibleText?.length) {
-    parts.push(extracted.visibleText.join(', '));
+    parts.push(summarizeVisibleText(extracted.visibleText));
   }
   if (extracted.structuralHints?.length) {
     const structuralSummary = extracted.structuralHints.join(', ');
@@ -306,6 +306,12 @@ export function buildDescription(extracted: ExtractedContent): string {
     }
   }
   return parts.join('. ') || 'Screen content';
+}
+
+function summarizeVisibleText(visibleText: string[]): string {
+  const unique = dedupeLabels(visibleText);
+  const summary = unique.slice(0, 6);
+  return summary.join(', ');
 }
 
 // ─── Deduplication & prioritization ──────────────────────────
