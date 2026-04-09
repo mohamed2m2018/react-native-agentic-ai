@@ -1,9 +1,11 @@
-import { StyleSheet, FlatList, Pressable } from 'react-native';
+import { StyleSheet, FlatList, Pressable, Button, TextInput } from 'react-native';
 // import { AIZone } from 'experimental-stuff'; // old
 import { AIZone } from '@mobileai/react-native';
 
 import { Link } from 'expo-router';
 import { Text, View } from '@/components/Themed';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import React, { useRef, useCallback } from 'react';
 
 const PRODUCTS = [
   { id: '1', name: 'Wireless Headphones', price: 79.99, category: 'Electronics' },
@@ -15,6 +17,12 @@ const PRODUCTS = [
 ];
 
 export default function HomeScreen() {
+  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+
+  const handlePresentModalPress = useCallback(() => {
+    bottomSheetModalRef.current?.present();
+  }, []);
+
   return (
     <View style={styles.container}>
       {/* Hero banner — low priority: AI can simplify this section */}
@@ -22,6 +30,8 @@ export default function HomeScreen() {
         <Text style={styles.header}>Welcome to ShopApp</Text>
         <Text style={styles.subtitle}>Browse our products</Text>
       </AIZone>
+
+      <Button title="Open Location Options" onPress={handlePresentModalPress} />
 
       {/* Product list — high priority: AI can highlight items and simplify */}
       <AIZone id="product-list" allowHighlight allowSimplify>
@@ -51,6 +61,24 @@ export default function HomeScreen() {
           </Pressable>
         </Link>
       </AIZone>
+
+      <BottomSheetModal
+        ref={bottomSheetModalRef}
+        snapPoints={['50%']}
+        index={0}
+      >
+        <BottomSheetView style={styles.contentContainer}>
+          <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 20 }}>Select Destination</Text>
+          <TextInput placeholder="Enter delivery address..." style={styles.input} />
+          
+          <Pressable style={styles.destinationButton} onPress={() => { console.log('Location Set'); bottomSheetModalRef.current?.dismiss(); }}>
+            <Text style={{ color: 'white', fontWeight: 'bold' }}>Set to France</Text>
+          </Pressable>
+          <Pressable style={styles.destinationButton} onPress={() => { console.log('Location Set'); bottomSheetModalRef.current?.dismiss(); }}>
+            <Text style={{ color: 'white', fontWeight: 'bold' }}>Set to Germany</Text>
+          </Pressable>
+        </BottomSheetView>
+      </BottomSheetModal>
     </View>
   );
 }
@@ -93,4 +121,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   browseButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  contentContainer: {
+    flex: 1,
+    padding: 24,
+    alignItems: 'center',
+  },
+  input: {
+    width: '100%',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginBottom: 20
+  },
+  destinationButton: {
+    backgroundColor: '#3498DB',
+    padding: 15,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 10
+  }
 });

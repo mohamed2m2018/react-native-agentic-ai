@@ -548,13 +548,15 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     return { elementsText: '', interactives: [] };
   }
 
-  // Always walk from the root Fiber — inactive screens are pruned inside
-  // processNode by checking for display:none, which React Navigation applies
-  // to all inactive screens. This ensures navigation chrome (tab bar, header)
-  // is always included without hardcoding any component names.
-  const startNode = fiber;
+  // Always walk from the absolute root Fiber (HostRoot) — this ensures we
+  // capture portals, overlays, and bottom sheets mounted outside the AIAgent.
+  let startNode = fiber;
+  while (getParent(startNode)) {
+    startNode = getParent(startNode);
+  }
+
   if (config?.screenName) {
-    logger.debug('FiberTreeWalker', `Walk active for screen "${config.screenName}" (inactive screens pruned via display:none)`);
+    logger.debug('FiberTreeWalker', `Walk active for screen "${config.screenName}" (inactive screens pruned via display checks)`);
   }
 
   // Overlay detection is superseded by root-level walk — all visible nodes
@@ -591,6 +593,18 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // Both are prop-based — no component names, no CSS display property.
     if (props.activityState === 0) return '';
     if (props.pointerEvents === 'none') return '';
+
+    // Fast heuristic for inline hidden styles (avoids expensive StyleSheet.flatten)
+    // Ensures Modals/Portals that are technically mounted but visually hidden are skipped.
+    if (props.style) {
+      if (props.style.display === 'none' || props.style.opacity === 0) return '';
+      if (Array.isArray(props.style)) {
+        for (let i = props.style.length - 1; i >= 0; i--) {
+          const s = props.style[i];
+          if (s && (s.display === 'none' || s.opacity === 0)) return '';
+        }
+      }
+    }
 
     // ── Security Constraints ──
     if (props.aiIgnore === true) return '';
