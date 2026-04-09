@@ -1372,9 +1372,27 @@ export function AIAgent({
     );
   }, [mode, interactionMode, mergedCustomTools]);
 
+  const effectiveProxyHeaders = useMemo(() => {
+    if (!analyticsKey) return proxyHeaders;
+    const isAuthMissing = !proxyHeaders || !Object.keys(proxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    if (isAuthMissing) {
+      return { ...proxyHeaders, Authorization: `Bearer ${analyticsKey}` };
+    }
+    return proxyHeaders;
+  }, [proxyHeaders, analyticsKey]);
+
+  const effectiveVoiceProxyHeaders = useMemo(() => {
+    if (!analyticsKey) return voiceProxyHeaders;
+    const isAuthMissing = !voiceProxyHeaders || !Object.keys(voiceProxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    if (isAuthMissing) {
+      return { ...voiceProxyHeaders, Authorization: `Bearer ${analyticsKey}` };
+    }
+    return voiceProxyHeaders;
+  }, [voiceProxyHeaders, analyticsKey]);
+
   const provider = useMemo(
-    () => createProvider(providerName, apiKey, model, proxyUrl, proxyHeaders),
-    [providerName, apiKey, model, proxyUrl, proxyHeaders]
+    () => createProvider(providerName, apiKey, model, proxyUrl, effectiveProxyHeaders),
+    [providerName, apiKey, model, proxyUrl, effectiveProxyHeaders]
   );
 
   const runtime = useMemo(
@@ -1606,7 +1624,7 @@ export function AIAgent({
       voiceServiceRef.current = new VoiceService({
         apiKey,
         proxyUrl: voiceProxyUrl || proxyUrl,
-        proxyHeaders: voiceProxyHeaders || proxyHeaders,
+        proxyHeaders: effectiveVoiceProxyHeaders || effectiveProxyHeaders,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
         language: 'en',

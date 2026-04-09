@@ -403,12 +403,12 @@ export default function App() {
 
   return (
     <AIAgent
-      // ⚠️ Prototyping ONLY — don't ship API keys in production
-      apiKey="YOUR_API_KEY"
+      // Your MobileAI Dashboard ID — instantly enables cloud intelligence
+      analyticsKey="mobileai_pub_xxxxxxxx"
 
-      // ✅ Production: route through your secure backend proxy
-      // proxyUrl="https://api.yourdomain.com/ai-proxy"
-      // proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
+      // Route all traffic through the secure MobileAI Cloud proxies
+      proxyUrl="https://mobileai.cloud/api/v1/hosted-proxy/text"
+      voiceProxyUrl="wss://mobileai.cloud/ws/hosted-proxy/voice"
 
       navRef={navRef}
       screenMap={screenMap} // optional but recommended
@@ -435,7 +435,9 @@ export default function RootLayout() {
 
   return (
     <AIAgent
-      apiKey={process.env.AI_API_KEY!}
+      analyticsKey="mobileai_pub_xxxxxxxx"
+      proxyUrl="https://mobileai.cloud/api/v1/hosted-proxy/text"
+      voiceProxyUrl="wss://mobileai.cloud/ws/hosted-proxy/voice"
       navRef={navRef}
       screenMap={screenMap}
     >
@@ -485,7 +487,7 @@ The agent operates in **copilot mode** by default. It navigates, scrolls, types,
 
 ```tsx
 // Default — copilot mode, zero extra config:
-<AIAgent apiKey="..." navRef={navRef}>
+<AIAgent analyticsKey="mobileai_pub_xxx" navRef={navRef}>
   <App />
 </AIAgent>
 ```
@@ -551,7 +553,7 @@ Transform the AI agent into a production-grade support system. The AI resolves i
 import { SupportGreeting, buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 
 <AIAgent
-  apiKey="..."
+  analyticsKey="mobileai_pub_xxx"
   analyticsKey="mobileai_pub_xxx" // required for MobileAI escalation
   instructions={{
     system: buildSupportPrompt({
