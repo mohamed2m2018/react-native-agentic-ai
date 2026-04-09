@@ -15,9 +15,13 @@ Pod::Spec.new do |s|
 
   s.source_files = "ios/MobileAIFloatingOverlayComponentView.{h,m,mm,cpp}"
 
+  # Disable folly coroutines — RCT-Folly doesn't ship coroutine headers.
+  # Uses compiler_flags (not pod_target_xcconfig) because
+  # install_modules_dependencies overwrites OTHER_CPLUSPLUSFLAGS.
+  s.compiler_flags = '-DFOLLY_HAS_COROUTINES=0'
+
   s.pod_target_xcconfig = {
-    "DEFINES_MODULE" => "NO",
-    "OTHER_CPLUSPLUSFLAGS" => "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAS_COROUTINES=0"
+    "DEFINES_MODULE" => "NO"
   }
 
   install_modules_dependencies(s)
