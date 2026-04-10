@@ -16,6 +16,7 @@ export type {
   ReportedIssueCustomerStatus,
   ReportedIssueStatusUpdate,
 } from './types';
+export type { SupportStyle } from './supportStyle';
 
 // Prompt injection
 export { buildSupportPrompt } from './supportPrompt';

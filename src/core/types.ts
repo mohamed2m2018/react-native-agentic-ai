@@ -18,6 +18,17 @@ export type InteractionMode = 'copilot' | 'autopilot';
 // ─── Provider Names ──────────────────────────────────────────
 
 export type AIProviderName = 'gemini' | 'openai';
+export type SupportStyle = 'warm-concise' | 'wow-service' | 'neutral-professional';
+
+export interface VerifierConfig {
+  enabled?: boolean;
+  mode?: 'critical-actions';
+  provider?: AIProviderName;
+  model?: string;
+  proxyUrl?: string;
+  proxyHeaders?: Record<string, string>;
+  maxFollowupSteps?: number;
+}
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 
@@ -154,6 +165,18 @@ export interface AgentConfig {
   voiceProxyHeaders?: Record<string, string>;
 
   model?: string;
+
+  /**
+   * Support personality preset used when the agent is handling support-style requests.
+   * Default: 'warm-concise'
+   */
+  supportStyle?: SupportStyle;
+
+  /**
+   * Optional outcome verifier settings for critical app-changing actions.
+   * Defaults to enabled critical-action verification using the main provider.
+   */
+  verifier?: VerifierConfig;
 
   /** Maximum steps per task */
   maxSteps?: number;

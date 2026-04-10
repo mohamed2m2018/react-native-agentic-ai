@@ -391,6 +391,8 @@ npx @mobileai/react-native generate-map
 
 ### 2. Wrap Your App
 
+If you use a MobileAI publishable key, the SDK now defaults to the hosted MobileAI text and voice proxies automatically. You only need to pass `proxyUrl` and `voiceProxyUrl` when you want to override them with your own backend.
+
 #### React Navigation
 
 ```tsx
@@ -403,12 +405,9 @@ export default function App() {
 
   return (
     <AIAgent
-      // Your MobileAI Dashboard ID — instantly enables cloud intelligence
+      // Your MobileAI Dashboard ID
+      // This now auto-configures the hosted MobileAI text + voice proxies too.
       analyticsKey="mobileai_pub_xxxxxxxx"
-
-      // Route all traffic through the secure MobileAI Cloud proxies
-      proxyUrl="https://mobileai.cloud/api/v1/hosted-proxy/text"
-      voiceProxyUrl="wss://mobileai.cloud/ws/hosted-proxy/voice"
 
       navRef={navRef}
       screenMap={screenMap} // optional but recommended
@@ -435,9 +434,8 @@ export default function RootLayout() {
 
   return (
     <AIAgent
+      // Hosted MobileAI proxies are inferred automatically from analyticsKey
       analyticsKey="mobileai_pub_xxxxxxxx"
-      proxyUrl="https://mobileai.cloud/api/v1/hosted-proxy/text"
-      voiceProxyUrl="wss://mobileai.cloud/ws/hosted-proxy/voice"
       navRef={navRef}
       screenMap={screenMap}
     >
@@ -463,6 +461,19 @@ The examples above use **Gemini** (default). To use **OpenAI** for text mode, ad
 ```
 
 A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, fill forms, answer questions.
+
+### Hosted MobileAI Defaults
+
+For the standard MobileAI Cloud setup, this is enough:
+
+```tsx
+<AIAgent analyticsKey="mobileai_pub_xxxxxxxx" navRef={navRef} />
+```
+
+Only pass explicit proxy props when:
+- you want to use your own backend proxy
+- you want a dedicated voice proxy
+- you are self-hosting the MobileAI backend
 
 ### Knowledge-Only Mode — AI Assistant Without UI Automation
 
@@ -871,9 +882,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 |------|------|---------|-------------|
 | `apiKey` | `string` | — | API key for your provider (prototyping only — use `proxyUrl` in production). |
 | `provider` | `'gemini' \| 'openai'` | `'gemini'` | LLM provider for text mode. |
-| `proxyUrl` | `string` | — | Backend proxy URL (production). Routes all LLM traffic through your server. |
+| `proxyUrl` | `string` | Hosted MobileAI text proxy when `analyticsKey` is set | Backend proxy URL (production). Routes all LLM traffic through your server. |
 | `proxyHeaders` | `Record<string, string>` | — | Auth headers for proxy (e.g., `Authorization: Bearer ${token}`). |
-| `voiceProxyUrl` | `string` | — | Dedicated proxy for Voice Mode WebSockets. Falls back to `proxyUrl`. |
+| `voiceProxyUrl` | `string` | Hosted MobileAI voice proxy when `analyticsKey` is set; otherwise falls back to `proxyUrl` | Dedicated proxy for Voice Mode WebSockets. |
 | `voiceProxyHeaders` | `Record<string, string>` | — | Auth headers for voice proxy. |
 | `model` | `string` | Provider default | Model name (e.g. `gemini-2.5-flash`, `gpt-4.1-mini`). |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
@@ -953,7 +964,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `analyticsKey` | `string` | — | Publishable key (`mobileai_pub_xxx`) — enables auto-analytics. |
+| `analyticsKey` | `string` | — | Publishable key (`mobileai_pub_xxx`) — enables auto-analytics and, by default, the hosted MobileAI text/voice proxies. |
 | `analyticsProxyUrl` | `string` | — | Enterprise: route events through your backend. |
 | `analyticsProxyHeaders` | `Record<string, string>` | — | Auth headers for analytics proxy. |
 
@@ -1065,7 +1076,7 @@ const { send } = useAI({
 
 ## 📊 Zero-Config Analytics — Auto-Capture Every Tap
 
-Just add `analyticsKey` — every button tap, screen navigation, and session is tracked automatically. **Zero code changes** to your app components.
+Just add `analyticsKey` — every button tap, screen navigation, and session is tracked automatically. It also enables the default hosted MobileAI AI proxies unless you override them. **Zero code changes** to your app components.
 
 ```tsx
 <AIAgent
@@ -1115,6 +1126,8 @@ MobileAI.identify('user_123', { plan: 'pro' });
 ## 🔒 Security & Production
 
 ### Backend Proxy — Keep API Keys Secure
+
+Use this only when you want to override the default hosted MobileAI proxy behavior or route traffic through your own backend.
 
 ```tsx
 <AIAgent

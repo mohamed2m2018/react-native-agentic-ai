@@ -12,8 +12,8 @@
 // Mock FiberTreeWalker
 jest.mock('../../core/FiberTreeWalker', () => ({
   walkFiberTree: jest.fn().mockReturnValue({
-    elementsText: '[0]<pressable>Submit />\n',
-    interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: {} }],
+    elementsText: '[0]<pressable>Open Details />\n',
+    interactives: [{ index: 0, type: 'pressable' as const, label: 'Open Details', fiberNode: {}, props: {} }],
   }),
   findScrollableContainers: jest.fn().mockReturnValue([]),
 }));
@@ -50,13 +50,19 @@ jest.mock('react-native-view-shot', () => ({
   captureRef: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../../providers/ProviderFactory', () => ({
+  createProvider: jest.fn(),
+}));
+
 import { AgentRuntime } from '../../core/AgentRuntime';
 import type { AIProvider, ProviderResult, AgentConfig, TokenUsage } from '../../core/types';
 import { walkFiberTree } from '../../core/FiberTreeWalker';
 import { dehydrateScreen } from '../../core/ScreenDehydrator';
+import { createProvider } from '../../providers/ProviderFactory';
 
 const mockWalkFiberTree = walkFiberTree as jest.Mock;
 const mockDehydrateScreen = dehydrateScreen as jest.Mock;
+const mockCreateProvider = createProvider as jest.Mock;
 
 // ─── Mock Provider Factory ─────────────────────────────────────
 
@@ -137,15 +143,16 @@ function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfi
 describe('AgentRuntime', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCreateProvider.mockReset();
     mockWalkFiberTree.mockReturnValue({
-      elementsText: '[0]<pressable>Submit />\n',
-      interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: {} }],
+      elementsText: '[0]<pressable>Open Details />\n',
+      interactives: [{ index: 0, type: 'pressable' as const, label: 'Open Details', fiberNode: {}, props: {} }],
     });
     mockDehydrateScreen.mockReturnValue({
       screenName: 'TestScreen',
       availableScreens: ['TestScreen'],
-      elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
-      elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: {} }],
+      elementsText: 'Screen: TestScreen\n[0]<pressable>Open Details />\n',
+      elements: [{ index: 0, type: 'pressable' as const, label: 'Open Details', requiresConfirmation: false, fiberNode: {}, props: {} }],
     });
   });
 
@@ -176,6 +183,165 @@ describe('AgentRuntime', () => {
       expect(result.success).toBe(true);
       expect(result.steps.length).toBe(2);
     });
+
+    it('blocks success completion when the screen shows a post-action error', async () => {
+      const onPress = jest.fn();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Submitted successfully', success: true }),
+        createToolResponse('done', { text: 'Submission failed because the verification code is invalid.', success: false }),
+      ]);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Submit />\n',
+        interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: { onPress } }],
+      });
+
+      mockDehydrateScreen
+        .mockReturnValueOnce({
+          screenName: 'TestScreen',
+          availableScreens: ['TestScreen'],
+          elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: { onPress } }],
+        })
+        .mockReturnValueOnce({
+          screenName: 'TestScreen',
+          availableScreens: ['TestScreen'],
+          elementsText: 'Screen: TestScreen\nVerification code is invalid\n[0]<pressable>Submit />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: { onPress } }],
+        })
+        .mockReturnValue({
+          screenName: 'TestScreen',
+          availableScreens: ['TestScreen'],
+          elementsText: 'Screen: TestScreen\nVerification code is invalid\n[0]<pressable>Submit />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: { onPress } }],
+        });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+      });
+      const result = await runtime.execute('Submit the form');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('verification code is invalid');
+      expect(result.steps.map((step) => step.action.name)).toEqual(['tap', 'done', 'done']);
+    }, 10000);
+
+    it('allows success completion after a critical action changes the screen', async () => {
+      const onPress = jest.fn();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Settings saved', success: true }),
+      ]);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Save Changes />\n',
+        interactives: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', fiberNode: {}, props: { onPress } }],
+      });
+
+      mockDehydrateScreen
+        .mockReturnValueOnce({
+          screenName: 'SettingsForm',
+          availableScreens: ['SettingsForm', 'SettingsSummary'],
+          elementsText: 'Screen: SettingsForm\n[0]<pressable>Save Changes />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+        })
+        .mockReturnValueOnce({
+          screenName: 'SettingsSummary',
+          availableScreens: ['SettingsForm', 'SettingsSummary'],
+          elementsText: 'Screen: SettingsSummary\nSettings updated\n',
+          elements: [],
+        });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+      });
+      const result = await runtime.execute('Save the settings');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Settings saved');
+    }, 10000);
+
+    it('blocks text-only completion while a critical action outcome is still uncertain', async () => {
+      const onPress = jest.fn();
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'uncertain',
+          failureKind: 'controllable',
+          evidence: 'The UI still shows the same form with no clear success or failure cue.',
+        }),
+        createToolResponse('report_verification', {
+          status: 'error',
+          failureKind: 'controllable',
+          evidence: 'A required field message is visible on the same screen.',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        {
+          text: 'Looks done to me.',
+          toolCalls: undefined,
+          reasoning: {
+            previousGoalEval: 'Success',
+            memory: 'Pressed save',
+            plan: 'Finish the task',
+          },
+          tokenUsage: {
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+            estimatedCostUSD: 0.001,
+          },
+        },
+        createToolResponse('done', { text: 'Submission failed because a required field is missing.', success: false }),
+      ]);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Save Changes />\n',
+        interactives: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', fiberNode: {}, props: { onPress } }],
+      });
+
+      mockDehydrateScreen
+        .mockReturnValueOnce({
+          screenName: 'ProfileForm',
+          availableScreens: ['ProfileForm'],
+          elementsText: 'Screen: ProfileForm\n[0]<pressable>Save Changes />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+        })
+        .mockReturnValueOnce({
+          screenName: 'ProfileForm',
+          availableScreens: ['ProfileForm'],
+          elementsText: 'Screen: ProfileForm\n[0]<pressable>Save Changes />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+        })
+        .mockReturnValue({
+          screenName: 'ProfileForm',
+          availableScreens: ['ProfileForm'],
+          elementsText: 'Screen: ProfileForm\nRequired field\n[0]<pressable>Save Changes />\n',
+          elements: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+        });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+        },
+      });
+      const result = await runtime.execute('Save the profile');
+
+      expect(mockCreateProvider).toHaveBeenCalledWith(
+        'openai',
+        undefined,
+        'gpt-4.1-mini',
+        undefined,
+        undefined,
+      );
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('required field');
+    }, 10000);
 
     it('stops at max steps with failure message', async () => {
       // Provider always returns tap — never done
@@ -234,6 +400,12 @@ describe('AgentRuntime', () => {
     });
 
     it('requires explicit approval before the first UI action in copilot mode', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: {} }],
+      });
       const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
       const provider = new MockProvider([
         createToolResponse('tap', { index: 0 }),
@@ -254,6 +426,12 @@ describe('AgentRuntime', () => {
     });
 
     it('stops if the user does not approve starting the task', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: {} }],
+      });
       // When user replies with a plain 'no' (not the __APPROVAL_REJECTED__ token),
       // the runtime treats it as a conversational interruption and keeps running
       // until maxSteps. Use __APPROVAL_REJECTED__ (the actual rejection token) to
@@ -270,6 +448,12 @@ describe('AgentRuntime', () => {
     }, 30000);
 
     it('acknowledges when the user already completed the action themselves', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: {} }],
+      });
       const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_ALREADY_DONE__');
       const provider = new MockProvider([
         createToolResponse('tap', { index: 0 }),

@@ -66,6 +66,25 @@ export function createTypeTool(context: ToolContext): AgentTool {
         }
       }
 
+      // ── Strategy 1b: inner onChangeText (for wrapped 3rd-party inputs) ────
+      if (fiberNode) {
+        const innerTextInputFiber = findFiberNode(
+          fiberNode,
+          n => typeof getProps(n)?.onChangeText === 'function',
+          15
+        );
+        if (innerTextInputFiber) {
+          const innerProps = getProps(innerTextInputFiber);
+          try {
+            innerProps.onChangeText(args.text);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return `✅ Typed "${args.text}" into wrapped component [${args.index}] "${label}"`;
+          } catch (err: any) {
+            console.warn(`[Agent] Inner onChangeText failed for element ${args.index}:`, err);
+          }
+        }
+      }
+
       // ── Strategy 2: uncontrolled — find native onChange + setNativeProps ──
       // For TextInputs with defaultValue only.
       // We need BOTH:
@@ -93,8 +112,10 @@ export function createTypeTool(context: ToolContext): AgentTool {
         if (onChange || nativeInstance) {
           try {
             // Step 1: Update visual text in native view
+            let visualUpdated = false;
             if (nativeInstance && typeof nativeInstance.setNativeProps === 'function') {
               nativeInstance.setNativeProps({ text: args.text });
+              visualUpdated = true;
             }
 
             // Step 2: Notify React's internal onChange so lastNativeText stays in sync
@@ -106,6 +127,10 @@ export function createTypeTool(context: ToolContext): AgentTool {
                   target: 0,
                 },
               });
+            }
+
+            if (!visualUpdated) {
+              return `❌ Type failed: Cannot locate native host node to explicitly inject visual text into uncontrolled element [${args.index}].`;
             }
 
             await new Promise(resolve => setTimeout(resolve, 300));

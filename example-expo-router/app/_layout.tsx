@@ -5,6 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { PaperProvider } from 'react-native-paper';
 import { AIAgent } from '@mobileai/react-native';
 import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
@@ -109,7 +110,8 @@ function RootLayoutNav() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
-        <AIAgent
+        <PaperProvider>
+          <AIAgent
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
           navRef={navRef}
           mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
@@ -160,7 +162,8 @@ function RootLayoutNav() {
               <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
             </Stack>
           </ThemeProvider>
-        </AIAgent>
+          </AIAgent>
+        </PaperProvider>
       </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );

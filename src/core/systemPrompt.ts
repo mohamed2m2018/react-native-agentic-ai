@@ -6,6 +6,8 @@
  * in sync — one change propagates everywhere.  The prompt uses XML-style
  * tags to give the LLM clear, structured instructions.
  */
+import { buildSupportStylePrompt } from '../support/supportStyle';
+import type { SupportStyle } from './types';
 
 // ─── Shared Fragments ───────────────────────────────────────────────────────
 
@@ -256,7 +258,8 @@ If you deduce that a button will open a Native OS View (e.g., Device Camera, Pho
 export function buildSystemPrompt(
   language: string,
   hasKnowledge = false,
-  isCopilot = true
+  isCopilot = true,
+  supportStyle: SupportStyle = 'warm-concise',
 ): string {
   const isArabic = language === 'ar';
 
@@ -361,6 +364,8 @@ ${UI_SIMPLIFICATION_RULE}
 
 ${isCopilot ? COPILOT_RULES : ''}
 
+${buildSupportStylePrompt(supportStyle)}
+
 <task_completion_rules>
 You must call the done action in one of these cases:
 - When you have fully completed the USER REQUEST.
@@ -373,6 +378,9 @@ BEFORE calling done() for action requests that changed state (added items, submi
 2. Wait for the next step to see the result screen content.
 3. THEN call done() with a summary of what you did.
 Do NOT call done() immediately after the last action — the user needs to SEE the result.
+4. Never claim an action, change, save, or submission already happened unless the current screen state or a verified action result proves it.
+5. If the screen shows any validation, verification, inline, banner, or toast error after your action, treat the action as NOT completed.
+6. After any save/submit/confirm action, actively check for both success evidence and error evidence before calling done(success=true).
 
 The done action is your opportunity to communicate findings and provide a coherent reply to the user:
 - Set success to true only if the full USER REQUEST has been completed.
@@ -421,6 +429,8 @@ Exhibit the following reasoning patterns to successfully achieve the <user_reque
 - Reason about <agent_history> to track progress and context toward <user_request>.
 - Analyze the most recent action result in <agent_history> and clearly state what you previously tried to achieve.
 - Explicitly judge success/failure of the last action. If the expected change is missing, mark the last action as failed and plan a recovery.
+- Current screen state is the source of truth. If memory or prior assumptions conflict with the visible UI, trust the current screen.
+- If the user says the action did not happen, do not insist that it already happened. Re-check the current screen and verify the actual outcome.
 - Analyze whether you are stuck, e.g. when you repeat the same actions multiple times without any progress. Then consider alternative approaches.
 - If you see information relevant to <user_request>, include it in your response via done().
 - Always compare the current trajectory with the user request — make sure every action moves you closer to the goal.
@@ -458,7 +468,8 @@ plan: "Call done to report the cart contents to the user."
 export function buildVoiceSystemPrompt(
   language: string,
   userInstructions?: string,
-  hasKnowledge = false
+  hasKnowledge = false,
+  supportStyle: SupportStyle = 'warm-concise',
 ): string {
   const isArabic = language === 'ar';
 
@@ -528,6 +539,8 @@ ${SECURITY_RULES}
 ${NAVIGATION_RULE}
 ${UI_SIMPLIFICATION_RULE}
 </rules>
+
+${buildSupportStylePrompt(supportStyle)}
 
 <capability>
 - You can see the current screen context — use it to answer questions directly.${hasKnowledge

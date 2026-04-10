@@ -14,6 +14,13 @@ import { walkFiberTree } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
+import {
+  buildVerificationAction,
+  createVerificationSnapshot,
+  OutcomeVerifier,
+  type PendingVerification,
+  type VerificationSnapshot,
+} from './OutcomeVerifier';
 import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
 import { installAlertInterceptor, uninstallAlertInterceptor } from './NativeAlertInterceptor';
 import {
@@ -41,6 +48,7 @@ import type {
   TokenUsage,
 } from './types';
 import { actionRegistry } from './ActionRegistry';
+import { createProvider } from '../providers/ProviderFactory';
 
 const DEFAULT_MAX_STEPS = 25;
 
@@ -75,6 +83,10 @@ export class AgentRuntime {
   private uiControlOverride?: boolean;
   private lastDehydratedRoot: any = null;
   private currentTraceId: string | null = null;
+  private currentUserGoal = '';
+  private verifierProvider: AIProvider | null = null;
+  private outcomeVerifier: OutcomeVerifier | null = null;
+  private pendingCriticalVerification: PendingVerification | null = null;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -219,6 +231,137 @@ export class AgentRuntime {
         }
       }
     }
+  }
+
+  private getVerifier(): OutcomeVerifier | null {
+    if (this.config.verifier?.enabled === false) {
+      return null;
+    }
+
+    if (!this.outcomeVerifier) {
+      const verifierConfig = this.config.verifier;
+      if (
+        verifierConfig?.provider
+        || verifierConfig?.model
+        || verifierConfig?.proxyUrl
+        || verifierConfig?.proxyHeaders
+      ) {
+        this.verifierProvider = createProvider(
+          verifierConfig.provider || this.config.provider || 'gemini',
+          this.config.apiKey,
+          verifierConfig.model || this.config.model,
+          verifierConfig.proxyUrl || this.config.proxyUrl,
+          verifierConfig.proxyHeaders || this.config.proxyHeaders,
+        );
+      } else {
+        this.verifierProvider = this.provider;
+      }
+
+      this.outcomeVerifier = new OutcomeVerifier(this.verifierProvider, this.config);
+    }
+
+    return this.outcomeVerifier;
+  }
+
+  private createCurrentVerificationSnapshot(
+    screenName: string,
+    screenContent: string,
+    elements: InteractiveElement[],
+    screenshot?: string,
+  ): VerificationSnapshot {
+    return createVerificationSnapshot(screenName, screenContent, elements, screenshot);
+  }
+
+  private async updateCriticalVerification(
+    screenName: string,
+    screenContent: string,
+    elements: InteractiveElement[],
+    screenshot?: string,
+    stepIndex?: number,
+  ): Promise<void> {
+    if (!this.pendingCriticalVerification) return;
+
+    const verifier = this.getVerifier();
+    if (!verifier) {
+      this.pendingCriticalVerification = null;
+      return;
+    }
+
+    const postAction = this.createCurrentVerificationSnapshot(
+      screenName,
+      screenContent,
+      elements,
+      screenshot,
+    );
+
+    this.pendingCriticalVerification.followupSteps += 1;
+    const result = await verifier.verify({
+      goal: this.pendingCriticalVerification.goal,
+      action: this.pendingCriticalVerification.action,
+      preAction: this.pendingCriticalVerification.preAction,
+      postAction,
+    });
+
+    this.emitTrace('critical_action_verified', {
+      action: this.pendingCriticalVerification.action.toolName,
+      label: this.pendingCriticalVerification.action.label,
+      status: result.status,
+      failureKind: result.failureKind,
+      evidence: result.evidence,
+      source: result.source,
+      followupSteps: this.pendingCriticalVerification.followupSteps,
+    }, stepIndex);
+
+    if (result.status === 'success') {
+      this.pendingCriticalVerification = null;
+      return;
+    }
+
+    if (result.status === 'error') {
+      this.observations.push(
+        `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" did NOT complete successfully. ${result.evidence} Treat this as a ${result.failureKind} failure, do not claim success, and either recover or explain the issue clearly.`
+      );
+      return;
+    }
+
+    const maxFollowupSteps = verifier.getMaxFollowupSteps();
+    const ageNote = this.pendingCriticalVerification.followupSteps >= maxFollowupSteps
+      ? ` This critical action is still unverified after ${this.pendingCriticalVerification.followupSteps} follow-up checks.`
+      : '';
+    this.observations.push(
+      `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" is still unverified. ${result.evidence}${ageNote} Before calling done(success=true), keep checking for success or error evidence on the current screen.`
+    );
+  }
+
+  private maybeStartCriticalVerification(
+    toolName: string,
+    args: Record<string, any>,
+    preAction: VerificationSnapshot,
+  ): void {
+    const verifier = this.getVerifier();
+    if (!verifier) return;
+
+    const action = buildVerificationAction(
+      toolName,
+      args,
+      preAction.elements,
+      this.getToolStatusLabel(toolName, args),
+    );
+
+    if (!verifier.isCriticalAction(action)) {
+      return;
+    }
+
+    this.pendingCriticalVerification = {
+      goal: this.currentUserGoal,
+      action,
+      preAction,
+      followupSteps: 0,
+    };
+  }
+
+  private shouldBlockSuccessCompletion(): boolean {
+    return this.pendingCriticalVerification !== null;
   }
 
   // ─── Tool Registration ─────────────────────────────────────
@@ -1458,6 +1601,10 @@ ${screen.elementsText}
     this.currentTraceId = generateTraceId();
     this.observations = [];
     this.lastScreenName = '';
+    this.pendingCriticalVerification = null;
+    this.outcomeVerifier = null;
+    this.verifierProvider = null;
+    this.currentUserGoal = userMessage;
     // Reset workflow approval for each new task
     this.resetAppActionApproval('new task');
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
@@ -1477,6 +1624,7 @@ ${screen.elementsText}
       contextualMessage = `(Note: You just asked the user: "${this.lastAskUserQuestion}")\n\nUser replied: ${userMessage}`;
       this.lastAskUserQuestion = null; // Consume the question
     }
+    this.currentUserGoal = contextualMessage;
 
     logger.info('AgentRuntime', `Starting execution: "${contextualMessage}"`);
 
@@ -1647,11 +1795,19 @@ ${screen.elementsText}
         // 4.5. Capture screenshot for Gemini vision (optional)
         const screenshot = await this.captureScreenshot();
 
+        await this.updateCriticalVerification(
+          screenName,
+          screenContent,
+          screen.elements,
+          screenshot,
+          step,
+        );
+
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Thinking...');
         const hasKnowledge = !!this.knowledgeService;
         const isCopilot = this.config.interactionMode !== 'autopilot';
-        const systemPrompt = buildSystemPrompt('en', hasKnowledge, isCopilot);
+        const systemPrompt = buildSystemPrompt('en', hasKnowledge, isCopilot, this.config.supportStyle);
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
@@ -1728,6 +1884,13 @@ ${screen.elementsText}
 
         // 6. Process tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
+          if (this.shouldBlockSuccessCompletion()) {
+            this.emitTrace('task_completion_blocked_needs_verification', {
+              responseText: response.text,
+              pendingVerification: this.pendingCriticalVerification,
+            }, step);
+            continue;
+          }
           logger.warn('AgentRuntime', 'No tool calls in response. Text:', response.text);
           this.emitTrace('task_completed_without_tool', {
             responseText: response.text,
@@ -1774,6 +1937,13 @@ ${screen.elementsText}
         const statusDisplay = reasoning.plan || statusLabel;
         this.config.onStatusUpdate?.(statusDisplay);
 
+        const preActionSnapshot = this.createCurrentVerificationSnapshot(
+          screenName,
+          screenContent,
+          screen.elements,
+          screenshot,
+        );
+
         // Find and execute the tool
         const tool = this.tools.get(toolCall.name) ||
           this.buildToolsForProvider().find(t => t.name === toolCall.name);
@@ -1795,6 +1965,12 @@ ${screen.elementsText}
           args: toolCall.args,
           output,
         }, step);
+
+        if (output.startsWith('✅')) {
+          this.maybeStartCriticalVerification(toolCall.name, toolCall.args, preActionSnapshot);
+        } else if (toolCall.name !== 'done') {
+          this.pendingCriticalVerification = null;
+        }
 
         if (output === APPROVAL_ALREADY_DONE_TOKEN) {
           const result: ExecutionResult = {
@@ -1824,6 +2000,12 @@ ${screen.elementsText}
 
         // Check if done
         if (toolCall.name === 'done') {
+          if (toolCall.args.success !== false && this.shouldBlockSuccessCompletion()) {
+            this.emitTrace('done_blocked_needs_verification', {
+              pendingVerification: this.pendingCriticalVerification,
+            }, step);
+            continue;
+          }
           const result: ExecutionResult = {
             success: toolCall.args.success !== false,
             message: toolCall.args.text || toolCall.args.message || output || reasoning.plan || (toolCall.args.success === false ? 'Action stopped.' : 'Action completed.'),
