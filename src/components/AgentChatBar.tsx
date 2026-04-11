@@ -4,7 +4,7 @@
  * Does not block underlying UI natively.
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -100,6 +100,19 @@ interface AgentChatBarProps {
   onNewConversation?: () => void;
   pendingApprovalQuestion?: string | null;
   onPendingApprovalAction?: (action: 'approve' | 'reject') => void;
+  renderMode?: 'default' | 'android-native-window';
+  onWindowMetricsChange?: (metrics: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => void;
+  windowMetrics?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -501,6 +514,9 @@ export function AgentChatBar({
   onNewConversation,
   pendingApprovalQuestion,
   onPendingApprovalAction,
+  renderMode = 'default',
+  onWindowMetricsChange,
+  windowMetrics,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -515,6 +531,152 @@ export function AgentChatBar({
   const preKeyboardYRef = useRef<number | null>(null);
   const previousThinkingRef = useRef(false);
   const autoCollapsedForThinkingRef = useRef(false);
+  const dragOriginRef = useRef({ x: 0, y: 0 });
+  const panPositionRef = useRef({ x: 10, y: height - 200 });
+  const panelHeightRef = useRef(0);
+  const isExpandedRef = useRef(false);
+  const isAndroidNativeWindow = renderMode === 'android-native-window';
+  const metricsFrameRef = useRef<number | null>(null);
+  const pendingMetricsRef = useRef<{
+    x: number;
+    y: number;
+    expanded: boolean;
+    measuredPanelHeight: number;
+  } | null>(null);
+
+  const getExpandedWindowHeight = useCallback(
+    (measuredPanelHeight: number) => {
+      const minExpandedHeight =
+        mode === 'voice'
+          ? 150
+          : showHistory
+            ? 280
+            : mode === 'human'
+              ? 240
+              : pendingApprovalQuestion
+                ? 220
+                : 164;
+
+      const maxExpandedHeight = Math.min(height * 0.65, 520);
+      const naturalHeight = measuredPanelHeight > 0 ? measuredPanelHeight : minExpandedHeight;
+
+      return Math.max(minExpandedHeight, Math.min(naturalHeight, maxExpandedHeight));
+    },
+    [height, mode, showHistory]
+  );
+
+  const getWindowSize = useCallback((
+    expanded: boolean = isExpandedRef.current,
+    measuredPanelHeight: number = panelHeightRef.current,
+  ) => {
+    return {
+      width: expanded ? 340 : 60,
+      height: expanded ? getExpandedWindowHeight(measuredPanelHeight) : 60,
+    };
+  }, [getExpandedWindowHeight]);
+
+  const clampWindowPosition = useCallback((
+    x: number,
+    y: number,
+    expanded: boolean = isExpandedRef.current,
+    measuredPanelHeight: number = panelHeightRef.current,
+  ) => {
+    const screenInset = 10;
+    const bottomInset = 24;
+    const { width: windowWidth, height: windowHeight } = getWindowSize(
+      expanded,
+      measuredPanelHeight,
+    );
+    const maxX = Math.max(screenInset, width - windowWidth - screenInset);
+    const maxY = Math.max(screenInset, height - windowHeight - bottomInset);
+
+    return {
+      x: Math.min(Math.max(x, screenInset), maxX),
+      y: Math.min(Math.max(y, screenInset), maxY),
+    };
+  }, [getWindowSize, height, width]);
+
+  const publishWindowMetrics = useCallback((
+    x: number = panPositionRef.current.x,
+    y: number = panPositionRef.current.y,
+    expanded: boolean = isExpandedRef.current,
+    measuredPanelHeight: number = panelHeightRef.current,
+  ) => {
+    if (!onWindowMetricsChange) return;
+
+    const { x: clampedX, y: clampedY } = clampWindowPosition(
+      x,
+      y,
+      expanded,
+      measuredPanelHeight,
+    );
+    const { width: resolvedWidth, height: resolvedHeight } = getWindowSize(
+      expanded,
+      measuredPanelHeight,
+    );
+
+    const nextMetrics = {
+      x: Math.round(clampedX),
+      y: Math.round(clampedY),
+      width: resolvedWidth,
+      height: Math.round(resolvedHeight),
+    };
+
+    onWindowMetricsChange(nextMetrics);
+  }, [clampWindowPosition, getWindowSize, onWindowMetricsChange]);
+
+  const publishNativeWindowPosition = useCallback((
+    x: number,
+    y: number,
+    expanded: boolean = isExpandedRef.current,
+    measuredPanelHeight: number = panelHeightRef.current,
+  ) => {
+    const clampedPosition = clampWindowPosition(
+      x,
+      y,
+      expanded,
+      measuredPanelHeight,
+    );
+
+    panPositionRef.current = clampedPosition;
+    publishWindowMetrics(
+      clampedPosition.x,
+      clampedPosition.y,
+      expanded,
+      measuredPanelHeight,
+    );
+  }, [clampWindowPosition, publishWindowMetrics]);
+
+  const scheduleWindowMetricsPublish = useCallback((
+    x: number = panPositionRef.current.x,
+    y: number = panPositionRef.current.y,
+    expanded: boolean = isExpandedRef.current,
+    measuredPanelHeight: number = panelHeightRef.current,
+  ) => {
+    if (!onWindowMetricsChange) return;
+
+    pendingMetricsRef.current = {
+      x,
+      y,
+      expanded,
+      measuredPanelHeight,
+    };
+
+    if (metricsFrameRef.current != null) return;
+
+    metricsFrameRef.current = requestAnimationFrame(() => {
+      metricsFrameRef.current = null;
+      const pending = pendingMetricsRef.current;
+      pendingMetricsRef.current = null;
+      if (!pending) return;
+      publishWindowMetrics(
+        pending.x,
+        pending.y,
+        pending.expanded,
+        pending.measuredPanelHeight,
+      );
+    });
+  }, [onWindowMetricsChange, publishWindowMetrics]);
 
   // Track incoming AI messages while collapsed
   useEffect(() => {
@@ -532,6 +694,14 @@ export function AgentChatBar({
   }, [autoExpandTrigger]);
 
   useEffect(() => {
+    return () => {
+      if (metricsFrameRef.current != null) {
+        cancelAnimationFrame(metricsFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const wasThinking = previousThinkingRef.current;
 
     if (pendingApprovalQuestion) {
@@ -547,17 +717,75 @@ export function AgentChatBar({
   }, [isThinking, isExpanded, mode, pendingApprovalQuestion]);
 
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
-  const tooltipSide = fabX < width / 2 ? 'right' : 'left';
 
   useEffect(() => {
-    const listenerId = pan.x.addListener(({ value }) => {
-      setFabX(value);
+    if (!isAndroidNativeWindow || !windowMetrics) return;
+
+    const nextPosition = {
+      x: windowMetrics.x,
+      y: windowMetrics.y,
+    };
+
+    if (
+      panPositionRef.current.x === nextPosition.x &&
+      panPositionRef.current.y === nextPosition.y
+    ) {
+      return;
+    }
+
+    panPositionRef.current = nextPosition;
+    pan.setValue(nextPosition);
+  }, [isAndroidNativeWindow, pan, windowMetrics]);
+
+  const tooltipSide = fabX < width / 2 ? 'right' : 'left';
+  const expandedContentMinHeight = getExpandedWindowHeight(0);
+
+  useEffect(() => {
+    isExpandedRef.current = isExpanded;
+    const clampedPosition = clampWindowPosition(
+      panPositionRef.current.x,
+      panPositionRef.current.y,
+      isExpanded,
+    );
+
+    if (
+      clampedPosition.x !== panPositionRef.current.x ||
+      clampedPosition.y !== panPositionRef.current.y
+    ) {
+      panPositionRef.current = clampedPosition;
+      pan.setValue(clampedPosition);
+      if (!isAndroidNativeWindow) {
+        setFabX(clampedPosition.x);
+      }
+    }
+
+    scheduleWindowMetricsPublish(
+      clampedPosition.x,
+      clampedPosition.y,
+      isExpanded,
+    );
+  }, [clampWindowPosition, isAndroidNativeWindow, isExpanded, pan, scheduleWindowMetricsPublish]);
+
+  useEffect(() => {
+    if (isAndroidNativeWindow) return;
+
+    const xListenerId = pan.x.addListener(({ value }) => {
+      panPositionRef.current.x = value;
+      if (!isAndroidNativeWindow) {
+        setFabX(value);
+      }
+      scheduleWindowMetricsPublish(value, panPositionRef.current.y);
+    });
+    const yListenerId = pan.y.addListener(({ value }) => {
+      panPositionRef.current.y = value;
+      scheduleWindowMetricsPublish(panPositionRef.current.x, value);
     });
 
     return () => {
-      pan.x.removeListener(listenerId);
+      pan.x.removeListener(xListenerId);
+      pan.y.removeListener(yListenerId);
     };
-  }, [pan.x]);
+  }, [isAndroidNativeWindow, pan.x, pan.y, scheduleWindowMetricsPublish]);
 
   // ─── Keyboard Handling ──────────────────────────────────────
   useEffect(() => {
@@ -567,6 +795,23 @@ export function AgentChatBar({
 
     const showSub = Keyboard.addListener(showEvent, (e) => {
       if (!isExpanded || mode !== 'text' || panelHeight <= 0) return;
+
+      if (isAndroidNativeWindow) {
+        const currentY = panPositionRef.current.y;
+        const targetY = Math.max(
+          keyboardMargin,
+          height - e.endCoordinates.height - panelHeight - keyboardMargin
+        );
+
+        preKeyboardYRef.current = currentY;
+        if (currentY <= targetY) return;
+
+        publishNativeWindowPosition(
+          panPositionRef.current.x,
+          targetY,
+        );
+        return;
+      }
 
       pan.y.stopAnimation((currentY: number) => {
         const targetY = Math.max(
@@ -592,39 +837,95 @@ export function AgentChatBar({
       if (restoreY == null) return;
 
       preKeyboardYRef.current = null;
-      Animated.timing(pan.y, {
-        toValue: restoreY,
-        duration: 200,
-        useNativeDriver: false,
-      }).start();
+      if (isAndroidNativeWindow) {
+        publishNativeWindowPosition(
+          panPositionRef.current.x,
+          restoreY,
+        );
+        return;
+      }
+
+        Animated.timing(pan.y, {
+          toValue: restoreY,
+          duration: 200,
+          useNativeDriver: false,
+        }).start();
     });
 
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [height, isExpanded, mode, pan.y, panelHeight]);
-  const panResponder = useRef(
-    PanResponder.create({
+  }, [height, isAndroidNativeWindow, isExpanded, mode, pan.y, panelHeight, publishNativeWindowPosition]);
+  const panResponder = useMemo(
+    () => PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
         return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
       },
       onPanResponderGrant: () => {
-        pan.setOffset({
-          x: (pan.x as any)._value,
-          y: (pan.y as any)._value,
-        });
+        if (isAndroidNativeWindow) {
+          dragOriginRef.current = { ...panPositionRef.current };
+          return;
+        }
+
+        pan.extractOffset();
         pan.setValue({ x: 0, y: 0 });
       },
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: () => {
-        pan.flattenOffset();
+      onPanResponderMove: (event, gestureState) => {
+        if (isAndroidNativeWindow) {
+          publishNativeWindowPosition(
+            dragOriginRef.current.x + gestureState.dx,
+            dragOriginRef.current.y + gestureState.dy,
+          );
+          return;
+        }
+
+        Animated.event(
+          [null, { dx: pan.x, dy: pan.y }],
+          { useNativeDriver: false }
+        )(event, gestureState);
       },
-    })
-  ).current;
+      onPanResponderRelease: () => {
+        if (isAndroidNativeWindow) {
+          publishNativeWindowPosition(
+            panPositionRef.current.x,
+            panPositionRef.current.y,
+          );
+          return;
+        }
+
+        pan.flattenOffset();
+        const clampedPosition = clampWindowPosition(
+          panPositionRef.current.x,
+          panPositionRef.current.y,
+        );
+
+        Animated.spring(pan, {
+          toValue: clampedPosition,
+          useNativeDriver: false,
+          tension: 120,
+          friction: 14,
+        }).start(() => {
+          panPositionRef.current = clampedPosition;
+          if (!isAndroidNativeWindow) {
+            setFabX(clampedPosition.x);
+          }
+          scheduleWindowMetricsPublish(
+            clampedPosition.x,
+            clampedPosition.y,
+          );
+        });
+      },
+    }),
+    [
+      clampWindowPosition,
+      isAndroidNativeWindow,
+      pan,
+      publishNativeWindowPosition,
+      scheduleWindowMetricsPublish,
+    ]
+  );
+  const jsDragHandlers = isAndroidNativeWindow ? undefined : panResponder.panHandlers;
 
   const handleSend = () => {
     if (text.trim() && !isThinking) {
@@ -646,8 +947,11 @@ export function AgentChatBar({
   if (!isExpanded) {
     return (
       <Animated.View
-        style={[styles.fabContainer, pan.getLayout()]}
-        {...panResponder.panHandlers}
+        style={[
+          styles.fabContainer,
+          isAndroidNativeWindow ? styles.fabContainerNativeWindow : pan.getLayout(),
+        ]}
+        {...(jsDragHandlers ?? {})}
       >
         <Pressable
           style={[styles.fab, theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined]}
@@ -662,7 +966,7 @@ export function AgentChatBar({
           {isThinking ? <LoadingDots size={28} color={theme?.textColor || '#fff'} /> : <AIBadge size={28} />}
         </Pressable>
         {/* Discovery tooltip — shows above FAB on first use */}
-        {showDiscoveryTooltip && (
+        {showDiscoveryTooltip && !isAndroidNativeWindow && (
           <DiscoveryTooltip
             language={language}
             primaryColor={theme?.primaryColor}
@@ -672,7 +976,7 @@ export function AgentChatBar({
           />
         )}
         {/* Unread popup bubble with message preview */}
-        {localUnread > 0 && chatMessages.length > 0 && (
+        {localUnread > 0 && chatMessages.length > 0 && !isAndroidNativeWindow && (
           <Pressable 
             style={[styles.unreadPopup, isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR]} 
             onPress={() => {
@@ -703,7 +1007,7 @@ export function AgentChatBar({
         )}
 
         {/* Thinking status bubble */}
-        {isThinking && !pendingApprovalQuestion && (
+        {isThinking && !pendingApprovalQuestion && !isAndroidNativeWindow && (
           <Pressable
             style={[styles.statusPopup, isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR]}
             onPress={() => {
@@ -735,19 +1039,27 @@ export function AgentChatBar({
   return (
     <Animated.View style={[
       styles.expandedContainer,
-      pan.getLayout(),
+      isAndroidNativeWindow ? styles.expandedContainerNativeWindow : pan.getLayout(),
+      isAndroidNativeWindow ? { minHeight: expandedContentMinHeight } : null,
       { maxHeight: height * 0.65 },
       theme?.backgroundColor ? { backgroundColor: theme.backgroundColor } : undefined,
     ]}
       onLayout={(event) => {
         const nextHeight = event.nativeEvent.layout.height;
         if (Math.abs(nextHeight - panelHeight) > 1) {
+          panelHeightRef.current = nextHeight;
           setPanelHeight(nextHeight);
+          scheduleWindowMetricsPublish(
+            panPositionRef.current.x,
+            panPositionRef.current.y,
+            true,
+            nextHeight,
+          );
         }
       }}
     >
       {/* Drag Handle */}
-      <View {...panResponder.panHandlers} style={styles.dragHandleArea} accessibilityLabel="Drag AI Agent">
+      <View {...(jsDragHandlers ?? {})} style={styles.dragHandleArea} accessibilityLabel="Drag AI Agent">
         <View style={styles.dragGrip} />
       </View>
       <Pressable onPress={() => { setIsExpanded(false); setShowHistory(false); }} style={styles.minimizeBtn} accessibilityLabel="Minimize AI Agent">
@@ -787,18 +1099,22 @@ export function AgentChatBar({
       )}
 
       {/* Corner drag zones — same panResponder, all 4 corners are draggable */}
-      <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerTL]} pointerEvents="box-only">
-        <View style={[styles.cornerIndicator, styles.cornerIndicatorTL]} />
-      </View>
-      <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerTR]} pointerEvents="box-only">
-        <View style={[styles.cornerIndicator, styles.cornerIndicatorTR]} />
-      </View>
-      <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerBL]} pointerEvents="box-only">
-        <View style={[styles.cornerIndicator, styles.cornerIndicatorBL]} />
-      </View>
-      <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerBR]} pointerEvents="box-only">
-        <View style={[styles.cornerIndicator, styles.cornerIndicatorBR]} />
-      </View>
+      {!isAndroidNativeWindow && (
+        <>
+          <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerTL]} pointerEvents="box-only">
+            <View style={[styles.cornerIndicator, styles.cornerIndicatorTL]} />
+          </View>
+          <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerTR]} pointerEvents="box-only">
+            <View style={[styles.cornerIndicator, styles.cornerIndicatorTR]} />
+          </View>
+          <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerBL]} pointerEvents="box-only">
+            <View style={[styles.cornerIndicator, styles.cornerIndicatorBL]} />
+          </View>
+          <View {...panResponder.panHandlers} style={[styles.cornerHandle, styles.cornerBR]} pointerEvents="box-only">
+            <View style={[styles.cornerIndicator, styles.cornerIndicatorBR]} />
+          </View>
+        </>
+      )}
 
       {/* Mode Selector */}
       {!showHistory && (
@@ -1041,6 +1357,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 9999,
   },
+  fabContainerNativeWindow: {
+    position: 'relative',
+  },
   fab: {
     width: 60,
     height: 60,
@@ -1129,6 +1448,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 10,
   },
+  expandedContainerNativeWindow: {
+    position: 'relative',
+  },
   dragHandleArea: {
     width: '100%',
     height: 30,
@@ -1176,6 +1498,7 @@ const styles = StyleSheet.create({
   cornerIndicatorBR: { bottom: 6, right: 6, width: 10, height: 2, borderBottomRightRadius: 1 },
   messageList: {
     marginBottom: 12,
+    flexShrink: 1,
   },
   messageBubble: {
     padding: 12,
@@ -1217,6 +1540,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
     justifyContent: 'center',
+    minHeight: 48,
+    flexShrink: 0,
     paddingBottom: 2, // Slight padding so buttons don't clip against bottom edge
   },
   approvalPanel: {

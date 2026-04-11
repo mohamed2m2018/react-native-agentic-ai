@@ -8,10 +8,28 @@
  * to route telemetry through your own backend without touching this file.
  */
 
-const MOBILEAI_BASE =
-  process.env.EXPO_PUBLIC_MOBILEAI_BASE_URL ||
-  process.env.NEXT_PUBLIC_MOBILEAI_BASE_URL ||
-  'https://mobileai.cloud';
+import { Platform } from 'react-native';
+
+function resolveMobileAIBase(): string {
+  const configuredBase =
+    process.env.EXPO_PUBLIC_MOBILEAI_BASE_URL ||
+    process.env.NEXT_PUBLIC_MOBILEAI_BASE_URL ||
+    'https://mobileai.cloud';
+
+  // Android emulators cannot reach the host machine via localhost/127.0.0.1.
+  // Translate those hostnames to 10.0.2.2 so the Expo example can talk to the
+  // local dashboard/backend without affecting iOS.
+  if (Platform.OS === 'android') {
+    return configuredBase.replace(
+      /^http:\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/,
+      'http://10.0.2.2',
+    );
+  }
+
+  return configuredBase;
+}
+
+const MOBILEAI_BASE = resolveMobileAIBase();
 
 function toWebSocketBase(url: string): string {
   if (url.startsWith('https://')) return `wss://${url.slice('https://'.length)}`;

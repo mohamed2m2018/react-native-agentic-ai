@@ -73,6 +73,10 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const navRef = useNavigationContainerRef();
+  const analyticsKey =
+    (__DEV__ ? process.env.EXPO_PUBLIC_MOBILEAI_DEV_KEY : undefined)
+    ?? process.env.EXPO_PUBLIC_MOBILEAI_KEY;
+  const mcpServerUrl = process.env.EXPO_PUBLIC_MOBILEAI_MCP_URL;
 
   // 🔹 Feature flag sync on mount (requires api.mobileai.dev — coming soon)
   // useEffect(() => {
@@ -110,7 +114,7 @@ function RootLayoutNav() {
         onEscalate: (ctx) => console.log('[DashBite Support] Escalating:', ctx.conversationSummary),
         escalationMessage: 'Connecting you to our live support specialist...',
       },
-      analyticsKey: process.env.EXPO_PUBLIC_MOBILEAI_KEY,
+      analyticsKey,
       getContext: () => {
         const supportContext = getSupportContext();
         return {
@@ -136,14 +140,14 @@ function RootLayoutNav() {
             <AIAgent
               provider="gemini"
               navRef={navRef}
-              mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
+              mcpServerUrl={mcpServerUrl}
               knowledgeBase={DASHBITE_KNOWLEDGE}
               showChatBar={true}
               enableUIControl={true}
               debug={true}
               screenMap={screenMap as any}
               accentColor="#F97316"
-              analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
+              analyticsKey={analyticsKey}
               supportStyle="wow-service"
               proactiveHelp={{
                 enabled: true,
@@ -164,6 +168,7 @@ function RootLayoutNav() {
                 <Stack>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="test-ui" options={{ title: 'Overlay Test Lab' }} />
                   <Stack.Screen name="store/[id]" options={{ title: 'Restaurant' }} />
                   <Stack.Screen name="menu-item/[id]" options={{ title: 'Menu Item' }} />
                   <Stack.Screen name="cart" options={{ title: 'Cart' }} />
