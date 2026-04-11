@@ -422,9 +422,17 @@ export class GeminiProvider implements AIProvider {
       }
     }
 
-    if (errorCode === 'proxy_blocked') {
-      logger.error('GeminiProvider', 'Proxy blocked: Credit limit reached or budget exhausted.');
-      return 'The AI assistant is temporarily unavailable. Please try again later.';
+    if (errorCode === 'budget_exhausted' || errorCode === 'proxy_blocked') {
+      logger.error('GeminiProvider', 'Proxy blocked: project has run out of hosted proxy credits.');
+      return 'This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.';
+    }
+
+    if (errorCode === 'hosted_proxy_disabled') {
+      return 'The MobileAI hosted proxy is not enabled for this project yet.';
+    }
+
+    if (errorCode === 'invalid_auth_key') {
+      return 'This MobileAI key is invalid. Use the publishable key from your dashboard project settings.';
     }
 
     // Map status codes to friendly descriptions

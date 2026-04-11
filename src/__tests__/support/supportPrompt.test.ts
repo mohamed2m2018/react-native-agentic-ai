@@ -8,7 +8,8 @@ describe('support style presets', () => {
     });
 
     expect(prompt).toContain('Support Style: Warm Concise');
-    expect(prompt).toContain('calm, kind, and capable');
+    expect(prompt).toContain('calm, kind, tender, and capable');
+    expect(prompt).toContain('Lead with warmth before action.');
   });
 
   it('applies wow-service style when explicitly selected', () => {

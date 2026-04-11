@@ -1,32 +1,40 @@
+import { Link } from 'expo-router';
 import { StyleSheet, FlatList } from 'react-native';
 import { Text, View } from '@/components/Themed';
-
-const ORDERS = [
-  { id: '1001', date: '2026-03-20', total: 129.98, items: 2, status: 'Delivered' },
-  { id: '1002', date: '2026-03-15', total: 79.99, items: 1, status: 'Delivered' },
-  { id: '1003', date: '2026-03-10', total: 214.97, items: 3, status: 'In Transit' },
-  { id: '1004', date: '2026-02-28', total: 49.99, items: 1, status: 'Delivered' },
-];
+import { useFoodDelivery } from '@/app/lib/delivery-demo';
 
 export default function OrderHistoryScreen() {
+  const { activeOrders } = useFoodDelivery();
+  const history = [...activeOrders]
+    .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime())
+    .map((order) => ({
+      id: order.id,
+      date: new Date(order.placedAt).toLocaleDateString(),
+      total: order.total,
+      items: order.items.length,
+      status: order.status,
+    }));
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Order History</Text>
       <FlatList
-        data={ORDERS}
+        data={history}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.orderId}>Order #{item.id}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: item.status === 'Delivered' ? '#27AE60' : '#E67E22' }]}>
-                <Text style={styles.statusText}>{item.status}</Text>
+          <Link href={`/order/${item.id}/tracking`} asChild>
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.orderId}>Order #{item.id}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: item.status === 'Delivered' ? '#27AE60' : '#E67E22' }]}>
+                  <Text style={styles.statusText}>{item.status}</Text>
+                </View>
               </View>
+              <Text style={styles.date}>{item.date}</Text>
+              <Text style={styles.details}>{item.items} item{item.items > 1 ? 's' : ''} · ${item.total}</Text>
             </View>
-            <Text style={styles.date}>{item.date}</Text>
-            <Text style={styles.details}>{item.items} item{item.items > 1 ? 's' : ''} · ${item.total}</Text>
-          </View>
+          </Link>
         )}
       />
     </View>

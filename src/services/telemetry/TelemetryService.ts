@@ -68,6 +68,7 @@ function generateSessionId(): string {
 }
 
 import { getDeviceId } from './device';
+import { humanizeScreenName } from '../../utils/humanizeScreenName';
 
 // ─── Service ───────────────────────────────────────────────────
 
@@ -229,9 +230,14 @@ export class TelemetryService {
   }
 
   /** Update current screen (called by AIAgent on navigation) */
-  setScreen(screenName: string): void {
+  setScreen(rawScreenName: string): void {
+    const screenName = humanizeScreenName(rawScreenName);
+    
+    // If it's a layout component or catch-all, skip it
+    if (!screenName) return;
+
     if (this.currentScreen !== screenName) {
-      const prevScreen = this.currentScreen;
+      const prevScreen = this.currentScreen === 'Unknown' ? undefined : this.currentScreen;
       this.currentScreen = screenName;
       this.screenFlow.push(screenName);
 

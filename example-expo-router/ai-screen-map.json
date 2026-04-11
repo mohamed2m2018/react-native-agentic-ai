@@ -1,126 +1,128 @@
 {
-  "generatedAt": "2026-04-09T21:11:14.560Z",
+  "generatedAt": "2026-04-11T13:52:40.828Z",
   "framework": "expo-router",
   "screens": {
-    "(tabs)/chat": {
-      "title": "Chat",
-      "description": "Try: go to profile, tap settings... (text-input), Send (button), FlatList (list)",
+    "(tabs)/account": {
+      "title": "Account",
+      "description": "Edit Profile (button), › (button), Saved Addresses (button), Payment Methods (button), Saved Restaurants (button), Notification Preferences (button), Language (button), Support Center (button)",
       "navigatesTo": [
-        "(tabs)/chat"
+        "edit-profile",
+        "addresses",
+        "payment-methods",
+        "favorites",
+        "notifications",
+        "language",
+        "help"
       ]
     },
     "(tabs)/index": {
       "title": "Home",
-      "description": "Street Address (text-input), City (text-input), Zip / Postal Code (text-input), Express Delivery (switch), Gift Wrapping (switch), Advanced Shipping Options (button), name (button), category (button)",
+      "description": "Need help? (button), Ask about delivery windows, restaurant items, refunds, fees. (button), Open Cart (button), Review your order and check out. (button), All (button), Italian (button), Asian (button), Healthy (button)",
       "navigatesTo": [
-        "categories"
+        "(tabs)/support",
+        "cart"
       ]
     },
-    "(tabs)/settings": {
-      "title": "Settings",
-      "description": "Notifications (button), › (button), Appearance (button), Language (button), About (button), Privacy Policy (button)",
-      "navigatesTo": [
-        "notifications",
-        "appearance",
-        "language",
-        "about",
-        "privacy"
-      ]
+    "(tabs)/orders": {
+      "title": "Orders",
+      "description": "Track (button), Need Help (button), Start an order (button), FlatList (list)"
     },
-    "(tabs)/two": {
-      "title": "Profile",
-      "description": "Edit Profile (button), › (button), Favorites (button), Order History (button), Saved Addresses (button)",
-      "navigatesTo": [
-        "edit-profile",
-        "favorites",
-        "order-history",
-        "addresses"
-      ]
+    "(tabs)/support": {
+      "title": "Support",
+      "description": "Type your support question... (text-input), label (button), Send (button), FlatList (list)"
     },
     "about": {
-      "title": "About",
-      "description": "About ShopApp, Version 1.0.0, ShopApp is a demo application showcasing the integration of AI agents with Expo Router. This app demonstrates how an AI assistant can navigate between screens, fill forms, tap buttons, and interact with your React Native app's live UI., Built with @mobileai/react-native — the drop-in AI agent for React Native apps., Technologies, Expo Router (File-based routing)"
+      "title": "About DashBite",
+      "description": "About DashBite, Food delivery support demo powered by @mobileai/react-native., What this app demonstrates, DashBite is a mock food-delivery marketplace used to show AI assisted support flows for real order pain points: late deliveries, missing items, wrong substitutions, and post-order escalations., Support behavior, The AI can navigate app screens, validate cart and order state, and open live support context with rich metadata before escalation."
     },
     "addresses": {
-      "title": "Addresses",
-      "description": "FlatList (list)"
+      "title": "Saved Addresses",
+      "description": "label (button), line (button), FlatList (list)"
     },
     "appearance": {
       "title": "Appearance",
       "description": "System (button), Light (button), Dark (button)"
     },
-    "categories": {
-      "title": "Categories",
-      "description": "icon (button), name (button), count (button), items (button)"
+    "cart": {
+      "title": "Cart",
+      "description": "dashbite10 / hungry20 (text-input), − (button), + (button), Remove (button), Browse Restaurants (button), Apply (button), Proceed to Checkout (button), FlatList (list)",
+      "navigatesTo": [
+        "checkout"
+      ]
     },
-    "category/[id]": {
-      "title": "Category",
-      "description": "name (button), count (button), items (button), › (button)"
+    "checkout": {
+      "title": "Checkout",
+      "description": "Change address (button), Change payment method (button), Place Order (button), Back to Cart (button), AIZone (component)",
+      "navigatesTo": [
+        "addresses",
+        "payment-methods",
+        "cart"
+      ]
     },
     "edit-profile": {
       "title": "Edit Profile",
       "description": "Full Name (text-input), Email (text-input), Phone (text-input), Bio (text-input), Save Changes (button)"
     },
     "favorites": {
-      "title": "Favorites",
+      "title": "Saved Restaurants",
       "description": "FlatList (list)"
     },
     "help": {
       "title": "Help Center",
-      "description": "Contact Support (button)"
-    },
-    "invite-friends": {
-      "description": "Friend's email address (text-input), Copy Code (button), ✓ Invite Sent! (button), Send Invite (button), 📤 Share via Other Apps (button)"
-    },
-    "item/[id]": {
-      "title": "Item Details",
-      "description": "Add to Wishlist (switch), View Reviews & Questions (button), › (button), Add to Cart (button)"
-    },
-    "item-reviews/[id]": {
-      "title": "Reviews",
-      "description": "Type your question about this product... (text-input), Price Drop Alerts (switch), Notify on New Reviews (switch), ✍️ Write a Review (button), Submit Question (button)"
+      "description": "Open Live Support (button)"
     },
     "language": {
       "title": "Language",
       "description": "English (button), Arabic (button), Spanish (button), French (button), German (button), Japanese (button)"
     },
-    "modal": {
-      "description": "EditScreenInfo (component)"
+    "menu-item/[id]": {
+      "title": "Menu Item",
+      "description": "No onions, extra sauce, ring bell... (text-input), label (switch), Return Home (button), label (button), (+ $ ) (button), − (button), + (button), Select required options (button)",
+      "navigatesTo": [
+        "cart"
+      ]
     },
     "notifications": {
       "title": "Notifications",
       "description": "Push Notifications (switch), Email Notifications (switch), SMS Notifications (switch), Deal Alerts (switch)"
     },
+    "order/[id]/help": {
+      "title": "Order Help",
+      "description": "Go to Orders (button), label (button), Delivery delays (button), Missing items (button), Go to Live Support Tab (button), AIZone (component)",
+      "navigatesTo": [
+        "(tabs)/orders",
+        "(tabs)/support"
+      ]
+    },
+    "order/[id]/tracking": {
+      "title": "Track Order",
+      "description": "Go to Orders (button), Open Support (button), Back to Orders (button), FlatList (list), AIZone (component)",
+      "navigatesTo": [
+        "(tabs)/orders"
+      ]
+    },
     "order-history": {
-      "title": "Order History",
       "description": "FlatList (list)"
+    },
+    "payment-methods": {
+      "title": "Payment Methods",
+      "description": "In real app, add/remove methods from account profile. (button)"
     },
     "privacy": {
       "title": "Privacy Policy",
       "description": "Privacy Policy, Last updated: March 2026, Data Collection, This demo app does not collect or store any personal data. All interactions with the AI agent are processed in real-time and are not persisted., AI Agent, The AI agent reads your screen's UI hierarchy to understand context and perform actions. It does not access any data marked with content masking or security gating."
     },
-    "product/[id]": {
-      "title": "Product Details",
-      "description": "Product not found, name, category, $, price, description"
+    "store/[id]": {
+      "title": "Restaurant",
+      "description": "Back to Home (button), image (button), name (button), description (button), spice level (button), • (button), calories (button), cal (button)"
     },
-    "review-thanks/[id]": {
-      "description": "View Rewards Program (button), Back to Reviews (button)",
+    "support/article/[id]": {
+      "title": "Support Article",
+      "description": "Open Help Center (button), Ask support about this (button), AIZone (component)",
       "navigatesTo": [
-        "rewards"
+        "help",
+        "(tabs)/support"
       ]
-    },
-    "rewards": {
-      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 👥 (button), Invite Friends (button), Earn 100 points per referral (button), › (button)",
-      "navigatesTo": [
-        "invite-friends"
-      ]
-    },
-    "subcategory/[id]": {
-      "title": "Subcategory",
-      "description": "name (button), ★ (button), rating (button), $ (button), price (button)"
-    },
-    "write-review/[id]": {
-      "description": "Summarize your experience (text-input), What did you like or dislike? How do you use this product? (text-input), ★ (button), ☆ (button), 👍 Yes (button), 👎 No (button), Submit Review (button)"
     }
   }
 }

@@ -236,6 +236,17 @@ describe('GeminiProvider', () => {
       ).rejects.toThrow('Too many requests. Please wait a moment and try again.');
     });
 
+    it('maps hosted proxy budget exhaustion to a dashboard credit message', async () => {
+      const apiError = new Error('429: {"error":"Hosted proxy budget has been exhausted for this project.","code":"budget_exhausted"}');
+      (apiError as any).status = 429;
+      mockGenerateContent.mockRejectedValueOnce(apiError);
+
+      const provider = createProvider();
+      await expect(
+        provider.generateContent('sys', 'msg', sampleTools, [])
+      ).rejects.toThrow('This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.');
+    });
+
     it('throws on network failure', async () => {
       mockGenerateContent.mockRejectedValueOnce(new Error('Network offline'));
 

@@ -17,7 +17,8 @@ import React, {
 } from 'react';
 import { View, StyleSheet, InteractionManager } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
-import { walkFiberTree, captureWireframe } from '../core/FiberTreeWalker';
+import { captureWireframe } from '../core/FiberTreeWalker';
+import { humanizeScreenName } from '../utils/humanizeScreenName';
 import { createProvider } from '../providers/ProviderFactory';
 import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
@@ -1502,7 +1503,10 @@ export function AIAgent({
           attempts++;
           const route = navRef?.getCurrentRoute?.();
           if (route?.name) {
-            telemetry.setScreen(route.name);
+            const cleanName = humanizeScreenName(route.name);
+            if (cleanName) {
+              telemetry.setScreen(cleanName);
+            }
             clearInterval(timer);
           } else if (attempts >= maxAttempts) {
             clearInterval(timer);
@@ -1531,7 +1535,7 @@ export function AIAgent({
   useEffect(() => {
     if (!navRef?.addListener || !telemetryRef.current) return;
 
-    const checkScreenMilestone = (screenName: string) => {
+    const checkScreenMilestone = (screenName: string): void => {
       telemetryRef.current?.setScreen(screenName);
 
       // Auto-capture wireframe snapshot for privacy-safe heatmaps.
@@ -1551,8 +1555,7 @@ export function AIAgent({
               });
           });
         });
-        // Cancel if the component unmounts or screen changes before capture starts
-        return () => handle.cancel();
+        void handle;
       }
 
       if (customerSuccess?.enabled) {
@@ -1592,7 +1595,10 @@ export function AIAgent({
     const unsubscribe = navRef.addListener('state', () => {
       const currentRoute = navRef.getCurrentRoute?.();
       if (currentRoute?.name) {
-        checkScreenMilestone(currentRoute.name);
+        const cleanName = humanizeScreenName(currentRoute.name);
+        if (cleanName) {
+          checkScreenMilestone(cleanName);
+        }
       }
     });
 
@@ -2420,8 +2426,7 @@ export function AIAgent({
 
   const handleCancel = useCallback(() => {
     runtime.cancel();
-    setIsThinking(false);
-    setStatusText('');
+    setStatusText('Stopping...');
   }, [runtime]);
 
   // ─── Conversation History Handlers ─────────────────────────────
@@ -2532,6 +2537,7 @@ export function AIAgent({
             >
               <AgentChatBar
                 onSend={handleSend}
+                onCancel={handleCancel}
                 isThinking={isThinking}
                 statusText={overlayStatusText}
                 lastResult={lastResult}

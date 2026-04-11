@@ -1539,12 +1539,50 @@ function detectFramework(projectRoot) {
 }
 
 function parseArgs(argv) {
-  const args = { dir: '', watch: false };
+  const args = {
+    dir: '',
+    watch: false,
+    include: [],
+    exclude: [],
+  };
   for (const arg of argv) {
     if (arg === '--watch' || arg === '-w') args.watch = true;
     if (arg.startsWith('--dir=')) args.dir = arg.split('=')[1];
+    if (arg.startsWith('--include=')) {
+      args.include = arg.slice('--include='.length).split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
+    if (arg.startsWith('--exclude=')) {
+      args.exclude = arg.slice('--exclude='.length).split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
   }
   return args;
+}
+
+function routeMatchesPattern(routeName, pattern) {
+  if (!pattern) return false;
+  if (pattern === routeName) return true;
+  if (!pattern.includes('*')) {
+    return routeName === pattern;
+  }
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`);
+  return regex.test(routeName);
+}
+
+function routeMatchesAnyPattern(routeName, patterns) {
+  return patterns.some((pattern) => routeMatchesPattern(routeName, pattern));
+}
+
+function filterScreensByRoutePatterns(screens, args) {
+  return screens.filter((screen) => {
+    if (args.include.length > 0 && !routeMatchesAnyPattern(screen.routeName, args.include)) {
+      return false;
+    }
+    if (args.exclude.length > 0 && routeMatchesAnyPattern(screen.routeName, args.exclude)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 async function generate(args, projectRoot) {
@@ -1556,19 +1594,20 @@ async function generate(args, projectRoot) {
   const scannedScreens = framework === 'expo-router'
     ? scanExpoRouterApp(projectRoot)
     : scanReactNavigationApp(projectRoot);
+  const filteredScreens = filterScreensByRoutePatterns(scannedScreens, args);
 
-  console.log(`📄 Found ${scannedScreens.length} screen(s)`);
+  console.log(`📄 Found ${filteredScreens.length} screen(s)`);
 
   // Enrich navigation links with component-level navigation
   console.log('🔍 Scanning components for navigation calls...');
   const globalIndex = buildGlobalNavigateIndex(projectRoot);
   const navigatorFiles = framework === 'react-navigation' ? findNavigatorFiles(projectRoot) : [];
-  const added = enrichScreensWithComponentNavLinks(scannedScreens, globalIndex, navigatorFiles);
+  const added = enrichScreensWithComponentNavLinks(filteredScreens, globalIndex, navigatorFiles);
   console.log(`   Found ${globalIndex.size} component(s) with navigation, added ${added} link(s)`);
 
 
   // Build output — per-screen navigatesTo, filtered to known routes only
-  const allRouteSet = new Set(scannedScreens.map(s => s.routeName));
+  const allRouteSet = new Set(filteredScreens.map(s => s.routeName));
 
   // Build basename lookup for fuzzy matching (e.g. "Chat" → "screens/Chat")
   const basenameMap = new Map(); // basename → full route (shortest path wins)
@@ -1592,7 +1631,7 @@ async function generate(args, projectRoot) {
   }
 
   const screenMap = { generatedAt: new Date().toISOString(), framework, screens: {} };
-  for (const screen of scannedScreens) {
+  for (const screen of filteredScreens) {
     const validLinks = screen.navigationLinks.map(link => resolveNavLink(link)).filter(Boolean);
     // Deduplicate (two different raw links may resolve to the same route)
     const uniqueLinks = [...new Set(validLinks)];
@@ -1610,7 +1649,7 @@ async function generate(args, projectRoot) {
   const outputPath = path.join(projectRoot, 'ai-screen-map.json');
   fs.writeFileSync(outputPath, JSON.stringify(screenMap, null, 2));
 
-  const linkedCount = scannedScreens.filter(s => s.navigationLinks.map(l => resolveNavLink(l)).some(Boolean)).length;
+  const linkedCount = filteredScreens.filter(s => s.navigationLinks.map(l => resolveNavLink(l)).some(Boolean)).length;
   console.log('━'.repeat(40));
   console.log(`✅ Generated ${outputPath}`);
   console.log(`   ${Object.keys(screenMap.screens).length} screens, ${linkedCount} with navigation links`);

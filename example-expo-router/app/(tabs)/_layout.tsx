@@ -29,12 +29,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="orders"
         options={{
-          title: 'Profile',
+          title: 'Orders',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{ ios: 'person.fill', android: 'person', web: 'person' }}
+              name={{ ios: 'list.bullet', android: 'list', web: 'view_list' }}
               tintColor={color}
               size={24}
             />
@@ -42,12 +42,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="chat"
+        name="support"
         options={{
-          title: 'Chat',
+          title: 'Support',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{ ios: 'bubble.left.fill', android: 'chat', web: 'chat' }}
+              name={{ ios: 'bubble.left.and.bubble.right.fill', android: 'chat', web: 'chat' }}
               tintColor={color}
               size={24}
             />
@@ -55,12 +55,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="account"
         options={{
-          title: 'Settings',
+          title: 'Account',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{ ios: 'gearshape.fill', android: 'settings', web: 'settings' }}
+              name={{ ios: 'person.crop.circle.fill', android: 'person', web: 'person' }}
               tintColor={color}
               size={24}
             />
