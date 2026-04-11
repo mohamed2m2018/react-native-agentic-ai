@@ -1372,29 +1372,30 @@ function resolveNativeScrollRef(fiberNode: any): any {
 
 // ─── Wireframe Capture ─────────────────────────────────────────
 
-export async function captureWireframe(
-  rootRef: React.RefObject<any>,
-  config: WalkConfig = {}
-): Promise<WireframeSnapshot | null> {
-  const result = walkFiberTree(rootRef, config);
-  const elements = result.interactives;
-  if (elements.length === 0) return null;
+/** Max elements to measure — keeps bridge work bounded */
+const WIREFRAME_MAX_ELEMENTS = 50;
+/** Measure this many elements per frame, then yield */
+const WIREFRAME_BATCH_SIZE = 10;
 
-  const promises = elements.map((el) => {
-    return new Promise<WireframeComponent | null>((resolve) => {
-      try {
-        const stateNode = getStateNode(el.fiberNode);
-        if (!stateNode || typeof stateNode.measure !== 'function') {
-          resolve(null);
-          return;
-        }
+/**
+ * Measure a single element on the native bridge.
+ * Returns null if the element is off-screen or unmeasurable.
+ */
+function measureElement(el: InteractiveElement): Promise<WireframeComponent | null> {
+  return new Promise<WireframeComponent | null>((resolve) => {
+    try {
+      const stateNode = getStateNode(el.fiberNode);
+      if (!stateNode || typeof stateNode.measure !== 'function') {
+        resolve(null);
+        return;
+      }
 
-        // Measure on the native bridge (async)
-        stateNode.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+      stateNode.measure(
+        (_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
           if (width > 0 && height > 0) {
             resolve({
               type: el.type,
-              label: el.label || el.type, // fallback to type if label is empty
+              label: el.label || el.type,
               x: pageX,
               y: pageY,
               width,
@@ -1403,24 +1404,65 @@ export async function captureWireframe(
           } else {
             resolve(null);
           }
-        });
-      } catch {
-        resolve(null);
-      }
-    });
+        }
+      );
+    } catch {
+      resolve(null);
+    }
   });
+}
 
-  // Limit to 1.5s so we don't stall the app if bridge is congested
-  const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
-  
-  const results = await Promise.race([
-    Promise.all(promises),
-    timeoutPromise
-  ]);
+/**
+ * Yield one frame so measure work doesn't block gestures/animations.
+ * Uses requestAnimationFrame where available, falls back to setTimeout(16ms).
+ */
+function yieldFrame(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
 
-  if (!results) return null; // Timed out
+/**
+ * Capture a privacy-safe wireframe of the current screen.
+ *
+ * Performance guarantees:
+ * - Capped at WIREFRAME_MAX_ELEMENTS (50) — enough for wireframe context
+ * - Measures in batches of WIREFRAME_BATCH_SIZE (10), yielding a frame
+ *   between batches so the bridge stays free for user interactions
+ * - The caller (AIAgent) defers this via InteractionManager so it
+ *   never competes with screen transitions or gestures
+ */
+export async function captureWireframe(
+  rootRef: React.RefObject<any>,
+  config: WalkConfig = {}
+): Promise<WireframeSnapshot | null> {
+  const result = walkFiberTree(rootRef, config);
+  const elements = result.interactives;
+  if (elements.length === 0) return null;
 
-  const components = results.filter((c): c is WireframeComponent => c !== null);
+  // Cap the number of elements to keep bridge work bounded
+  const capped = elements.slice(0, WIREFRAME_MAX_ELEMENTS);
+
+  const components: WireframeComponent[] = [];
+
+  for (let i = 0; i < capped.length; i += WIREFRAME_BATCH_SIZE) {
+    const batch = capped.slice(i, i + WIREFRAME_BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(measureElement));
+
+    for (const r of batchResults) {
+      if (r) components.push(r);
+    }
+
+    // Yield between batches — never monopolize the bridge
+    if (i + WIREFRAME_BATCH_SIZE < capped.length) {
+      await yieldFrame();
+    }
+  }
+
   if (components.length === 0) return null;
 
   const { width: deviceWidth, height: deviceHeight } = Dimensions.get('window');
