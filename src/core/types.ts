@@ -75,6 +75,25 @@ export interface InteractiveElement {
   };
 }
 
+// ─── Wireframe Snapshots (Telemetry Layer) ────────────────────
+
+export interface WireframeComponent {
+  type: ElementType;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WireframeSnapshot {
+  screen: string;
+  components: WireframeComponent[];
+  deviceWidth: number;
+  deviceHeight: number;
+  capturedAt: string;
+}
+
 // ─── Dehydrated Screen State ──────────────────────────────────
 
 export interface DehydratedScreen {

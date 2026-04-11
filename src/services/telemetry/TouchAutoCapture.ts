@@ -75,7 +75,9 @@ export function checkRageClick(label: string, telemetry: TelemetryService): void
 
   if (matching.length >= RAGE_THRESHOLD) {
     telemetry.track('rage_click', {
+      canonical_type: 'rage_click_detected',
       label,
+      element_label: label,
       count: matching.length,
       screen: currentScreen,
     });
@@ -91,60 +93,67 @@ export function checkRageClick(label: string, telemetry: TelemetryService): void
  * @returns A descriptive label string for the tapped element
  */
 export function extractTouchLabel(event: any): string {
-  // Try accessible properties first (most reliable)
   const target = event?.nativeEvent?.target;
-
   if (!target) return 'Unknown Element';
 
-  // React Native internal: _targetInst (synthetic event Fiber ref)
-  // We can walk the Fiber tree from the target to find text
   try {
-    // Strategy 1: Fiber from the SyntheticEvent (works in dev and production RN >= 0.60)
-    // Strategy 2: Walk up the Fiber tree from the touched element via DevTools hook
     let fiber = event?._targetInst || getFiberFromNativeTag(target);
     if (fiber) {
-      // Walk up looking for text content or accessibility labels
       let current: any = fiber;
       let depth = 0;
-      const MAX_DEPTH = 10;
+      const MAX_DEPTH = 12;
+
+      let bestLabel: string | null = null;
+      let detectedRole: string | null = null;
 
       while (current && depth < MAX_DEPTH) {
-        // Check for accessibilityLabel
-        if (current.memoizedProps?.accessibilityLabel) {
-          return current.memoizedProps.accessibilityLabel;
+        // 1. Detect Component Type Context
+        if (!detectedRole) {
+          if (current.memoizedProps?.accessibilityRole) {
+            detectedRole = current.memoizedProps.accessibilityRole;
+          } else if (current.memoizedProps?.onValueChange && typeof current.memoizedProps?.value === 'boolean') {
+            detectedRole = 'Toggle/Switch';
+          } else if (current.memoizedProps?.onChangeText) {
+            detectedRole = 'TextInput';
+          } else if (current.memoizedProps?.onPress) {
+            detectedRole = 'Button';
+          } else if (current.type?.name || current.type?.displayName) {
+             const name = current.type.name || current.type.displayName;
+             if (typeof name === 'string' && name.length > 2 && !name.toLowerCase().includes('wrapper') && !name.startsWith('RCT')) {
+               detectedRole = name;
+             }
+          }
         }
 
-        // Check for testID
-        if (current.memoizedProps?.testID) {
-          return current.memoizedProps.testID;
-        }
-
-        // Check for title (Button component)
-        if (current.memoizedProps?.title) {
-          return current.memoizedProps.title;
-        }
-
-        // Check for placeholder (TextInput)
-        if (current.memoizedProps?.placeholder) {
-          return `Input: ${current.memoizedProps.placeholder}`;
-        }
-
-        // Check if this is a Text node with children string
-        if (
-          typeof current.memoizedProps?.children === 'string' &&
-          current.memoizedProps.children.trim()
-        ) {
-          return current.memoizedProps.children.trim();
-        }
-
-        // Check for nested text in children array
-        if (Array.isArray(current.memoizedProps?.children)) {
-          const textChild = findTextInChildren(current.memoizedProps.children);
-          if (textChild) return textChild;
+        // 2. Detect String Label Output
+        if (!bestLabel) {
+          if (current.memoizedProps?.accessibilityLabel) {
+            bestLabel = current.memoizedProps.accessibilityLabel;
+          } else if (current.memoizedProps?.testID) {
+            bestLabel = current.memoizedProps.testID;
+          } else if (current.memoizedProps?.title) {
+            bestLabel = current.memoizedProps.title;
+          } else if (current.memoizedProps?.placeholder) {
+            bestLabel = current.memoizedProps.placeholder;
+          } else if (typeof current.memoizedProps?.children === 'string' && current.memoizedProps.children.trim()) {
+            bestLabel = current.memoizedProps.children.trim();
+          } else if (Array.isArray(current.memoizedProps?.children)) {
+            bestLabel = findTextInChildren(current.memoizedProps.children);
+          } else if (current.memoizedProps?.children && typeof current.memoizedProps.children === 'object') {
+            bestLabel = findTextInChildren([current.memoizedProps.children]);
+          }
         }
 
         current = current.return;
         depth++;
+      }
+
+      if (bestLabel) {
+        if (detectedRole && detectedRole.toLowerCase() !== 'text' && detectedRole.toLowerCase() !== 'view') {
+           const formattedRole = detectedRole.charAt(0).toUpperCase() + detectedRole.slice(1);
+           return `[${formattedRole}] ${bestLabel}`;
+        }
+        return bestLabel;
       }
     }
   } catch {

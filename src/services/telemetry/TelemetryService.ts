@@ -80,6 +80,7 @@ export class TelemetryService {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private isFlushing = false;
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
+  private wireframesSent = new Set<string>();
 
   get screen(): string {
     return this.currentScreen;
@@ -239,6 +240,20 @@ export class TelemetryService {
         prev_screen: prevScreen,
       });
     }
+  }
+
+  /**
+   * Track a wireframe snapshot.
+   * Deduped per session (only one wireframe per screen over a session).
+   */
+  trackWireframe(snapshot: import('../../core/types').WireframeSnapshot): void {
+    if (!this.isEnabled()) return;
+    
+    // Only send once per screen per session
+    if (this.wireframesSent.has(snapshot.screen)) return;
+    
+    this.wireframesSent.add(snapshot.screen);
+    this.track('wireframe_snapshot', snapshot as unknown as Record<string, unknown>);
   }
 
   // ─── Flush ──────────────────────────────────────────────────
