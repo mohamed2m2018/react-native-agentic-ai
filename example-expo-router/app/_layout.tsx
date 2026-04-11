@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, useNavigationContainerRef } from 'expo-router';
+import { Stack, useNavigationContainerRef, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -73,6 +73,7 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const navRef = useNavigationContainerRef();
+  const pathname = usePathname();
   const analyticsKey =
     (__DEV__ ? process.env.EXPO_PUBLIC_MOBILEAI_DEV_KEY : undefined)
     ?? process.env.EXPO_PUBLIC_MOBILEAI_KEY;
@@ -140,6 +141,7 @@ function RootLayoutNav() {
             <AIAgent
               provider="gemini"
               navRef={navRef}
+              pathname={pathname}
               mcpServerUrl={mcpServerUrl}
               knowledgeBase={DASHBITE_KNOWLEDGE}
               showChatBar={true}
@@ -165,7 +167,7 @@ function RootLayoutNav() {
               customTools={{ escalate: escalateTool }}
             >
               <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                <Stack>
+                <Stack ref={navRef}>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="test-ui" options={{ title: 'Overlay Test Lab' }} />

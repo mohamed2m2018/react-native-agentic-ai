@@ -34,9 +34,32 @@ import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
-import { extractTouchLabel, checkRageClick } from '../services/telemetry/TouchAutoCapture';
+import {
+  extractTouchTargetMetadata,
+  checkRageClick,
+} from '../services/telemetry/TouchAutoCapture';
 import { initDeviceId, getDeviceId } from '../services/telemetry/device';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode, CustomerSuccessConfig, OnboardingConfig, ConversationSummary, AgentTraceEvent, VerifierConfig, SupportStyle } from '../core/types';
+import type {
+  AgentConfig,
+  AgentMode,
+  ExecutionResult,
+  ToolDefinition,
+  AgentStep,
+  TokenUsage,
+  KnowledgeBaseConfig,
+  ChatBarTheme,
+  AIMessage,
+  AIProviderName,
+  ScreenMap,
+  ProactiveHelpConfig,
+  InteractionMode,
+  CustomerSuccessConfig,
+  OnboardingConfig,
+  ConversationSummary,
+  AgentTraceEvent,
+  VerifierConfig,
+  SupportStyle,
+} from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
@@ -75,7 +98,8 @@ function getTooltipStorage(): any | null {
     try {
       const mod = require('@react-native-async-storage/async-storage');
       const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
-      if (candidate && typeof candidate.getItem === 'function') return candidate;
+      if (candidate && typeof candidate.getItem === 'function')
+        return candidate;
       return null;
     } finally {
       console.error = origError;
@@ -85,12 +109,47 @@ function getTooltipStorage(): any | null {
   }
 }
 
+function sanitizeWireframeScreenshot(value: string | null | undefined): string | null {
+  if (!value || typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const base64 = trimmed.startsWith('data:')
+    ? trimmed.split(',')[1] ?? ''
+    : trimmed;
+
+  return base64.length > 0 ? base64 : null;
+}
+
+async function captureHeatmapScreenshot(
+  rootView: unknown,
+): Promise<string | null> {
+  try {
+    if (!rootView) return null;
+
+    const viewShot = require('react-native-view-shot');
+    const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
+    if (!captureRef || typeof captureRef !== 'function') return null;
+
+    const raw = await captureRef(rootView, {
+      format: 'jpg',
+      quality: 0.28,
+      result: 'base64',
+    });
+
+    return sanitizeWireframeScreenshot(raw);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Props ─────────────────────────────────────────────────────
 
 interface AIAgentProps {
-  /** 
+  /**
    * API key (for local prototyping only).
-   * Do not ship API keys in your production app bundle. 
+   * Do not ship API keys in your production app bundle.
    */
   apiKey?: string;
   /**
@@ -98,17 +157,17 @@ interface AIAgentProps {
    * Default: 'gemini'
    */
   provider?: AIProviderName;
-  /** 
+  /**
    * The URL of your secure backend proxy (for production).
    * Routes all Gemini API traffic through your server.
    */
   proxyUrl?: string;
-  /** 
-   * Headers to send to your backend proxy (e.g., auth tokens). 
+  /**
+   * Headers to send to your backend proxy (e.g., auth tokens).
    */
   proxyHeaders?: Record<string, string>;
   /**
-   * Optional specific URL for Voice Mode (WebSockets). 
+   * Optional specific URL for Voice Mode (WebSockets).
    * If voiceProxyUrl isn't provided, it safely falls back to using proxyUrl for everything.
    */
   voiceProxyUrl?: string;
@@ -319,7 +378,6 @@ interface AIAgentProps {
   consent?: AIConsentConfig;
 }
 
-
 // ─── Component ─────────────────────────────────────────────────
 
 export function AIAgent({
@@ -381,10 +439,15 @@ export function AIAgent({
   // Consent is ALWAYS required by default — only disabled if explicitly set to false.
   // No consent prop at all → gate is active with default dialog config.
   const consentRequired = consent?.required !== false;
-  const consentConfig: AIConsentConfig = consent ?? { required: true, persist: false };
+  const consentConfig: AIConsentConfig = consent ?? {
+    required: true,
+    persist: false,
+  };
 
   // ─── AI Consent State (Apple Guideline 5.1.2(i)) ─────────────
-  const [hasConsented, grantConsent, , isConsentLoading] = useAIConsent(consentConfig.persist);
+  const [hasConsented, grantConsent, , isConsentLoading] = useAIConsent(
+    consentConfig.persist
+  );
   const [showConsentDialog, setShowConsentDialog] = useState(false);
   const pendingConsentSendRef = useRef<{
     message: string;
@@ -395,7 +458,8 @@ export function AIAgent({
     options?: { onResult?: (result: ExecutionResult) => void };
   } | null>(null);
 
-  const consentGateActive = consentRequired && !hasConsented && !isConsentLoading;
+  const consentGateActive =
+    consentRequired && !hasConsented && !isConsentLoading;
   // Configure logger based on debug prop
   React.useEffect(() => {
     logger.setEnabled(debug);
@@ -434,14 +498,18 @@ export function AIAgent({
   // Increment scroll trigger when messages change to auto-scroll chat modal
   useEffect(() => {
     if (messages.length > 0) {
-      setChatScrollTrigger(prev => prev + 1);
+      setChatScrollTrigger((prev) => prev + 1);
     }
   }, [messages.length]);
 
   // ── Support Modal State ──
-  const [tickets, setTickets] = useState<import('../support/types').SupportTicket[]>([]);
+  const [tickets, setTickets] = useState<
+    import('../support/types').SupportTicket[]
+  >([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const [supportSocket, setSupportSocket] = useState<EscalationSocket | null>(null);
+  const [supportSocket, setSupportSocket] = useState<EscalationSocket | null>(
+    null
+  );
   const [isLiveAgentTyping, setIsLiveAgentTyping] = useState(false);
   const [autoExpandTrigger, setAutoExpandTrigger] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -449,7 +517,9 @@ export function AIAgent({
   // Ref mirrors selectedTicketId — lets socket callbacks access current value
   // without stale closures (sockets are long-lived, closures capture old state).
   const selectedTicketIdRef = useRef<string | null>(null);
-  useEffect(() => { selectedTicketIdRef.current = selectedTicketId; }, [selectedTicketId]);
+  useEffect(() => {
+    selectedTicketIdRef.current = selectedTicketId;
+  }, [selectedTicketId]);
   // Cache of live sockets by ticketId — keeps sockets alive even when user
   // navigates back to the ticket list, so new messages still trigger badge updates.
   const pendingSocketsRef = useRef<Map<string, EscalationSocket>>(new Map());
@@ -463,7 +533,8 @@ export function AIAgent({
   // ── Onboarding Journey State ────────────────────────────────
   const [isOnboardingActive, setIsOnboardingActive] = useState(false);
   const [currentOnboardingIndex, setCurrentOnboardingIndex] = useState(0);
-  const [androidWindowMetrics, setAndroidWindowMetrics] = useState<AndroidWindowMetrics | null>(null);
+  const [androidWindowMetrics, setAndroidWindowMetrics] =
+    useState<AndroidWindowMetrics | null>(null);
   const androidWindowMetricsRef = useRef<AndroidWindowMetrics | null>(null);
   const floatingOverlayRef = useRef<FloatingOverlayWrapperHandle | null>(null);
 
@@ -473,10 +544,15 @@ export function AIAgent({
       void (async () => {
         try {
           const AS = getTooltipStorage();
-          if (!AS) { setIsOnboardingActive(true); return; }
+          if (!AS) {
+            setIsOnboardingActive(true);
+            return;
+          }
           const completed = await AS.getItem('@mobileai_onboarding_completed');
           if (!completed) setIsOnboardingActive(true);
-        } catch { setIsOnboardingActive(true); }
+        } catch {
+          setIsOnboardingActive(true);
+        }
       })();
     } else {
       setIsOnboardingActive(true);
@@ -492,14 +568,19 @@ export function AIAgent({
         try {
           const AS = getTooltipStorage();
           await AS?.setItem('@mobileai_onboarding_completed', 'true');
-        } catch { /* graceful */ }
+        } catch {
+          /* graceful */
+        }
       })();
     } else {
-      setCurrentOnboardingIndex(prev => prev + 1);
+      setCurrentOnboardingIndex((prev) => prev + 1);
     }
   }, [onboarding, currentOnboardingIndex]);
 
-  const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
+  const totalUnread = Object.values(unreadCounts).reduce(
+    (sum, count) => sum + count,
+    0
+  );
 
   // ── Discovery Tooltip (one-time) ──────────────────────────
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -509,7 +590,10 @@ export function AIAgent({
     void (async () => {
       try {
         const AS = getTooltipStorage();
-        if (!AS) { setTooltipVisible(true); return; }
+        if (!AS) {
+          setTooltipVisible(true);
+          return;
+        }
         const seen = await AS.getItem('@mobileai_tooltip_seen');
         if (!seen) setTooltipVisible(true);
       } catch {
@@ -524,7 +608,9 @@ export function AIAgent({
       try {
         const AS = getTooltipStorage();
         await AS?.setItem('@mobileai_tooltip_seen', 'true');
-      } catch { /* graceful */ }
+      } catch {
+        /* graceful */
+      }
     })();
   }, []);
 
@@ -535,63 +621,69 @@ export function AIAgent({
     }
   }, [showChatBar]);
 
-  const handleAndroidWindowMetricsChange = useCallback((metrics: AndroidWindowMetrics) => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    if (!showChatBar) {
-      androidWindowMetricsRef.current = null;
-      setAndroidWindowMetrics(null);
-      return;
-    }
-
-    const previousMetrics = androidWindowMetricsRef.current;
-    if (
-      previousMetrics &&
-      previousMetrics.x === metrics.x &&
-      previousMetrics.y === metrics.y &&
-      previousMetrics.width === metrics.width &&
-      previousMetrics.height === metrics.height
-    ) {
-      return;
-    }
-
-    androidWindowMetricsRef.current = metrics;
-
-    if (floatingOverlayRef.current && previousMetrics) {
-      floatingOverlayRef.current.setAndroidWindowMetrics(metrics);
-      return;
-    }
-
-    setAndroidWindowMetrics(metrics);
-  }, [showChatBar]);
-
-  const handleAndroidWindowDragEnd = useCallback((metrics: AndroidWindowMetrics) => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    if (!showChatBar) {
-      androidWindowMetricsRef.current = null;
-      setAndroidWindowMetrics(null);
-      return;
-    }
-
-    androidWindowMetricsRef.current = metrics;
-    setAndroidWindowMetrics((prev) => {
-      if (
-        prev &&
-        prev.x === metrics.x &&
-        prev.y === metrics.y &&
-        prev.width === metrics.width &&
-        prev.height === metrics.height
-      ) {
-        return prev;
+  const handleAndroidWindowMetricsChange = useCallback(
+    (metrics: AndroidWindowMetrics) => {
+      if (Platform.OS !== 'android') {
+        return;
       }
-      return metrics;
-    });
-  }, [showChatBar]);
+
+      if (!showChatBar) {
+        androidWindowMetricsRef.current = null;
+        setAndroidWindowMetrics(null);
+        return;
+      }
+
+      const previousMetrics = androidWindowMetricsRef.current;
+      if (
+        previousMetrics &&
+        previousMetrics.x === metrics.x &&
+        previousMetrics.y === metrics.y &&
+        previousMetrics.width === metrics.width &&
+        previousMetrics.height === metrics.height
+      ) {
+        return;
+      }
+
+      androidWindowMetricsRef.current = metrics;
+
+      if (floatingOverlayRef.current && previousMetrics) {
+        floatingOverlayRef.current.setAndroidWindowMetrics(metrics);
+        return;
+      }
+
+      setAndroidWindowMetrics(metrics);
+    },
+    [showChatBar]
+  );
+
+  const handleAndroidWindowDragEnd = useCallback(
+    (metrics: AndroidWindowMetrics) => {
+      if (Platform.OS !== 'android') {
+        return;
+      }
+
+      if (!showChatBar) {
+        androidWindowMetricsRef.current = null;
+        setAndroidWindowMetrics(null);
+        return;
+      }
+
+      androidWindowMetricsRef.current = metrics;
+      setAndroidWindowMetrics((prev) => {
+        if (
+          prev &&
+          prev.x === metrics.x &&
+          prev.y === metrics.y &&
+          prev.width === metrics.width &&
+          prev.height === metrics.height
+        ) {
+          return prev;
+        }
+        return metrics;
+      });
+    },
+    [showChatBar]
+  );
 
   // CRITICAL: clearSupport uses REFS and functional setters — never closure values.
   // This function is captured by long-lived callbacks (escalation sockets, restored
@@ -601,22 +693,35 @@ export function AIAgent({
     if (ticketId) {
       // Remove specific ticket + its cached socket and SSE
       const cached = pendingSocketsRef.current.get(ticketId);
-      if (cached) { cached.disconnect(); pendingSocketsRef.current.delete(ticketId); }
+      if (cached) {
+        cached.disconnect();
+        pendingSocketsRef.current.delete(ticketId);
+      }
       const sse = sseRef.current.get(ticketId);
-      if (sse) { sse.disconnect(); sseRef.current.delete(ticketId); }
-      setTickets(prev => prev.filter(t => t.id !== ticketId));
-      setUnreadCounts(prev => { const n = { ...prev }; delete n[ticketId]; return n; });
+      if (sse) {
+        sse.disconnect();
+        sseRef.current.delete(ticketId);
+      }
+      setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+      setUnreadCounts((prev) => {
+        const n = { ...prev };
+        delete n[ticketId];
+        return n;
+      });
 
       // If user was viewing this ticket, close the support modal + switch to ticket list
       if (selectedTicketIdRef.current === ticketId) {
-        setSupportSocket(prev => { prev?.disconnect(); return null; });
+        setSupportSocket((prev) => {
+          prev?.disconnect();
+          return null;
+        });
         setSelectedTicketId(null);
         setIsLiveAgentTyping(false);
         setMessages([]);
       }
 
       // If no tickets remain, switch back to text mode
-      setTickets(prev => {
+      setTickets((prev) => {
         if (prev.length === 0) {
           setMode('text');
         }
@@ -624,11 +729,14 @@ export function AIAgent({
       });
     } else {
       // Clear all — disconnect every cached socket and SSE
-      pendingSocketsRef.current.forEach(s => s.disconnect());
+      pendingSocketsRef.current.forEach((s) => s.disconnect());
       pendingSocketsRef.current.clear();
-      sseRef.current.forEach(s => s.disconnect());
+      sseRef.current.forEach((s) => s.disconnect());
       sseRef.current.clear();
-      setSupportSocket(prev => { prev?.disconnect(); return null; });
+      setSupportSocket((prev) => {
+        prev?.disconnect();
+        return null;
+      });
       setSelectedTicketId(null);
       setTickets([]);
       setUnreadCounts({});
@@ -637,89 +745,146 @@ export function AIAgent({
     }
   }, []);
 
-  const openSSE = useCallback((ticketId: string) => {
-    if (sseRef.current.has(ticketId)) return;
-    if (!analyticsKey) return;
+  const openSSE = useCallback(
+    (ticketId: string) => {
+      if (sseRef.current.has(ticketId)) return;
+      if (!analyticsKey) return;
 
-    const sseUrl = `${ENDPOINTS.escalation}/api/v1/escalations/events?analyticsKey=${encodeURIComponent(analyticsKey)}&ticketId=${encodeURIComponent(ticketId)}`;
-    const sse = new EscalationEventSource({
-      url: sseUrl,
-      onTicketClosed: (tid) => {
-        logger.info('AIAgent', 'SSE: ticket_closed received for', tid);
-        setUnreadCounts(prev => {
-          const next = { ...prev };
-          delete next[tid];
-          return next;
-        });
-        clearSupport(tid);
-      },
-      onConnected: (tid) => {
-        logger.info('AIAgent', 'SSE: connected for ticket', tid);
-      },
-    });
-    sse.connect();
-    sseRef.current.set(ticketId, sse);
-    logger.info('AIAgent', 'SSE opened for ticket:', ticketId);
-  }, [analyticsKey, clearSupport]);
+      const sseUrl = `${ENDPOINTS.escalation}/api/v1/escalations/events?analyticsKey=${encodeURIComponent(analyticsKey)}&ticketId=${encodeURIComponent(ticketId)}`;
+      const sse = new EscalationEventSource({
+        url: sseUrl,
+        onTicketClosed: (tid) => {
+          logger.info('AIAgent', 'SSE: ticket_closed received for', tid);
+          setUnreadCounts((prev) => {
+            const next = { ...prev };
+            delete next[tid];
+            return next;
+          });
+          clearSupport(tid);
+        },
+        onConnected: (tid) => {
+          logger.info('AIAgent', 'SSE: connected for ticket', tid);
+        },
+      });
+      sse.connect();
+      sseRef.current.set(ticketId, sse);
+      logger.info('AIAgent', 'SSE opened for ticket:', ticketId);
+    },
+    [analyticsKey, clearSupport]
+  );
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     setLastResult(null);
   }, []);
 
-  const applyReportedIssueUpdates = useCallback((
-    nextIssues: ReportedIssue[],
-    options?: { replayToChat?: boolean }
-  ) => {
-    const replayToChat = options?.replayToChat ?? true;
+  const applyReportedIssueUpdates = useCallback(
+    (nextIssues: ReportedIssue[], options?: { replayToChat?: boolean }) => {
+      const replayToChat = options?.replayToChat ?? true;
 
-    nextIssues.forEach((issue) => {
-      const history = Array.isArray(issue.statusHistory) ? issue.statusHistory : [];
-      history.forEach((entry) => {
-        if (!entry || typeof entry !== 'object') return;
-        const id = typeof entry.id === 'string' ? entry.id : null;
-        const message = typeof entry.message === 'string' ? entry.message : null;
-        if (!id || !message) return;
+      nextIssues.forEach((issue) => {
+        const history = Array.isArray(issue.statusHistory)
+          ? issue.statusHistory
+          : [];
+        history.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          const id = typeof entry.id === 'string' ? entry.id : null;
+          const message =
+            typeof entry.message === 'string' ? entry.message : null;
+          if (!id || !message) return;
 
-        if (seenReportedIssueUpdatesRef.current.has(id)) return;
-        seenReportedIssueUpdatesRef.current.add(id);
+          if (seenReportedIssueUpdatesRef.current.has(id)) return;
+          seenReportedIssueUpdatesRef.current.add(id);
 
-        if (!replayToChat) return;
+          if (!replayToChat) return;
 
-        const entryTimestamp =
-          typeof entry.timestamp === 'string'
-            ? new Date(entry.timestamp).getTime()
-            : NaN;
+          const entryTimestamp =
+            typeof entry.timestamp === 'string'
+              ? new Date(entry.timestamp).getTime()
+              : NaN;
 
-        setMessages((prev) => {
-          if (prev.some((msg) => msg.id === `reported-${id}`)) return prev;
-          return [
-            ...prev,
-            {
-              id: `reported-${id}`,
-              role: 'assistant',
-              content: message,
-              timestamp: Number.isFinite(entryTimestamp) ? entryTimestamp : Date.now(),
-            },
-          ];
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === `reported-${id}`)) return prev;
+            return [
+              ...prev,
+              {
+                id: `reported-${id}`,
+                role: 'assistant',
+                content: message,
+                timestamp: Number.isFinite(entryTimestamp)
+                  ? entryTimestamp
+                  : Date.now(),
+              },
+            ];
+          });
         });
       });
-    });
+    },
+    []
+  );
+
+  const getDeepestRouteName = useCallback((state: any): string | null => {
+    if (!state || !Array.isArray(state.routes) || state.index == null) {
+      return null;
+    }
+
+    const route = state.routes[state.index];
+    if (!route) return null;
+
+    const nested = route.state;
+    if (nested) {
+      const nestedName = getDeepestRouteName(nested);
+      if (nestedName) return nestedName;
+    }
+
+    return typeof route.name === 'string' ? route.name : null;
   }, []);
 
-  const getResolvedScreenName = useCallback(() => {
+  const resolveScreenName = useCallback(() => {
+    if (pathname) {
+      const humanizedPath = humanizeScreenName(
+        pathname === '/' ? 'index' : pathname
+      );
+      if (humanizedPath) return humanizedPath;
+    }
+
+    const navState = (navRef as any)?.getRootState?.() ?? (navRef as any)?.getState?.();
+    const deepestFromState = getDeepestRouteName(navState);
+    if (deepestFromState) {
+      const humanized = humanizeScreenName(deepestFromState);
+      if (humanized) return humanized;
+    }
+
     const routeName = (navRef as any)?.getCurrentRoute?.()?.name;
     if (typeof routeName === 'string' && routeName.trim().length > 0) {
-      return routeName;
+      const humanized = humanizeScreenName(routeName);
+      if (humanized) return humanized;
     }
 
     const telemetryScreen = telemetryRef.current?.screen;
-    if (typeof telemetryScreen === 'string' && telemetryScreen !== 'Unknown') {
+    if (
+      typeof telemetryScreen === 'string' &&
+      telemetryScreen !== 'Unknown' &&
+      telemetryScreen.trim().length > 0
+    ) {
       return telemetryScreen;
     }
 
     return 'unknown';
-  }, [navRef]);
+  }, [pathname, navRef, getDeepestRouteName]);
+
+  const syncTelemetryScreen = useCallback(() => {
+    const screen = resolveScreenName();
+    if (screen === 'unknown') {
+      return screen;
+    }
+    telemetryRef.current?.setScreen(screen);
+    return screen;
+  }, [resolveScreenName]);
+
+  const getResolvedScreenName = useCallback(() => resolveScreenName(), [
+    resolveScreenName,
+  ]);
 
   const resolvedKnowledgeBase = useMemo(() => {
     if (knowledgeBase) return knowledgeBase;
@@ -750,11 +915,20 @@ export function AIAgent({
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.content })),
       getToolCalls: () => {
-        const toolCalls: Array<{ name: string; input: Record<string, unknown>; output: string }> = [];
-        messages.forEach(m => {
+        const toolCalls: Array<{
+          name: string;
+          input: Record<string, unknown>;
+          output: string;
+        }> = [];
+        messages.forEach((m) => {
           if (m.result?.steps) {
-            m.result.steps.forEach(step => {
-              if (step.action && step.action.name !== 'done' && step.action.name !== 'agent_step' && step.action.name !== 'escalate_to_human') {
+            m.result.steps.forEach((step) => {
+              if (
+                step.action &&
+                step.action.name !== 'done' &&
+                step.action.name !== 'agent_step' &&
+                step.action.name !== 'escalate_to_human'
+              ) {
                 toolCalls.push(step.action);
               }
             });
@@ -767,39 +941,64 @@ export function AIAgent({
       pushToken,
       pushTokenType,
       onEscalationStarted: (tid, socket) => {
-        logger.info('AIAgent', '★★★ onEscalationStarted FIRED — ticketId:', tid);
+        logger.info(
+          'AIAgent',
+          '★★★ onEscalationStarted FIRED — ticketId:',
+          tid
+        );
         // Cache the live socket so handleTicketSelect can reuse it without reconnecting
         pendingSocketsRef.current.set(tid, socket);
         // Open SSE for reliable ticket_closed delivery
         openSSE(tid);
 
         const currentScreen = getResolvedScreenName();
-        setTickets(prev => {
-          if (prev.find(t => t.id === tid)) {
+        setTickets((prev) => {
+          if (prev.find((t) => t.id === tid)) {
             logger.info('AIAgent', '★★★ Ticket already in list, skipping add');
             return prev;
           }
-          const newList = [{ id: tid, reason: 'Connecting to agent...', screen: currentScreen, status: 'open', history: [], createdAt: new Date().toISOString(), wsUrl: '' }, ...prev];
-          logger.info('AIAgent', '★★★ Tickets updated, new length:', newList.length);
+          const newList = [
+            {
+              id: tid,
+              reason: 'Connecting to agent...',
+              screen: currentScreen,
+              status: 'open',
+              history: [],
+              createdAt: new Date().toISOString(),
+              wsUrl: '',
+            },
+            ...prev,
+          ];
+          logger.info(
+            'AIAgent',
+            '★★★ Tickets updated, new length:',
+            newList.length
+          );
           return newList;
         });
 
         // Fetch real ticket data from backend to replace the placeholder
         void (async () => {
           try {
-            const res = await fetch(`${ENDPOINTS.escalation}/api/v1/escalations/${tid}?analyticsKey=${encodeURIComponent(analyticsKey!)}`);
+            const res = await fetch(
+              `${ENDPOINTS.escalation}/api/v1/escalations/${tid}?analyticsKey=${encodeURIComponent(analyticsKey!)}`
+            );
             if (res.ok) {
               const data = await res.json();
-              setTickets(prev => prev.map(t => {
-                if (t.id !== tid) return t;
-                return {
-                  ...t,
-                  reason: data.reason || t.reason,
-                  screen: data.screen || t.screen,
-                  status: data.status || t.status,
-                  history: Array.isArray(data.history) ? data.history : t.history,
-                };
-              }));
+              setTickets((prev) =>
+                prev.map((t) => {
+                  if (t.id !== tid) return t;
+                  return {
+                    ...t,
+                    reason: data.reason || t.reason,
+                    screen: data.screen || t.screen,
+                    status: data.status || t.status,
+                    history: Array.isArray(data.history)
+                      ? data.history
+                      : t.history,
+                  };
+                })
+              );
             }
           } catch {
             // Best-effort — placeholder is still usable
@@ -808,12 +1007,15 @@ export function AIAgent({
 
         // Switch to human mode so the ticket LIST is visible — do NOT auto-select
         setMode('human');
-        setAutoExpandTrigger(prev => {
+        setAutoExpandTrigger((prev) => {
           const next = prev + 1;
           logger.info('AIAgent', '★★★ autoExpandTrigger:', prev, '→', next);
           return next;
         });
-        logger.info('AIAgent', '★★★ setMode("human") called from onEscalationStarted');
+        logger.info(
+          'AIAgent',
+          '★★★ setMode("human") called from onEscalationStarted'
+        );
       },
       onHumanReply: (reply: string, ticketId?: string) => {
         if (ticketId) {
@@ -826,13 +1028,22 @@ export function AIAgent({
           }
 
           // Always update the ticket's history (source of truth for ticket cards)
-          setTickets(prev => prev.map(t => {
-            if (t.id !== ticketId) return t;
-            return {
-              ...t,
-              history: [...(t.history || []), { role: 'live_agent', content: reply, timestamp: new Date().toISOString() }],
-            };
-          }));
+          setTickets((prev) =>
+            prev.map((t) => {
+              if (t.id !== ticketId) return t;
+              return {
+                ...t,
+                history: [
+                  ...(t.history || []),
+                  {
+                    role: 'live_agent',
+                    content: reply,
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              };
+            })
+          );
 
           // Route via ref: only push to messages[] if user is viewing THIS ticket
           if (selectedTicketIdRef.current === ticketId) {
@@ -846,7 +1057,7 @@ export function AIAgent({
             setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
           } else {
             // Not viewing this ticket — increment unread badge
-            setUnreadCounts(prev => ({
+            setUnreadCounts((prev) => ({
               ...prev,
               [ticketId]: (prev[ticketId] || 0) + 1,
             }));
@@ -859,7 +1070,7 @@ export function AIAgent({
       onTicketClosed: (ticketId?: string) => {
         logger.info('AIAgent', 'Ticket closed by agent — removing from list');
         if (ticketId) {
-          setUnreadCounts(prev => {
+          setUnreadCounts((prev) => {
             const next = { ...prev };
             delete next[ticketId];
             return next;
@@ -869,7 +1080,18 @@ export function AIAgent({
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsKey, customTools, getResolvedScreenName, navRef, openSSE, userContext, pushToken, pushTokenType, messages, clearSupport]);
+  }, [
+    analyticsKey,
+    customTools,
+    getResolvedScreenName,
+    navRef,
+    openSSE,
+    userContext,
+    pushToken,
+    pushTokenType,
+    messages,
+    clearSupport,
+  ]);
 
   const autoReportIssueTool = useMemo(() => {
     if (!analyticsKey) return null;
@@ -877,7 +1099,8 @@ export function AIAgent({
     return createReportIssueTool({
       analyticsKey,
       getCurrentScreen: getResolvedScreenName,
-      getHistory: () => messages.map((m) => ({ role: m.role, content: m.content })),
+      getHistory: () =>
+        messages.map((m) => ({ role: m.role, content: m.content })),
       getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
       userContext,
     });
@@ -920,7 +1143,17 @@ export function AIAgent({
         await initDeviceId();
         const deviceId = getDeviceId();
 
-        logger.info('AIAgent', '★ Restore check — analyticsKey:', !!analyticsKey, 'userId:', userContext?.userId, 'pushToken:', !!pushToken, 'deviceId:', deviceId);
+        logger.info(
+          'AIAgent',
+          '★ Restore check — analyticsKey:',
+          !!analyticsKey,
+          'userId:',
+          userContext?.userId,
+          'pushToken:',
+          !!pushToken,
+          'deviceId:',
+          deviceId
+        );
         if (!userContext?.userId && !pushToken && !deviceId) return;
 
         const query = new URLSearchParams({ analyticsKey });
@@ -936,8 +1169,14 @@ export function AIAgent({
         if (!res.ok) return;
 
         const data = await res.json();
-        const fetchedTickets: import('../support/types').SupportTicket[] = data.tickets ?? [];
-        logger.info('AIAgent', '★ Restore — found', fetchedTickets.length, 'active tickets');
+        const fetchedTickets: import('../support/types').SupportTicket[] =
+          data.tickets ?? [];
+        logger.info(
+          'AIAgent',
+          '★ Restore — found',
+          fetchedTickets.length,
+          'active tickets'
+        );
 
         if (fetchedTickets.length === 0) return;
 
@@ -954,7 +1193,7 @@ export function AIAgent({
         // Show the ticket list without auto-selecting — user taps in (Intercom-style).
         // setMode switches the widget to human mode so the list is immediately visible.
         setMode('human');
-        setAutoExpandTrigger(prev => prev + 1);
+        setAutoExpandTrigger((prev) => prev + 1);
 
         // Open SSE for every restored ticket — reliable ticket_closed delivery
         for (const t of fetchedTickets) {
@@ -968,11 +1207,18 @@ export function AIAgent({
 
           if (ticket.history?.length) {
             const restored: AIMessage[] = ticket.history.map(
-              (entry: { role: string; content: string; timestamp?: string }, i: number) => ({
+              (
+                entry: { role: string; content: string; timestamp?: string },
+                i: number
+              ) => ({
                 id: `restored-${ticket.id}-${i}`,
-                role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
+                role: (entry.role === 'live_agent'
+                  ? 'assistant'
+                  : entry.role) as any,
                 content: entry.content,
-                timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+                timestamp: entry.timestamp
+                  ? new Date(entry.timestamp).getTime()
+                  : Date.now(),
               })
             );
             setMessages(restored);
@@ -982,13 +1228,22 @@ export function AIAgent({
             onReply: (reply: string) => {
               const tid = ticket.id;
               // Always update ticket history
-              setTickets(prev => prev.map(t => {
-                if (t.id !== tid) return t;
-                return {
-                  ...t,
-                  history: [...(t.history || []), { role: 'live_agent', content: reply, timestamp: new Date().toISOString() }],
-                };
-              }));
+              setTickets((prev) =>
+                prev.map((t) => {
+                  if (t.id !== tid) return t;
+                  return {
+                    ...t,
+                    history: [
+                      ...(t.history || []),
+                      {
+                        role: 'live_agent',
+                        content: reply,
+                        timestamp: new Date().toISOString(),
+                      },
+                    ],
+                  };
+                })
+              );
 
               // Route via ref: only push to messages[] if user is viewing THIS ticket
               if (selectedTicketIdRef.current === tid) {
@@ -999,9 +1254,13 @@ export function AIAgent({
                   timestamp: Date.now(),
                 };
                 setMessages((prev) => [...prev, msg]);
-                setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
+                setLastResult({
+                  success: true,
+                  message: `👤 ${reply}`,
+                  steps: [],
+                });
               } else {
-                setUnreadCounts(prev => ({
+                setUnreadCounts((prev) => ({
                   ...prev,
                   [tid]: (prev[tid] || 0) + 1,
                 }));
@@ -1009,16 +1268,25 @@ export function AIAgent({
             },
             onTypingChange: setIsLiveAgentTyping,
             onTicketClosed: () => clearSupport(ticket.id),
-            onError: (err) => logger.warn('AIAgent', '★ Restored socket error:', err),
+            onError: (err) =>
+              logger.warn('AIAgent', '★ Restored socket error:', err),
           });
           if (ticket.wsUrl) {
             socket.connect(ticket.wsUrl);
           } else {
-            logger.warn('AIAgent', '★ Restored ticket has no wsUrl — skipping socket connect:', ticket.id);
+            logger.warn(
+              'AIAgent',
+              '★ Restored ticket has no wsUrl — skipping socket connect:',
+              ticket.id
+            );
           }
           // Cache in pendingSocketsRef so handleTicketSelect reuses it without reconnecting
           pendingSocketsRef.current.set(ticket.id, socket);
-          logger.info('AIAgent', '★ Single ticket restored and socket cached:', ticket.id);
+          logger.info(
+            'AIAgent',
+            '★ Single ticket restored and socket cached:',
+            ticket.id
+          );
         }
       } catch (err) {
         logger.warn('AIAgent', '★ Failed to restore tickets:', err);
@@ -1042,11 +1310,15 @@ export function AIAgent({
         if (userContext?.userId) query.append('userId', userContext.userId);
         if (deviceId) query.append('deviceId', deviceId);
 
-        const res = await fetch(`${ENDPOINTS.escalation}/api/v1/reported-issues/mine?${query.toString()}`);
+        const res = await fetch(
+          `${ENDPOINTS.escalation}/api/v1/reported-issues/mine?${query.toString()}`
+        );
         if (!res.ok || isCancelled) return;
 
         const data = await res.json();
-        const nextIssues: ReportedIssue[] = Array.isArray(data.issues) ? data.issues : [];
+        const nextIssues: ReportedIssue[] = Array.isArray(data.issues)
+          ? data.issues
+          : [];
         applyReportedIssueUpdates(nextIssues, { replayToChat: false });
       } catch (error) {
         logger.warn('AIAgent', 'Failed to sync reported issues:', error);
@@ -1086,83 +1358,129 @@ export function AIAgent({
   }, [analyticsKey, applyReportedIssueUpdates, userContext?.userId]);
 
   // ─── Ticket selection handlers ────────────────────────────────
-  const handleTicketSelect = useCallback(async (ticketId: string) => {
-    const ticket = tickets.find(t => t.id === ticketId);
-    if (!ticket) return;
+  const handleTicketSelect = useCallback(
+    async (ticketId: string) => {
+      const ticket = tickets.find((t) => t.id === ticketId);
+      if (!ticket) return;
 
-    // Cache (not disconnect!) the previous ticket's socket so it keeps
-    // receiving messages in the background and can update unread counts.
-    if (supportSocket && selectedTicketId && selectedTicketId !== ticketId) {
-      pendingSocketsRef.current.set(selectedTicketId, supportSocket);
-      setSupportSocket(null);
-    }
-
-    setSelectedTicketId(ticketId);
-    setMode('human');
-
-    // Clear unread count when user opens a ticket
-    setUnreadCounts(prev => {
-      if (!prev[ticketId]) return prev;
-      const next = { ...prev };
-      delete next[ticketId];
-      return next;
-    });
-
-    // Mark ticket as read on backend (source of truth)
-    (async () => {
-      try {
-        await fetch(
-          `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}/read?analyticsKey=${analyticsKey}`,
-          { method: 'POST' }
-        );
-        logger.info('AIAgent', '★ Marked ticket as read:', ticketId);
-      } catch (err) {
-        logger.warn('AIAgent', '★ Failed to mark ticket as read:', err);
+      // Cache (not disconnect!) the previous ticket's socket so it keeps
+      // receiving messages in the background and can update unread counts.
+      if (supportSocket && selectedTicketId && selectedTicketId !== ticketId) {
+        pendingSocketsRef.current.set(selectedTicketId, supportSocket);
+        setSupportSocket(null);
       }
-    })();
 
-    // Trigger scroll to bottom when modal opens
-    setChatScrollTrigger(prev => prev + 1);
+      setSelectedTicketId(ticketId);
+      setMode('human');
 
-    // Capture the fresh wsUrl returned by the server — it is the canonical value.
-    // The local `ticket` snapshot may have an empty wsUrl if it was a placeholder
-    // created before the WS URL was known (e.g. via onEscalationStarted).
-    let freshWsUrl = ticket.wsUrl;
+      // Clear unread count when user opens a ticket
+      setUnreadCounts((prev) => {
+        if (!prev[ticketId]) return prev;
+        const next = { ...prev };
+        delete next[ticketId];
+        return next;
+      });
 
-    // Fetch latest history from server — this is the source of truth and catches
-    // any messages that arrived while the socket was disconnected (modal closed,
-    // app backgrounded, etc.)
-    try {
-      const res = await fetch(
-        `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}?analyticsKey=${analyticsKey}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.wsUrl) {
-          freshWsUrl = data.wsUrl; // always prefer the live server value
+      // Mark ticket as read on backend (source of truth)
+      (async () => {
+        try {
+          await fetch(
+            `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}/read?analyticsKey=${analyticsKey}`,
+            { method: 'POST' }
+          );
+          logger.info('AIAgent', '★ Marked ticket as read:', ticketId);
+        } catch (err) {
+          logger.warn('AIAgent', '★ Failed to mark ticket as read:', err);
         }
-        const history: Array<{ role: string; content: string; timestamp?: string }> =
-          Array.isArray(data.history) ? data.history : [];
-        const restored: AIMessage[] = history.map((entry, i) => ({
-          id: `restored-${ticketId}-${i}`,
-          role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
-          content: entry.content,
-          timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
-        }));
-        setSupportMessages(restored);
-        // Update ticket in local list with fresh history + wsUrl
-        if (data.wsUrl) {
-          setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, history, wsUrl: data.wsUrl } : t));
+      })();
+
+      // Trigger scroll to bottom when modal opens
+      setChatScrollTrigger((prev) => prev + 1);
+
+      // Capture the fresh wsUrl returned by the server — it is the canonical value.
+      // The local `ticket` snapshot may have an empty wsUrl if it was a placeholder
+      // created before the WS URL was known (e.g. via onEscalationStarted).
+      let freshWsUrl = ticket.wsUrl;
+
+      // Fetch latest history from server — this is the source of truth and catches
+      // any messages that arrived while the socket was disconnected (modal closed,
+      // app backgrounded, etc.)
+      try {
+        const res = await fetch(
+          `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}?analyticsKey=${analyticsKey}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.wsUrl) {
+            freshWsUrl = data.wsUrl; // always prefer the live server value
+          }
+          const history: Array<{
+            role: string;
+            content: string;
+            timestamp?: string;
+          }> = Array.isArray(data.history) ? data.history : [];
+          const restored: AIMessage[] = history.map((entry, i) => ({
+            id: `restored-${ticketId}-${i}`,
+            role: (entry.role === 'live_agent'
+              ? 'assistant'
+              : entry.role) as any,
+            content: entry.content,
+            timestamp: entry.timestamp
+              ? new Date(entry.timestamp).getTime()
+              : Date.now(),
+          }));
+          setSupportMessages(restored);
+          // Update ticket in local list with fresh history + wsUrl
+          if (data.wsUrl) {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === ticketId ? { ...t, history, wsUrl: data.wsUrl } : t
+              )
+            );
+          }
+        } else {
+          // Fallback to local ticket history
+          if (ticket.history?.length) {
+            const restored: AIMessage[] = ticket.history.map(
+              (
+                entry: { role: string; content: string; timestamp?: string },
+                i: number
+              ) => ({
+                id: `restored-${ticketId}-${i}`,
+                role: (entry.role === 'live_agent'
+                  ? 'assistant'
+                  : entry.role) as any,
+                content: entry.content,
+                timestamp: entry.timestamp
+                  ? new Date(entry.timestamp).getTime()
+                  : Date.now(),
+              })
+            );
+            setSupportMessages(restored);
+          } else {
+            setSupportMessages([]);
+          }
         }
-      } else {
-        // Fallback to local ticket history
+      } catch (err) {
+        logger.warn(
+          'AIAgent',
+          '★ Failed to fetch ticket history, using local:',
+          err
+        );
         if (ticket.history?.length) {
           const restored: AIMessage[] = ticket.history.map(
-            (entry: { role: string; content: string; timestamp?: string }, i: number) => ({
+            (
+              entry: { role: string; content: string; timestamp?: string },
+              i: number
+            ) => ({
               id: `restored-${ticketId}-${i}`,
-              role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
+              role: (entry.role === 'live_agent'
+                ? 'assistant'
+                : entry.role) as any,
               content: entry.content,
-              timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+              timestamp: entry.timestamp
+                ? new Date(entry.timestamp).getTime()
+                : Date.now(),
             })
           );
           setSupportMessages(restored);
@@ -1170,107 +1488,124 @@ export function AIAgent({
           setSupportMessages([]);
         }
       }
-    } catch (err) {
-      logger.warn('AIAgent', '★ Failed to fetch ticket history, using local:', err);
-      if (ticket.history?.length) {
-        const restored: AIMessage[] = ticket.history.map(
-          (entry: { role: string; content: string; timestamp?: string }, i: number) => ({
-            id: `restored-${ticketId}-${i}`,
-            role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
-            content: entry.content,
-            timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
-          })
-        );
-        setSupportMessages(restored);
-      } else {
-        setSupportMessages([]);
-      }
-    }
 
-    // Reuse the already-connected socket if escalation just happened,
-    // otherwise create a fresh connection from the ticket's stored wsUrl.
-    const cached = pendingSocketsRef.current.get(ticketId);
-    if (cached) {
-      // If the socket errored (not just cleanly disconnected), discard it and
-      // fall through to create a fresh one — reusing an errored socket causes
-      // sendText to silently return false → "Connection lost" on every message.
-      if (cached.hasErrored) {
-        logger.warn('AIAgent', '★ Cached socket errored — discarding and creating fresh socket for ticket:', ticketId);
-        cached.disconnect();
-        pendingSocketsRef.current.delete(ticketId);
-        // Fall through to fresh socket creation below
-      } else {
-        pendingSocketsRef.current.delete(ticketId);
-        // If the cached socket was created before wsUrl was available (e.g. during
-        // on-mount restore), it may never have connected. Reconnect it now.
-        if (!cached.isConnected && freshWsUrl) {
-          logger.info('AIAgent', '★ Cached socket not connected — reconnecting with wsUrl:', freshWsUrl);
-          cached.connect(freshWsUrl);
-        }
-        setSupportSocket(cached);
-        logger.info('AIAgent', '★ Reusing cached escalation socket for ticket:', ticketId);
-        return;
-      }
-    }
-
-    const socket = new EscalationSocket({
-      onReply: (reply: string) => {
-        // Always update ticket history
-        setTickets(prev => prev.map(t => {
-          if (t.id !== ticketId) return t;
-          return {
-            ...t,
-            history: [...(t.history || []), { role: 'live_agent', content: reply, timestamp: new Date().toISOString() }],
-          };
-        }));
-
-        // Route via ref: only push to messages[] if user is viewing THIS ticket
-        if (selectedTicketIdRef.current === ticketId) {
-          const msg: AIMessage = {
-            id: `human-${Date.now()}`,
-            role: 'assistant',
-            content: reply,
-            timestamp: Date.now(),
-          };
-          setSupportMessages(prev => [...prev, msg]);
-          setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
+      // Reuse the already-connected socket if escalation just happened,
+      // otherwise create a fresh connection from the ticket's stored wsUrl.
+      const cached = pendingSocketsRef.current.get(ticketId);
+      if (cached) {
+        // If the socket errored (not just cleanly disconnected), discard it and
+        // fall through to create a fresh one — reusing an errored socket causes
+        // sendText to silently return false → "Connection lost" on every message.
+        if (cached.hasErrored) {
+          logger.warn(
+            'AIAgent',
+            '★ Cached socket errored — discarding and creating fresh socket for ticket:',
+            ticketId
+          );
+          cached.disconnect();
+          pendingSocketsRef.current.delete(ticketId);
+          // Fall through to fresh socket creation below
         } else {
-          setUnreadCounts(prev => ({
-            ...prev,
-            [ticketId]: (prev[ticketId] || 0) + 1,
-          }));
+          pendingSocketsRef.current.delete(ticketId);
+          // If the cached socket was created before wsUrl was available (e.g. during
+          // on-mount restore), it may never have connected. Reconnect it now.
+          if (!cached.isConnected && freshWsUrl) {
+            logger.info(
+              'AIAgent',
+              '★ Cached socket not connected — reconnecting with wsUrl:',
+              freshWsUrl
+            );
+            cached.connect(freshWsUrl);
+          }
+          setSupportSocket(cached);
+          logger.info(
+            'AIAgent',
+            '★ Reusing cached escalation socket for ticket:',
+            ticketId
+          );
+          return;
         }
-      },
-      onTypingChange: setIsLiveAgentTyping,
-      onTicketClosed: (closedTicketId?: string) => {
-        if (closedTicketId) {
-          setUnreadCounts(prev => {
-            const next = { ...prev };
-            delete next[closedTicketId];
-            return next;
-          });
-        }
-        clearSupport(ticketId);
-      },
-      onError: (err) => logger.warn('AIAgent', '★ Socket error on select:', err),
-    });
-    if (freshWsUrl) {
-      socket.connect(freshWsUrl);
-    } else {
-      logger.warn('AIAgent', '★ Ticket has no wsUrl — skipping socket connect for ticket:', ticketId);
-    }
-    setSupportSocket(socket);
-  }, [tickets, supportSocket, selectedTicketId, analyticsKey, clearSupport]);
+      }
+
+      const socket = new EscalationSocket({
+        onReply: (reply: string) => {
+          // Always update ticket history
+          setTickets((prev) =>
+            prev.map((t) => {
+              if (t.id !== ticketId) return t;
+              return {
+                ...t,
+                history: [
+                  ...(t.history || []),
+                  {
+                    role: 'live_agent',
+                    content: reply,
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              };
+            })
+          );
+
+          // Route via ref: only push to messages[] if user is viewing THIS ticket
+          if (selectedTicketIdRef.current === ticketId) {
+            const msg: AIMessage = {
+              id: `human-${Date.now()}`,
+              role: 'assistant',
+              content: reply,
+              timestamp: Date.now(),
+            };
+            setSupportMessages((prev) => [...prev, msg]);
+            setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
+          } else {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [ticketId]: (prev[ticketId] || 0) + 1,
+            }));
+          }
+        },
+        onTypingChange: setIsLiveAgentTyping,
+        onTicketClosed: (closedTicketId?: string) => {
+          if (closedTicketId) {
+            setUnreadCounts((prev) => {
+              const next = { ...prev };
+              delete next[closedTicketId];
+              return next;
+            });
+          }
+          clearSupport(ticketId);
+        },
+        onError: (err) =>
+          logger.warn('AIAgent', '★ Socket error on select:', err),
+      });
+      if (freshWsUrl) {
+        socket.connect(freshWsUrl);
+      } else {
+        logger.warn(
+          'AIAgent',
+          '★ Ticket has no wsUrl — skipping socket connect for ticket:',
+          ticketId
+        );
+      }
+      setSupportSocket(socket);
+    },
+    [tickets, supportSocket, selectedTicketId, analyticsKey, clearSupport]
+  );
 
   const handleBackToTickets = useCallback(() => {
     // Cache socket in pendingSocketsRef instead of disconnecting —
     // keeps the WS alive so new messages update unreadCounts in real time.
     const currentTicketId = selectedTicketIdRef.current;
     // Use functional setter to read + cache the current socket without closure dependency
-    setSupportSocket(prev => {
+    setSupportSocket((prev) => {
       if (prev && currentTicketId) {
         pendingSocketsRef.current.set(currentTicketId, prev);
-        logger.info('AIAgent', '★ Socket cached for ticket:', currentTicketId, '— stays alive for badge updates');
+        logger.info(
+          'AIAgent',
+          '★ Socket cached for ticket:',
+          currentTicketId,
+          '— stays alive for badge updates'
+        );
       }
       return null;
     });
@@ -1301,14 +1636,24 @@ export function AIAgent({
   const toolLockRef = useRef<boolean>(false);
   const userHasSpokenRef = useRef<boolean>(false);
   const lastScreenContextRef = useRef<string>('');
-  const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
   const lastAgentErrorRef = useRef<string | null>(null);
 
   const availableModes: AgentMode[] = useMemo(() => {
     const modes: AgentMode[] = ['text'];
     if (enableVoice) modes.push('voice');
     if (tickets.length > 0) modes.push('human');
-    logger.info('AIAgent', '★ availableModes recomputed:', modes, '| tickets:', tickets.length, '| ticketIds:', tickets.map(t => t.id));
+    logger.info(
+      'AIAgent',
+      '★ availableModes recomputed:',
+      modes,
+      '| tickets:',
+      tickets.length,
+      '| ticketIds:',
+      tickets.map((t) => t.id)
+    );
     return modes;
   }, [enableVoice, tickets]);
 
@@ -1322,7 +1667,9 @@ export function AIAgent({
   // Stores a message typed by the user while the agent is still thinking (mid-approval flow).
   // Auto-resolved into the next ask_user call to prevent the message being lost.
   const queuedApprovalAnswerRef = useRef<string | null>(null);
-  const [pendingApprovalQuestion, setPendingApprovalQuestion] = useState<string | null>(null);
+  const [pendingApprovalQuestion, setPendingApprovalQuestion] = useState<
+    string | null
+  >(null);
   const overlayVisible = isThinking || !!pendingApprovalQuestion;
   const overlayStatusText = pendingApprovalQuestion
     ? 'Waiting for your approval...'
@@ -1330,7 +1677,11 @@ export function AIAgent({
 
   const effectiveProxyHeaders = useMemo(() => {
     if (!analyticsKey) return proxyHeaders;
-    const isAuthMissing = !proxyHeaders || !Object.keys(proxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    const isAuthMissing =
+      !proxyHeaders ||
+      !Object.keys(proxyHeaders).some(
+        (k) => k.toLowerCase() === 'authorization'
+      );
     if (isAuthMissing) {
       return { ...proxyHeaders, Authorization: `Bearer ${analyticsKey}` };
     }
@@ -1339,7 +1690,11 @@ export function AIAgent({
 
   const effectiveVoiceProxyHeaders = useMemo(() => {
     if (!analyticsKey) return voiceProxyHeaders;
-    const isAuthMissing = !voiceProxyHeaders || !Object.keys(voiceProxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    const isAuthMissing =
+      !voiceProxyHeaders ||
+      !Object.keys(voiceProxyHeaders).some(
+        (k) => k.toLowerCase() === 'authorization'
+      );
     if (isAuthMissing) {
       return { ...voiceProxyHeaders, Authorization: `Bearer ${analyticsKey}` };
     }
@@ -1360,129 +1715,178 @@ export function AIAgent({
 
   // ─── Create Runtime ──────────────────────────────────────────
 
-  const config: AgentConfig = useMemo(() => ({
-    apiKey,
-    proxyUrl: resolvedProxyUrl,
-    proxyHeaders,
-    voiceProxyUrl: resolvedVoiceProxyUrl,
-    voiceProxyHeaders,
-    model,
-    supportStyle,
-    verifier,
-    language: 'en',
-    maxSteps,
-    interactiveBlacklist,
-    interactiveWhitelist,
-    onBeforeStep,
-    onAfterStep,
-    onBeforeTask,
-    onAfterTask,
-    customTools: mode === 'voice' ? { ...mergedCustomTools, ask_user: null } : mergedCustomTools,
-    instructions,
-    stepDelay,
-    mcpServerUrl,
-    router,
-    pathname,
-    onStatusUpdate: setStatusText,
-    onTokenUsage,
-    knowledgeBase: resolvedKnowledgeBase,
-    knowledgeMaxTokens,
-    enableUIControl,
-    screenMap: useScreenMap ? screenMap : undefined,
-    maxTokenBudget,
-    maxCostUSD,
-    interactionMode,
-    // Block the agent loop until user responds
-    onAskUser: mode === 'voice' ? undefined : ((request) => {
-      return new Promise<string>((resolve) => {
-        const normalized = typeof request === 'string'
-          ? { question: request, kind: 'freeform' as const }
-          : request;
-        const question = normalized.question;
-        const kind = normalized.kind || 'freeform';
-        logger.info('AIAgent', `❓ onAskUser invoked in ${mode} mode: "${question}"`);
-        telemetryRef.current?.track('agent_trace', {
-          stage: 'ask_user_prompt_rendered',
-          question,
-          mode,
-          kind,
-        });
-        askUserResolverRef.current = resolve;
-        logger.info('AIAgent', `📌 askUserResolverRef SET (resolver stored) | kind=${kind} | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
-        // If we're already waiting for a button tap, force approval kind regardless
-        // of what the model passed — the user must tap a button to proceed.
-        const forcedKind = pendingAppApprovalRef.current ? 'approval' : kind;
-        pendingAskUserKindRef.current = forcedKind;
-        if (forcedKind === 'approval') {
-          pendingAppApprovalRef.current = true;
-        }
+  const config: AgentConfig = useMemo(
+    () => ({
+      apiKey,
+      proxyUrl: resolvedProxyUrl,
+      proxyHeaders,
+      voiceProxyUrl: resolvedVoiceProxyUrl,
+      voiceProxyHeaders,
+      model,
+      supportStyle,
+      verifier,
+      language: 'en',
+      maxSteps,
+      interactiveBlacklist,
+      interactiveWhitelist,
+      onBeforeStep,
+      onAfterStep,
+      onBeforeTask,
+      onAfterTask,
+      customTools:
+        mode === 'voice'
+          ? { ...mergedCustomTools, ask_user: null }
+          : mergedCustomTools,
+      instructions,
+      stepDelay,
+      mcpServerUrl,
+      router,
+      pathname,
+      onStatusUpdate: setStatusText,
+      onTokenUsage,
+      knowledgeBase: resolvedKnowledgeBase,
+      knowledgeMaxTokens,
+      enableUIControl,
+      screenMap: useScreenMap ? screenMap : undefined,
+      maxTokenBudget,
+      maxCostUSD,
+      interactionMode,
+      // Block the agent loop until user responds
+      onAskUser:
+        mode === 'voice'
+          ? undefined
+          : (request) => {
+              return new Promise<string>((resolve) => {
+                const normalized =
+                  typeof request === 'string'
+                    ? { question: request, kind: 'freeform' as const }
+                    : request;
+                const question = normalized.question;
+                const kind = normalized.kind || 'freeform';
+                logger.info(
+                  'AIAgent',
+                  `❓ onAskUser invoked in ${mode} mode: "${question}"`
+                );
+                telemetryRef.current?.track('agent_trace', {
+                  stage: 'ask_user_prompt_rendered',
+                  question,
+                  mode,
+                  kind,
+                });
+                askUserResolverRef.current = resolve;
+                logger.info(
+                  'AIAgent',
+                  `📌 askUserResolverRef SET (resolver stored) | kind=${kind} | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
+                );
+                // If we're already waiting for a button tap, force approval kind regardless
+                // of what the model passed — the user must tap a button to proceed.
+                const forcedKind = pendingAppApprovalRef.current
+                  ? 'approval'
+                  : kind;
+                pendingAskUserKindRef.current = forcedKind;
+                if (forcedKind === 'approval') {
+                  pendingAppApprovalRef.current = true;
+                }
 
-        // If the user typed a message while we were thinking (queued answer),
-        // resolve immediately with that message instead of blocking on a new prompt.
-        const queued = queuedApprovalAnswerRef.current;
-        if (queued !== null) {
-          queuedApprovalAnswerRef.current = null;
-          logger.info('AIAgent', `⚡ Auto-resolving ask_user with queued message: "${queued}"`);
-          // Show the AI question in chat, clear the approval buttons (no resolver for them),
-          // then immediately resolve the Promise with the queued message.
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-ask-${Date.now()}`,
-              role: 'assistant' as const,
-              content: question,
-              timestamp: Date.now(),
-              promptKind: forcedKind === 'approval' ? 'approval' : undefined,
+                // If the user typed a message while we were thinking (queued answer),
+                // resolve immediately with that message instead of blocking on a new prompt.
+                const queued = queuedApprovalAnswerRef.current;
+                if (queued !== null) {
+                  queuedApprovalAnswerRef.current = null;
+                  logger.info(
+                    'AIAgent',
+                    `⚡ Auto-resolving ask_user with queued message: "${queued}"`
+                  );
+                  // Show the AI question in chat, clear the approval buttons (no resolver for them),
+                  // then immediately resolve the Promise with the queued message.
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `assistant-ask-${Date.now()}`,
+                      role: 'assistant' as const,
+                      content: question,
+                      timestamp: Date.now(),
+                      promptKind:
+                        forcedKind === 'approval' ? 'approval' : undefined,
+                    },
+                  ]);
+                  askUserResolverRef.current = null;
+                  pendingAskUserKindRef.current = null;
+                  pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
+                  setPendingApprovalQuestion(null); // clear any stale buttons — buttons with no resolver = dead tap
+                  resolve(queued);
+                  return;
+                }
+
+                setPendingApprovalQuestion(
+                  forcedKind === 'approval' ? question : null
+                );
+                // Add AI question to the message thread so it appears in chat
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `assistant-ask-${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: question,
+                    timestamp: Date.now(),
+                    promptKind: kind === 'approval' ? 'approval' : undefined,
+                  },
+                ]);
+                setLastResult({ success: true, message: question, steps: [] });
+                setIsThinking(false);
+                setStatusText('');
+              });
             },
-          ]);
-          askUserResolverRef.current = null;
-          pendingAskUserKindRef.current = null;
-          pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
-          setPendingApprovalQuestion(null); // clear any stale buttons — buttons with no resolver = dead tap
-          resolve(queued);
-          return;
-        }
-
-        setPendingApprovalQuestion(forcedKind === 'approval' ? question : null);
-        // Add AI question to the message thread so it appears in chat
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-ask-${Date.now()}`,
-            role: 'assistant' as const,
-            content: question,
-            timestamp: Date.now(),
-            promptKind: kind === 'approval' ? 'approval' : undefined,
-          },
-        ]);
-        setLastResult({ success: true, message: question, steps: [] });
-        setIsThinking(false);
-        setStatusText('');
-      });
+      // Toggle isAgentActing flag on TelemetryService before/after every tool
+      // so that AI-driven taps are never tracked as user_interaction events.
+      onToolExecute: (active: boolean) => {
+        telemetryRef.current?.setAgentActing(active);
+      },
+      onTrace: (event: AgentTraceEvent) => {
+        telemetryRef.current?.track('agent_trace', {
+          traceId: event.traceId,
+          stage: event.stage,
+          stepIndex: event.stepIndex,
+          screenName: event.screenName,
+          ...(event.data ?? {}),
+        });
+      },
     }),
-    // Toggle isAgentActing flag on TelemetryService before/after every tool
-    // so that AI-driven taps are never tracked as user_interaction events.
-    onToolExecute: (active: boolean) => {
-      telemetryRef.current?.setAgentActing(active);
-    },
-    onTrace: (event: AgentTraceEvent) => {
-      telemetryRef.current?.track('agent_trace', {
-        traceId: event.traceId,
-        stage: event.stage,
-        stepIndex: event.stepIndex,
-        screenName: event.screenName,
-        ...(event.data ?? {}),
-      });
-    },
-  }), [
-    mode, apiKey, resolvedProxyUrl, proxyHeaders, resolvedVoiceProxyUrl, voiceProxyHeaders, model, maxSteps,
-    interactiveBlacklist, interactiveWhitelist,
-    onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
-    transformScreenContent, customTools, instructions, stepDelay,
-    mcpServerUrl, router, pathname, onTokenUsage,
-    resolvedKnowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
-    maxTokenBudget, maxCostUSD, interactionMode, verifier, supportStyle,
-  ]);
+    [
+      mode,
+      apiKey,
+      resolvedProxyUrl,
+      proxyHeaders,
+      resolvedVoiceProxyUrl,
+      voiceProxyHeaders,
+      model,
+      maxSteps,
+      interactiveBlacklist,
+      interactiveWhitelist,
+      onBeforeStep,
+      onAfterStep,
+      onBeforeTask,
+      onAfterTask,
+      transformScreenContent,
+      customTools,
+      instructions,
+      stepDelay,
+      mcpServerUrl,
+      router,
+      pathname,
+      onTokenUsage,
+      resolvedKnowledgeBase,
+      knowledgeMaxTokens,
+      enableUIControl,
+      screenMap,
+      useScreenMap,
+      maxTokenBudget,
+      maxCostUSD,
+      interactionMode,
+      verifier,
+      supportStyle,
+    ]
+  );
 
   useEffect(() => {
     logger.info(
@@ -1492,14 +1896,21 @@ export function AIAgent({
   }, [mode, interactionMode, mergedCustomTools]);
 
   const provider = useMemo(
-    () => createProvider(providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders),
+    () =>
+      createProvider(
+        providerName,
+        apiKey,
+        model,
+        resolvedProxyUrl,
+        effectiveProxyHeaders
+      ),
     [providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders]
   );
 
   const runtime = useMemo(
     () => new AgentRuntime(provider, config, rootViewRef.current, navRef),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [provider, config],
+    [provider, config]
   );
 
   // Update refs when they change
@@ -1519,7 +1930,6 @@ export function AIAgent({
 
     // Initialize persistent device ID before telemetry starts
     initDeviceId().then(() => {
-
       const telemetry = new TelemetryService({
         analyticsKey,
         analyticsProxyUrl,
@@ -1540,13 +1950,14 @@ export function AIAgent({
           // Customer Success features
           if (
             customerSuccess?.enabled &&
-            (event.type === 'user_interaction' || event.type === 'user_action') &&
+            (event.type === 'user_interaction' ||
+              event.type === 'user_action') &&
             event.data
           ) {
             const action = String(event.data.label || event.data.action || '');
 
             // Check milestones
-            customerSuccess.successMilestones?.forEach(m => {
+            customerSuccess.successMilestones?.forEach((m) => {
               if (m.action && m.action === action) {
                 telemetry.track('health_signal', {
                   type: 'success_milestone',
@@ -1556,7 +1967,7 @@ export function AIAgent({
             });
 
             // Check key feature adoption
-            customerSuccess.keyFeatures?.forEach(feature => {
+            customerSuccess.keyFeatures?.forEach((feature) => {
               if (action.includes(feature) || action === feature) {
                 telemetry.track('health_signal', {
                   type: 'feature_adoption',
@@ -1571,18 +1982,14 @@ export function AIAgent({
       bindTelemetryService(telemetry);
       telemetry.start();
       // NavigationContainer is a child of AIAgent, so navRef may not be
-      // ready yet when this effect runs. Poll briefly until it's available.
+      // ready yet when this effect runs. Poll briefly until it is.
       const resolveInitialScreen = () => {
         let attempts = 0;
         const maxAttempts = 15; // 15 × 200ms = 3s max wait
         const timer = setInterval(() => {
           attempts++;
-          const route = navRef?.getCurrentRoute?.();
-          if (route?.name) {
-            const cleanName = humanizeScreenName(route.name);
-            if (cleanName) {
-              telemetry.setScreen(cleanName);
-            }
+          const cleanName = syncTelemetryScreen();
+          if (cleanName !== 'unknown') {
             clearInterval(timer);
           } else if (attempts >= maxAttempts) {
             clearInterval(timer);
@@ -1591,18 +1998,31 @@ export function AIAgent({
       };
       resolveInitialScreen();
     }); // initDeviceId
-  }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, bindTelemetryService, debug, navRef]);
+  }, [
+    analyticsKey,
+    analyticsProxyUrl,
+    analyticsProxyHeaders,
+    bindTelemetryService,
+    debug,
+    navRef,
+    syncTelemetryScreen,
+  ]);
 
   // ─── Security warnings ──────────────────────────────────────
 
   useEffect(() => {
     // @ts-ignore
-    if (typeof __DEV__ !== 'undefined' && !__DEV__ && apiKey && !resolvedProxyUrl) {
+    if (
+      typeof __DEV__ !== 'undefined' &&
+      !__DEV__ &&
+      apiKey &&
+      !resolvedProxyUrl
+    ) {
       logger.warn(
         '[MobileAI] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
-        'This exposes your LLM provider key in the app binary. ' +
-        'Use `apiProxyUrl` to route requests through your backend instead. ' +
-        'See docs for details.'
+          'This exposes your LLM provider key in the app binary. ' +
+          'Use `apiProxyUrl` to route requests through your backend instead. ' +
+          'See docs for details.'
       );
     }
   }, [apiKey, resolvedProxyUrl]);
@@ -1620,14 +2040,21 @@ export function AIAgent({
       if (rootViewRef.current) {
         const handle = InteractionManager.runAfterInteractions(() => {
           requestAnimationFrame(() => {
-            captureWireframe(rootViewRef, { screenName })
-              .then((wireframe) => {
+            Promise.all([
+              captureWireframe(rootViewRef, { screenName }),
+              captureHeatmapScreenshot(rootViewRef.current),
+            ])
+              .then(([wireframe, screenshot]) => {
                 if (wireframe && telemetryRef.current) {
-                  telemetryRef.current.trackWireframe(wireframe);
+                  telemetryRef.current.trackWireframe({
+                    ...wireframe,
+                    screenshot: screenshot || undefined,
+                  });
                 }
               })
               .catch((err) => {
-                if (debug) logger.debug('AIAgent', 'Wireframe capture failed:', err);
+                if (debug)
+                  logger.debug('AIAgent', 'Wireframe capture failed:', err);
               });
           });
         });
@@ -1635,7 +2062,7 @@ export function AIAgent({
       }
 
       if (customerSuccess?.enabled) {
-        customerSuccess.successMilestones?.forEach(m => {
+        customerSuccess.successMilestones?.forEach((m) => {
           if (m.screen && m.screen === screenName) {
             telemetryRef.current?.track('health_signal', {
               type: 'success_milestone',
@@ -1669,17 +2096,22 @@ export function AIAgent({
     };
 
     const unsubscribe = navRef.addListener('state', () => {
-      const currentRoute = navRef.getCurrentRoute?.();
-      if (currentRoute?.name) {
-        const cleanName = humanizeScreenName(currentRoute.name);
-        if (cleanName) {
-          checkScreenMilestone(cleanName);
-        }
+      const cleanName = resolveScreenName();
+      if (cleanName) {
+        checkScreenMilestone(cleanName);
       }
     });
 
     return () => unsubscribe?.();
-  }, [navRef, customerSuccess, isOnboardingActive, onboarding, currentOnboardingIndex, advanceOnboarding]);
+  }, [
+    navRef,
+    resolveScreenName,
+    customerSuccess,
+    isOnboardingActive,
+    onboarding,
+    currentOnboardingIndex,
+    advanceOnboarding,
+  ]);
 
   // ─── MCP Bridge ──────────────────────────────────────────────
 
@@ -1697,7 +2129,9 @@ export function AIAgent({
   // ─── Proactive Idle Agent ────────────────────────────────────
 
   const idleDetectorRef = useRef<IdleDetector | null>(null);
-  const [proactiveStage, setProactiveStage] = useState<'hidden' | 'pulse' | 'badge'>('hidden');
+  const [proactiveStage, setProactiveStage] = useState<
+    'hidden' | 'pulse' | 'badge'
+  >('hidden');
   const [proactiveBadgeText, setProactiveBadgeText] = useState('');
 
   useEffect(() => {
@@ -1721,7 +2155,12 @@ export function AIAgent({
         setProactiveStage('badge');
       },
       onReset: () => setProactiveStage('hidden'),
-      generateSuggestion: () => proactiveHelp?.generateSuggestion?.(telemetryRef.current?.screen || 'Home') || proactiveHelp?.badgeText || "Need help with this screen?",
+      generateSuggestion: () =>
+        proactiveHelp?.generateSuggestion?.(
+          telemetryRef.current?.screen || 'Home'
+        ) ||
+        proactiveHelp?.badgeText ||
+        'Need help with this screen?',
       behaviorTriggers: proactiveHelp?.behaviorTriggers,
     });
 
@@ -1740,7 +2179,10 @@ export function AIAgent({
       return;
     }
 
-    logger.info('AIAgent', `Mode changed to "${mode}" — initializing voice services...`);
+    logger.info(
+      'AIAgent',
+      `Mode changed to "${mode}" — initializing voice services...`
+    );
 
     // Track async audio output init — mic MUST wait for this
     let audioOutputInitPromise: Promise<void> = Promise.resolve();
@@ -1749,11 +2191,22 @@ export function AIAgent({
     if (!voiceServiceRef.current) {
       logger.info('AIAgent', 'Creating VoiceService...');
       const runtimeTools = runtime.getTools();
-      logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
+      logger.info(
+        'AIAgent',
+        `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map((t) => t.name).join(', ')}`
+      );
       // Use voice-adapted system prompt — same core rules as text mode
       // but without agent-loop directives that trigger autonomous actions
-      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system, !!knowledgeBase, supportStyle);
-      logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
+      const voicePrompt = buildVoiceSystemPrompt(
+        'en',
+        instructions?.system,
+        !!knowledgeBase,
+        supportStyle
+      );
+      logger.info(
+        'AIAgent',
+        `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`
+      );
       voiceServiceRef.current = new VoiceService({
         apiKey,
         proxyUrl: resolvedVoiceProxyUrl,
@@ -1762,22 +2215,28 @@ export function AIAgent({
         tools: runtimeTools,
         language: 'en',
       });
-      logger.info('AIAgent', `VoiceService created with ${runtimeTools.length} tools: ${runtimeTools.map(t => t.name).join(', ')}`);
+      logger.info(
+        'AIAgent',
+        `VoiceService created with ${runtimeTools.length} tools: ${runtimeTools.map((t) => t.name).join(', ')}`
+      );
     }
 
     // Create AudioOutputService if not exists
     if (!audioOutputRef.current) {
       logger.info('AIAgent', 'Creating AudioOutputService...');
       audioOutputRef.current = new AudioOutputService({
-        onError: (err) => logger.warn('AIAgent', `AudioOutput error/disabled: ${err}`),
+        onError: (err) =>
+          logger.warn('AIAgent', `AudioOutput error/disabled: ${err}`),
       });
       // IMPORTANT: Must await initialize() BEFORE starting mic.
       // initialize() calls setAudioSessionOptions which reconfigures the
       // audio hardware. If the mic starts before this finishes, the native
       // audio session change kills the recorder's device handle.
-      audioOutputInitPromise = audioOutputRef.current.initialize().then((ok) => {
-        logger.info('AIAgent', `AudioOutputService initialized: ${ok}`);
-      });
+      audioOutputInitPromise = audioOutputRef.current
+        .initialize()
+        .then((ok) => {
+          logger.info('AIAgent', `AudioOutputService initialized: ${ok}`);
+        });
     }
 
     // Create AudioInputService if not exists
@@ -1786,11 +2245,16 @@ export function AIAgent({
       audioInputRef.current = new AudioInputService({
         // Default 16kHz — Gemini Live API input standard
         onAudioChunk: (chunk) => {
-          logger.info('AIAgent', `🎤 onAudioChunk: ${chunk.length} chars, voiceService=${!!voiceServiceRef.current}, connected=${voiceServiceRef.current?.isConnected}`);
+          logger.info(
+            'AIAgent',
+            `🎤 onAudioChunk: ${chunk.length} chars, voiceService=${!!voiceServiceRef.current}, connected=${voiceServiceRef.current?.isConnected}`
+          );
           voiceServiceRef.current?.sendAudio(chunk);
         },
-        onError: (err) => logger.warn('AIAgent', `AudioInput error/disabled: ${err}`),
-        onPermissionDenied: () => logger.warn('AIAgent', 'Mic permission denied by user'),
+        onError: (err) =>
+          logger.warn('AIAgent', `AudioInput error/disabled: ${err}`),
+        onPermissionDenied: () =>
+          logger.warn('AIAgent', 'Mic permission denied by user'),
       });
     }
 
@@ -1798,10 +2262,16 @@ export function AIAgent({
     logger.info('AIAgent', 'Connecting VoiceService...');
     void voiceServiceRef.current.connect({
       onAudioResponse: (audio) => {
-        logger.info('AIAgent', `🔊 Audio response: ${audio.length} chars, audioOutputRef=${!!audioOutputRef.current}`);
+        logger.info(
+          'AIAgent',
+          `🔊 Audio response: ${audio.length} chars, audioOutputRef=${!!audioOutputRef.current}`
+        );
         setIsAISpeaking(true);
         if (!audioOutputRef.current) {
-          logger.error('AIAgent', '❌ audioOutputRef.current is NULL — cannot play audio!');
+          logger.error(
+            'AIAgent',
+            '❌ audioOutputRef.current is NULL — cannot play audio!'
+          );
           return;
         }
         audioOutputRef.current.enqueue(audio);
@@ -1811,12 +2281,18 @@ export function AIAgent({
         const connected = status === 'connected';
         setIsVoiceConnected(connected);
         if (connected) {
-          logger.info('AIAgent', '✅ VoiceService connected — waiting for audio session init before starting mic...');
+          logger.info(
+            'AIAgent',
+            '✅ VoiceService connected — waiting for audio session init before starting mic...'
+          );
           // Wait for audio session config to finish BEFORE starting mic.
           // If mic starts while setAudioSessionOptions is in flight,
           // the native audio device gets killed (AudioDeviceStop error).
           audioOutputInitPromise.then(() => {
-            logger.info('AIAgent', '✅ Audio session ready — starting mic now...');
+            logger.info(
+              'AIAgent',
+              '✅ Audio session ready — starting mic now...'
+            );
             audioInputRef.current?.start().then((ok) => {
               if (ok) {
                 setIsMicActive(true);
@@ -1839,7 +2315,10 @@ export function AIAgent({
           setIsMicActive(false);
           setIsAISpeaking(false);
 
-          logger.warn('AIAgent', '⚠️ Voice connection dropped unexpectedly — attempting reconnect in 2s...');
+          logger.warn(
+            'AIAgent',
+            '⚠️ Voice connection dropped unexpectedly — attempting reconnect in 2s...'
+          );
 
           // Auto-reconnect after short delay
           setTimeout(() => {
@@ -1850,37 +2329,62 @@ export function AIAgent({
               voiceServiceRef.current.lastCallbacks
             ) {
               logger.info('AIAgent', '🔄 Reconnecting VoiceService...');
-              void voiceServiceRef.current.connect(voiceServiceRef.current.lastCallbacks);
+              void voiceServiceRef.current.connect(
+                voiceServiceRef.current.lastCallbacks
+              );
             }
           }, 2000);
         }
       },
       onTranscript: (text, isFinal, role) => {
-        logger.info('AIAgent', `Transcript [${role}] (final=${isFinal}): "${text}"`);
+        logger.info(
+          'AIAgent',
+          `Transcript [${role}] (final=${isFinal}): "${text}"`
+        );
         if (role === 'user') {
           userHasSpokenRef.current = true;
         }
       },
       onSetupComplete: () => {
-        logger.info('AIAgent', '✅ SDK setup complete — sending initial screen context now');
+        logger.info(
+          'AIAgent',
+          '✅ SDK setup complete — sending initial screen context now'
+        );
         userHasSpokenRef.current = false;
         const initialContext = runtime.getScreenContext();
         lastScreenContextRef.current = initialContext; // Seed for screen change detection
         const passiveContext = `[SYSTEM CONTEXT — THIS IS NOT A USER REQUEST. DO NOT RESPOND. DO NOT NAVIGATE. DO NOT CALL ANY TOOLS. DO NOT SPEAK. Just silently read and memorize this screen layout. You will use it when the user speaks their first voice command.]\n\n${initialContext}`;
-        logger.info('AIAgent', `📡 Initial screen context (${passiveContext.length} chars):\n${passiveContext}`);
+        logger.info(
+          'AIAgent',
+          `📡 Initial screen context (${passiveContext.length} chars):\n${passiveContext}`
+        );
         voiceServiceRef.current?.sendScreenContext(passiveContext);
-        logger.info('AIAgent', '📡 Initial screen context sent (turnComplete=true)');
+        logger.info(
+          'AIAgent',
+          '📡 Initial screen context sent (turnComplete=true)'
+        );
       },
       onToolCall: async (toolCall) => {
-        logger.info('AIAgent', `🔧 Voice tool call: ${toolCall.name}(${JSON.stringify(toolCall.args)}) [id=${toolCall.id}]`);
+        logger.info(
+          'AIAgent',
+          `🔧 Voice tool call: ${toolCall.name}(${JSON.stringify(toolCall.args)}) [id=${toolCall.id}]`
+        );
 
         // Code-level gate: reject tool calls before the user has spoken.
         // The model sometimes auto-navigates on receiving screen context.
         if (!userHasSpokenRef.current) {
-          logger.warn('AIAgent', `🚫 Rejected tool call ${toolCall.name} — user hasn't spoken yet`);
-          voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, {
-            result: 'Action rejected: wait for the user to speak before performing any actions.',
-          });
+          logger.warn(
+            'AIAgent',
+            `🚫 Rejected tool call ${toolCall.name} — user hasn't spoken yet`
+          );
+          voiceServiceRef.current?.sendFunctionResponse(
+            toolCall.name,
+            toolCall.id,
+            {
+              result:
+                'Action rejected: wait for the user to speak before performing any actions.',
+            }
+          );
           return;
         }
 
@@ -1889,13 +2393,19 @@ export function AIAgent({
         // (audio) is called while a tool call is pending. Stop the mic
         // before executing the tool and resume after the response is sent.
         audioInputRef.current?.stop();
-        logger.info('AIAgent', `🔇 Mic paused for tool execution: ${toolCall.name}`);
+        logger.info(
+          'AIAgent',
+          `🔇 Mic paused for tool execution: ${toolCall.name}`
+        );
 
         // One-tool-at-a-time enforcement (mirrors text mode's line 752).
         if (toolLockRef.current) {
-          logger.warn('AIAgent', `⏳ Tool locked — waiting for previous tool to finish before executing ${toolCall.name}`);
+          logger.warn(
+            'AIAgent',
+            `⏳ Tool locked — waiting for previous tool to finish before executing ${toolCall.name}`
+          );
           while (toolLockRef.current) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 50));
           }
         }
         toolLockRef.current = true;
@@ -1907,32 +2417,54 @@ export function AIAgent({
           setStatusText(`Executing ${toolNameFriendly}...`);
 
           // Execute the tool via AgentRuntime and send result back to Gemini
-          const result = await runtime.executeTool(toolCall.name, toolCall.args);
-          logger.info('AIAgent', `🔧 Tool result for ${toolCall.name}: ${result}`);
+          const result = await runtime.executeTool(
+            toolCall.name,
+            toolCall.args
+          );
+          logger.info(
+            'AIAgent',
+            `🔧 Tool result for ${toolCall.name}: ${result}`
+          );
 
           // Step delay — matches text mode's stepDelay (line 820 in AgentRuntime).
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
 
           // Include updated screen context IN the tool response
           const updatedContext = runtime.getScreenContext();
           lastScreenContextRef.current = updatedContext; // Sync with poll tracker
-          logger.info('AIAgent', `📡 Updated screen context after ${toolCall.name} (${updatedContext.length} chars):\n${updatedContext}`);
+          logger.info(
+            'AIAgent',
+            `📡 Updated screen context after ${toolCall.name} (${updatedContext.length} chars):\n${updatedContext}`
+          );
           const enrichedResult = `${result}\n\n<updated_screen>\n${updatedContext}\n</updated_screen>`;
-          logger.info('AIAgent', `📡 Enriched tool response (${enrichedResult.length} chars):\n${enrichedResult}`);
+          logger.info(
+            'AIAgent',
+            `📡 Enriched tool response (${enrichedResult.length} chars):\n${enrichedResult}`
+          );
 
-          voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, { result: enrichedResult });
-          logger.info('AIAgent', `📡 Tool response sent for ${toolCall.name} [id=${toolCall.id}]`);
+          voiceServiceRef.current?.sendFunctionResponse(
+            toolCall.name,
+            toolCall.id,
+            { result: enrichedResult }
+          );
+          logger.info(
+            'AIAgent',
+            `📡 Tool response sent for ${toolCall.name} [id=${toolCall.id}]`
+          );
         } finally {
           toolLockRef.current = false;
           setIsThinking(false);
           setStatusText('');
-          
+
           // Resume mic after tool response is sent
           if (voiceServiceRef.current?.isConnected) {
             audioInputRef.current?.start().then((ok) => {
               if (ok) {
                 setIsMicActive(true);
-                logger.info('AIAgent', `🔊 Mic resumed after tool execution: ${toolCall.name}`);
+                logger.info(
+                  'AIAgent',
+                  `🔊 Mic resumed after tool execution: ${toolCall.name}`
+                );
               }
             });
           }
@@ -1978,11 +2510,17 @@ export function AIAgent({
         const diffRatio = lastLen > 0 ? diff / lastLen : 1;
 
         if (diffRatio < MIN_DIFF_RATIO) {
-          logger.debug('AIAgent', `🔄 Screen poll: minor change ignored (${diff} chars, ${(diffRatio * 100).toFixed(1)}% < ${MIN_DIFF_RATIO * 100}% threshold)`);
+          logger.debug(
+            'AIAgent',
+            `🔄 Screen poll: minor change ignored (${diff} chars, ${(diffRatio * 100).toFixed(1)}% < ${MIN_DIFF_RATIO * 100}% threshold)`
+          );
           return;
         }
 
-        logger.info('AIAgent', `🔄 Screen change detected (${lastLen} → ${currentContext.length} chars, ${(diffRatio * 100).toFixed(1)}% diff)`);
+        logger.info(
+          'AIAgent',
+          `🔄 Screen change detected (${lastLen} → ${currentContext.length} chars, ${(diffRatio * 100).toFixed(1)}% diff)`
+        );
         lastScreenContextRef.current = currentContext;
         const passiveUpdate = `[SCREEN UPDATE — The UI has changed. Here is the current screen layout. This is not a user request — do not act unless the user asks.]\n\n${currentContext}`;
         voiceServiceRef.current?.sendScreenContext(passiveUpdate);
@@ -1994,7 +2532,10 @@ export function AIAgent({
 
     // Cleanup on mode change back to text
     return () => {
-      logger.info('AIAgent', `Cleaning up voice services (leaving "${mode}" mode)`);
+      logger.info(
+        'AIAgent',
+        `Cleaning up voice services (leaving "${mode}" mode)`
+      );
       // Stop screen change polling
       if (screenPollIntervalRef.current) {
         clearInterval(screenPollIntervalRef.current);
@@ -2010,7 +2551,17 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, resolvedVoiceProxyUrl, effectiveVoiceProxyHeaders, effectiveProxyHeaders, runtime, instructions, supportStyle, knowledgeBase]);
+  }, [
+    mode,
+    apiKey,
+    resolvedVoiceProxyUrl,
+    effectiveVoiceProxyHeaders,
+    effectiveProxyHeaders,
+    runtime,
+    instructions,
+    supportStyle,
+    knowledgeBase,
+  ]);
 
   // ─── Stop Voice Session (full cleanup) ─────────────────────
 
@@ -2034,451 +2585,522 @@ export function AIAgent({
 
   // ─── Execute ──────────────────────────────────────────────────
 
-  const handleSend = useCallback(async (
-    message: string,
-    options?: { onResult?: (result: ExecutionResult) => void }
-  ) => {
-    if (!message.trim() || isThinking) return;
+  const handleSend = useCallback(
+    async (
+      message: string,
+      options?: { onResult?: (result: ExecutionResult) => void }
+    ) => {
+      if (!message.trim() || isThinking) return;
 
-    // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
-    // If consent is required but not yet granted, show the consent dialog
-    // instead of sending data to the AI provider.
-    // EXCEPTION: bypass consent when talking to a human agent —
-    // this is a person-to-person chat, not AI data processing.
-    const isHumanAgentChat = !!(selectedTicketId && supportSocket);
-    if (consentGateActive && !isHumanAgentChat) {
-      pendingConsentSendRef.current = {
-        message: message.trim(),
-        options,
-      };
-      setShowConsentDialog(true);
-      return;
-    }
-
-    logger.info('AIAgent', `User message: "${message}"`);
-    setLastUserMessage(message.trim());
-
-    // Intercom-style transparent intercept:
-    // If we're connected to a human agent, all text input goes directly to them.
-    if (selectedTicketId && supportSocket) {
-      // Gate: do not allow sending if the ticket is closed/resolved.
-      const activeTicket = tickets.find(t => t.id === selectedTicketId);
-      const CLOSED_STATUSES = ['closed', 'resolved'];
-      if (activeTicket && CLOSED_STATUSES.includes(activeTicket.status)) {
-        setLastResult({
-          success: false,
-          message: 'This conversation is closed. Please start a new request.',
-          steps: [],
-        });
+      // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
+      // If consent is required but not yet granted, show the consent dialog
+      // instead of sending data to the AI provider.
+      // EXCEPTION: bypass consent when talking to a human agent —
+      // this is a person-to-person chat, not AI data processing.
+      const isHumanAgentChat = !!(selectedTicketId && supportSocket);
+      if (consentGateActive && !isHumanAgentChat) {
+        pendingConsentSendRef.current = {
+          message: message.trim(),
+          options,
+        };
+        setShowConsentDialog(true);
         return;
       }
 
-      if (supportSocket.sendText(message)) {
-        setSupportMessages((prev) => [
-          ...prev,
-          { id: `user-${Date.now()}`, role: 'user', content: message.trim(), timestamp: Date.now() },
-        ]);
-        setIsThinking(true);
-        setStatusText('Sending to agent...');
-        setTimeout(() => {
-          setIsThinking(false);
-          setStatusText('');
-        }, 800);
-      } else {
-        setLastResult({
-          success: false,
-          message: 'Failed to send message to support agent. Connection lost.',
-          steps: [],
-        });
+      logger.info('AIAgent', `User message: "${message}"`);
+      setLastUserMessage(message.trim());
+
+      // Intercom-style transparent intercept:
+      // If we're connected to a human agent, all text input goes directly to them.
+      if (selectedTicketId && supportSocket) {
+        // Gate: do not allow sending if the ticket is closed/resolved.
+        const activeTicket = tickets.find((t) => t.id === selectedTicketId);
+        const CLOSED_STATUSES = ['closed', 'resolved'];
+        if (activeTicket && CLOSED_STATUSES.includes(activeTicket.status)) {
+          setLastResult({
+            success: false,
+            message: 'This conversation is closed. Please start a new request.',
+            steps: [],
+          });
+          return;
+        }
+
+        if (supportSocket.sendText(message)) {
+          setSupportMessages((prev) => [
+            ...prev,
+            {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content: message.trim(),
+              timestamp: Date.now(),
+            },
+          ]);
+          setIsThinking(true);
+          setStatusText('Sending to agent...');
+          setTimeout(() => {
+            setIsThinking(false);
+            setStatusText('');
+          }, 800);
+        } else {
+          setLastResult({
+            success: false,
+            message:
+              'Failed to send message to support agent. Connection lost.',
+            steps: [],
+          });
+        }
+        return;
       }
-      return;
-    }
 
-    // Append user message to AI thread
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString() + Math.random(),
-        role: 'user',
-        content: message.trim(),
-        timestamp: Date.now(),
-      },
-    ]);
+      // Append user message to AI thread
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString() + Math.random(),
+          role: 'user',
+          content: message.trim(),
+          timestamp: Date.now(),
+        },
+      ]);
 
-    // If there's a pending ask_user, resolve it instead of starting a new execution
-    if (askUserResolverRef.current) {
-      if (pendingAskUserKindRef.current === 'approval') {
+      // If there's a pending ask_user, resolve it instead of starting a new execution
+      if (askUserResolverRef.current) {
+        if (pendingAskUserKindRef.current === 'approval') {
+          const resolver = askUserResolverRef.current;
+          askUserResolverRef.current = null;
+          pendingAskUserKindRef.current = null;
+          pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
+          setPendingApprovalQuestion(null);
+
+          // Pass the user's conversational message directly back to the active prompt resolver.
+          // It will NOT be treated as a rejection! It will be passed back to the LLM.
+          telemetryRef.current?.track('agent_trace', {
+            stage: 'approval_interrupted_by_user_question',
+            message: message.trim(),
+          });
+
+          setIsThinking(true);
+          setStatusText('Answering your question...');
+          setLastResult(null);
+          resolver(message.trim());
+          return;
+        }
         const resolver = askUserResolverRef.current;
         askUserResolverRef.current = null;
         pendingAskUserKindRef.current = null;
         pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
         setPendingApprovalQuestion(null);
-
-        // Pass the user's conversational message directly back to the active prompt resolver.
-        // It will NOT be treated as a rejection! It will be passed back to the LLM.
-        telemetryRef.current?.track('agent_trace', {
-          stage: 'approval_interrupted_by_user_question',
-          message: message.trim(),
-        });
-
         setIsThinking(true);
-        setStatusText('Answering your question...');
+        setStatusText('Processing your answer...');
         setLastResult(null);
-        resolver(message.trim());
+        logger.info(
+          'AIAgent',
+          `✅ Resolving pending ask_user with: "${message.trim()}"`
+        );
+        telemetryRef.current?.track('agent_trace', {
+          stage: 'ask_user_answer_submitted',
+          answer: message.trim(),
+          mode,
+        });
+        resolver(message);
         return;
       }
-      const resolver = askUserResolverRef.current;
-      askUserResolverRef.current = null;
-      pendingAskUserKindRef.current = null;
-      pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
-      setPendingApprovalQuestion(null);
+
+      // Guard: if we're mid-approval flow (waiting for button tap) but no resolver exists yet
+      // (agent is still thinking between ask_user calls), do NOT start a new task —
+      // that would spawn two concurrent agent loops and freeze the app.
+      // Instead, store the message as a queued answer that will auto-resolve on the next ask_user.
+      if (pendingAppApprovalRef.current) {
+        logger.warn(
+          'AIAgent',
+          '⚠️ User typed during active approval flow — queuing message, not spawning new task'
+        );
+        queuedApprovalAnswerRef.current = message.trim();
+        return;
+      }
+
+      // Normal execution — new task
+      // Reset approval gate refs so previous conversations don't bleed state
+      pendingAppApprovalRef.current = false;
+      queuedApprovalAnswerRef.current = null;
       setIsThinking(true);
-      setStatusText('Processing your answer...');
+      setStatusText('Thinking...');
       setLastResult(null);
-      logger.info('AIAgent', `✅ Resolving pending ask_user with: "${message.trim()}"`);
-      telemetryRef.current?.track('agent_trace', {
-        stage: 'ask_user_answer_submitted',
-        answer: message.trim(),
+      const requestStartedAt = Date.now();
+      logger.info(
+        'AIAgent',
+        `📨 New user request received in ${mode} mode | interactionMode=${interactionMode || 'copilot(default)'} | text="${message.trim()}"`
+      );
+
+      // Telemetry: track agent request
+      telemetryRef.current?.track('agent_request', {
+        canonical_type: 'ai_question_asked',
+        query: message.trim(),
+        transcript: message.trim(),
+        request_topic: message.trim().slice(0, 120),
         mode,
       });
-      resolver(message);
-      return;
-    }
+      telemetryRef.current?.track('agent_trace', {
+        stage: 'request_received',
+        query: message.trim(),
+        mode,
+        interactionMode: interactionMode || 'copilot',
+      });
 
-    // Guard: if we're mid-approval flow (waiting for button tap) but no resolver exists yet
-    // (agent is still thinking between ask_user calls), do NOT start a new task —
-    // that would spawn two concurrent agent loops and freeze the app.
-    // Instead, store the message as a queued answer that will auto-resolve on the next ask_user.
-    if (pendingAppApprovalRef.current) {
-      logger.warn('AIAgent', '⚠️ User typed during active approval flow — queuing message, not spawning new task');
-      queuedApprovalAnswerRef.current = message.trim();
-      return;
-    }
+      try {
+        // ─── Business-grade escalation policy ───
+        const FRUSTRATION_REGEX =
+          /\b(angry|frustrated|useless|terrible|hate|worst|ridiculous|awful)\b/i;
+        const HIGH_RISK_ESCALATION_REGEX =
+          /\b(human|agent|representative|supervisor|manager|refund|chargeback|charged|billing|payment|fraud|scam|lawsuit|attorney|lawyer|sue|legal|privacy|data breach|account locked|can't log in|cannot log in)\b/i;
+        const escalateTool =
+          customTools?.['escalate_to_human'] || autoEscalateTool;
+        const priorFrustrationCount = messages.filter(
+          (m) =>
+            m.role === 'user' &&
+            typeof m.content === 'string' &&
+            FRUSTRATION_REGEX.test(m.content)
+        ).length;
 
-    // Normal execution — new task
-    // Reset approval gate refs so previous conversations don't bleed state
-    pendingAppApprovalRef.current = false;
-    queuedApprovalAnswerRef.current = null;
-    setIsThinking(true);
-    setStatusText('Thinking...');
-    setLastResult(null);
-    const requestStartedAt = Date.now();
-    logger.info(
-      'AIAgent',
-      `📨 New user request received in ${mode} mode | interactionMode=${interactionMode || 'copilot(default)'} | text="${message.trim()}"`
-    );
+        if (escalateTool && !selectedTicketId) {
+          if (HIGH_RISK_ESCALATION_REGEX.test(message)) {
+            logger.warn(
+              'AIAgent',
+              'High-risk support signal detected — auto-escalating to human'
+            );
+            telemetryRef.current?.track('business_escalation', {
+              canonical_type: 'support_escalated',
+              message,
+              trigger: 'high_risk',
+              escalation_reason: 'high_risk',
+              topic: message.trim().slice(0, 120),
+            });
 
-    // Telemetry: track agent request
-    telemetryRef.current?.track('agent_request', {
-      canonical_type: 'ai_question_asked',
-      query: message.trim(),
-      transcript: message.trim(),
-      request_topic: message.trim().slice(0, 120),
-      mode,
-    });
-    telemetryRef.current?.track('agent_trace', {
-      stage: 'request_received',
-      query: message.trim(),
-      mode,
-      interactionMode: interactionMode || 'copilot',
-    });
+            const escalationResult = await escalateTool.execute({
+              reason: `Customer needs human support: ${message.trim()}`,
+            });
 
-    try {
-      // ─── Business-grade escalation policy ───
-      const FRUSTRATION_REGEX = /\b(angry|frustrated|useless|terrible|hate|worst|ridiculous|awful)\b/i;
-      const HIGH_RISK_ESCALATION_REGEX = /\b(human|agent|representative|supervisor|manager|refund|chargeback|charged|billing|payment|fraud|scam|lawsuit|attorney|lawyer|sue|legal|privacy|data breach|account locked|can't log in|cannot log in)\b/i;
-      const escalateTool = customTools?.['escalate_to_human'] || autoEscalateTool;
-      const priorFrustrationCount = messages.filter(
-        (m) => m.role === 'user' && typeof m.content === 'string' && FRUSTRATION_REGEX.test(m.content)
-      ).length;
+            const customerMessage =
+              typeof escalationResult === 'string' &&
+              escalationResult.trim().length > 0
+                ? escalationResult.replace(/^ESCALATED:\s*/i, '')
+                : 'Your request has been sent to our support team. A human agent will reply here as soon as possible.';
 
-      if (escalateTool && !selectedTicketId) {
-        if (HIGH_RISK_ESCALATION_REGEX.test(message)) {
-          logger.warn('AIAgent', 'High-risk support signal detected — auto-escalating to human');
-          telemetryRef.current?.track('business_escalation', {
-            canonical_type: 'support_escalated',
-            message,
-            trigger: 'high_risk',
-            escalation_reason: 'high_risk',
-            topic: message.trim().slice(0, 120),
-          });
-
-          const escalationResult = await escalateTool.execute({
-            reason: `Customer needs human support: ${message.trim()}`,
-          });
-
-          const customerMessage =
-            typeof escalationResult === 'string' && escalationResult.trim().length > 0
-              ? escalationResult.replace(/^ESCALATED:\s*/i, '')
-              : 'Your request has been sent to our support team. A human agent will reply here as soon as possible.';
-
-          const res: ExecutionResult = {
-            success: true,
-            message: customerMessage,
-            steps: [{
-              stepIndex: 0,
-              reflection: {
-                previousGoalEval: '',
-                memory: '',
-                plan: 'Escalate to human support for a high-risk or explicitly requested issue',
-              },
-              action: {
-                name: 'escalate_to_human',
-                input: { reason: 'business_escalation' },
-                output: 'Escalated',
-              },
-            }],
-          };
-
-          setLastResult(res);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: 'assistant',
-              content: res.message,
-              timestamp: Date.now(),
-              result: res,
-            },
-          ]);
-
-          setIsThinking(false);
-          setStatusText('');
-          return;
-        }
-
-        if (FRUSTRATION_REGEX.test(message)) {
-          const frustrationMessage =
-            priorFrustrationCount > 0
-              ? "I'm sorry this has been frustrating. I can keep helping here, or I can connect you with a human support agent if you'd prefer."
-              : "I'm sorry this has been frustrating. Tell me what went wrong, and I'll do my best to fix it.";
-
-          const res: ExecutionResult = {
-            success: true,
-            message: frustrationMessage,
-            steps: [{
-              stepIndex: 0,
-              reflection: {
-                previousGoalEval: '',
-                memory: '',
-                plan:
-                  priorFrustrationCount > 0
-                    ? 'Acknowledge repeated frustration and offer escalation without forcing a handoff'
-                    : 'Acknowledge first-time frustration and continue trying to resolve the issue',
-              },
-              action: {
-                name: 'done',
-                input: {},
-                output: frustrationMessage,
-              },
-            }],
-          };
-
-          setLastResult(res);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: 'assistant',
-              content: frustrationMessage,
-              timestamp: Date.now(),
-              result: res,
-            },
-          ]);
-
-          setIsThinking(false);
-          setStatusText('');
-          return;
-        }
-      }
-
-      // Ensure we have the latest Fiber tree ref
-      runtime.updateRefs(rootViewRef.current, navRef);
-
-      const result = await runtime.execute(message, messages);
-      let normalizedResult = result;
-
-      const reportStep = result.steps?.find((step) => step.action.name === 'report_issue');
-      if (reportStep && typeof reportStep.action.output === 'string') {
-        const match = /^ISSUE_REPORTED:([^:]+):([^:]*):([\s\S]+)$/i.exec(reportStep.action.output);
-        if (match) {
-          const [, _issueId, historyId, customerMessage] = match;
-          const resolvedCustomerMessage = customerMessage || reportStep.action.output;
-          if (historyId) {
-            seenReportedIssueUpdatesRef.current.add(historyId);
-          }
-          normalizedResult = {
-            ...result,
-            message: resolvedCustomerMessage,
-            steps: result.steps.map((step) =>
-              step === reportStep
-                ? {
-                  ...step,
-                  action: {
-                    ...step.action,
-                    output: resolvedCustomerMessage,
+            const res: ExecutionResult = {
+              success: true,
+              message: customerMessage,
+              steps: [
+                {
+                  stepIndex: 0,
+                  reflection: {
+                    previousGoalEval: '',
+                    memory: '',
+                    plan: 'Escalate to human support for a high-risk or explicitly requested issue',
                   },
+                  action: {
+                    name: 'escalate_to_human',
+                    input: { reason: 'business_escalation' },
+                    output: 'Escalated',
+                  },
+                },
+              ],
+            };
+
+            setLastResult(res);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `assistant-${Date.now()}`,
+                role: 'assistant',
+                content: res.message,
+                timestamp: Date.now(),
+                result: res,
+              },
+            ]);
+
+            setIsThinking(false);
+            setStatusText('');
+            return;
+          }
+
+          if (FRUSTRATION_REGEX.test(message)) {
+            const frustrationMessage =
+              priorFrustrationCount > 0
+                ? "I'm sorry this has been frustrating. I can keep helping here, or I can connect you with a human support agent if you'd prefer."
+                : "I'm sorry this has been frustrating. Tell me what went wrong, and I'll do my best to fix it.";
+
+            const res: ExecutionResult = {
+              success: true,
+              message: frustrationMessage,
+              steps: [
+                {
+                  stepIndex: 0,
+                  reflection: {
+                    previousGoalEval: '',
+                    memory: '',
+                    plan:
+                      priorFrustrationCount > 0
+                        ? 'Acknowledge repeated frustration and offer escalation without forcing a handoff'
+                        : 'Acknowledge first-time frustration and continue trying to resolve the issue',
+                  },
+                  action: {
+                    name: 'done',
+                    input: {},
+                    output: frustrationMessage,
+                  },
+                },
+              ],
+            };
+
+            setLastResult(res);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `assistant-${Date.now()}`,
+                role: 'assistant',
+                content: frustrationMessage,
+                timestamp: Date.now(),
+                result: res,
+              },
+            ]);
+
+            setIsThinking(false);
+            setStatusText('');
+            return;
+          }
+        }
+
+        // Ensure we have the latest Fiber tree ref
+        runtime.updateRefs(rootViewRef.current, navRef);
+
+        const result = await runtime.execute(message, messages);
+        let normalizedResult = result;
+
+        const reportStep = result.steps?.find(
+          (step) => step.action.name === 'report_issue'
+        );
+        if (reportStep && typeof reportStep.action.output === 'string') {
+          const match = /^ISSUE_REPORTED:([^:]+):([^:]*):([\s\S]+)$/i.exec(
+            reportStep.action.output
+          );
+          if (match) {
+            const [, _issueId, historyId, customerMessage] = match;
+            const resolvedCustomerMessage =
+              customerMessage || reportStep.action.output;
+            if (historyId) {
+              seenReportedIssueUpdatesRef.current.add(historyId);
+            }
+            normalizedResult = {
+              ...result,
+              message: resolvedCustomerMessage,
+              steps: result.steps.map((step) =>
+                step === reportStep
+                  ? {
+                      ...step,
+                      action: {
+                        ...step.action,
+                        output: resolvedCustomerMessage,
+                      },
+                    }
+                  : step
+              ),
+            };
+          }
+        }
+
+        // Telemetry: track agent completion and per-step details
+        if (telemetryRef.current) {
+          if (!agentFrtFiredRef.current) {
+            agentFrtFiredRef.current = true;
+            telemetryRef.current.track('agent_first_response', {
+              canonical_type: 'ai_first_response_sent',
+            });
+          }
+
+          for (const step of normalizedResult.steps ?? []) {
+            telemetryRef.current.track('agent_step', {
+              stepIndex: step.stepIndex,
+              tool: step.action.name,
+              args: step.action.input,
+              result:
+                typeof step.action.output === 'string'
+                  ? step.action.output
+                  : String(step.action.output),
+              plan: step.reflection.plan,
+              memory: step.reflection.memory,
+              previousGoalEval: step.reflection.previousGoalEval,
+            });
+          }
+          telemetryRef.current.track('agent_complete', {
+            canonical_type: normalizedResult.success
+              ? 'ai_answer_completed'
+              : 'ai_answer_failed',
+            success: normalizedResult.success,
+            resolved: normalizedResult.success,
+            resolution_type: normalizedResult.success
+              ? 'ai_resolved'
+              : 'needs_follow_up',
+            latency_ms: Date.now() - requestStartedAt,
+            request_topic: message.trim().slice(0, 120),
+            steps: normalizedResult.steps?.length ?? 0,
+            tokens: normalizedResult.tokenUsage?.totalTokens ?? 0,
+            cost: normalizedResult.tokenUsage?.estimatedCostUSD ?? 0,
+            response: normalizedResult.message,
+            conversation: {
+              user: message.trim(),
+              assistant: normalizedResult.message,
+            },
+          });
+        }
+
+        logger.info(
+          'AIAgent',
+          '★ handleSend — SETTING lastResult:',
+          normalizedResult.message.substring(0, 80),
+          '| mode:',
+          mode
+        );
+        logger.info(
+          'AIAgent',
+          '★ handleSend — tickets:',
+          tickets.length,
+          'selectedTicketId:',
+          selectedTicketId
+        );
+
+        // Don't overwrite lastResult if escalation already switched us to human mode
+        // (mode in this closure is stale — the actual mode may have changed during async execution)
+        const stepsHadEscalation = normalizedResult.steps?.some(
+          (s) => s.action.name === 'escalate_to_human'
+        );
+        if (!stepsHadEscalation) {
+          setLastResult(normalizedResult);
+        }
+
+        const assistantMsg: AIMessage = {
+          id: Date.now().toString() + Math.random(),
+          role: 'assistant',
+          content: normalizedResult.message,
+          timestamp: Date.now(),
+          result: normalizedResult,
+        };
+
+        setMessages((prev) => [...prev, assistantMsg]);
+
+        // ── Persist to backend (debounced 600ms) ─────────────────────
+        if (analyticsKey) {
+          if (appendDebounceRef.current)
+            clearTimeout(appendDebounceRef.current);
+          appendDebounceRef.current = setTimeout(async () => {
+            try {
+              await initDeviceId();
+              const deviceId = getDeviceId();
+              // Read current messages directly from ref — never use setMessages() to read state
+              const currentMsgs = messagesRef.current;
+              const newMsgs = currentMsgs.slice(
+                lastSavedMessageCountRef.current
+              );
+
+              if (newMsgs.length === 0) return;
+
+              if (!activeConversationIdRef.current) {
+                // First exchange — create a new conversation
+                const id = await ConversationService.startConversation({
+                  analyticsKey: analyticsKey!,
+                  userId: userContext?.userId,
+                  deviceId: deviceId || undefined,
+                  messages: newMsgs,
+                });
+                if (id) {
+                  activeConversationIdRef.current = id;
+                  lastSavedMessageCountRef.current = currentMsgs.length;
+                  const newSummary: ConversationSummary = {
+                    id,
+                    title:
+                      newMsgs
+                        .find((m) => m.role === 'user')
+                        ?.content?.slice(0, 80) || 'New conversation',
+                    preview: assistantMsg.content.slice(0, 100),
+                    previewRole: 'assistant',
+                    messageCount: newMsgs.length,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  };
+                  setConversations((prev) => [newSummary, ...prev]);
+                  logger.info('AIAgent', `Conversation created: ${id}`);
                 }
-                : step
-            ),
-          };
+              } else {
+                // Subsequent turns — append only new messages
+                await ConversationService.appendMessages({
+                  conversationId: activeConversationIdRef.current!,
+                  analyticsKey: analyticsKey!,
+                  messages: newMsgs,
+                });
+                lastSavedMessageCountRef.current = currentMsgs.length;
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === activeConversationIdRef.current
+                      ? {
+                          ...c,
+                          preview: assistantMsg.content.slice(0, 100),
+                          updatedAt: Date.now(),
+                          messageCount: c.messageCount + newMsgs.length,
+                        }
+                      : c
+                  )
+                );
+                logger.info(
+                  'AIAgent',
+                  `Conversation appended: ${activeConversationIdRef.current}`
+                );
+              }
+            } catch (err) {
+              logger.warn('AIAgent', 'Failed to persist conversation:', err);
+            }
+          }, 600);
         }
-      }
 
-      // Telemetry: track agent completion and per-step details
-      if (telemetryRef.current) {
-        if (!agentFrtFiredRef.current) {
-          agentFrtFiredRef.current = true;
-          telemetryRef.current.track('agent_first_response', {
-            canonical_type: 'ai_first_response_sent',
-          });
+        if (options?.onResult) {
+          options.onResult(normalizedResult);
+        } else {
+          onResult?.(normalizedResult);
         }
 
-        for (const step of normalizedResult.steps ?? []) {
-          telemetryRef.current.track('agent_step', {
-            stepIndex: step.stepIndex,
-            tool: step.action.name,
-            args: step.action.input,
-            result:
-              typeof step.action.output === 'string'
-                ? step.action.output
-                : String(step.action.output),
-            plan: step.reflection.plan,
-            memory: step.reflection.memory,
-            previousGoalEval: step.reflection.previousGoalEval,
-          });
-        }
-        telemetryRef.current.track('agent_complete', {
-          canonical_type: normalizedResult.success ? 'ai_answer_completed' : 'ai_answer_failed',
-          success: normalizedResult.success,
-          resolved: normalizedResult.success,
-          resolution_type: normalizedResult.success ? 'ai_resolved' : 'needs_follow_up',
+        logger.info(
+          'AIAgent',
+          `Result: ${normalizedResult.success ? '✅' : '❌'} ${normalizedResult.message}`
+        );
+      } catch (error: any) {
+        logger.error('AIAgent', 'Execution failed:', error);
+
+        // Telemetry: track agent failure
+        telemetryRef.current?.track('agent_complete', {
+          canonical_type: 'ai_answer_failed',
+          success: false,
+          resolved: false,
+          resolution_type: 'execution_error',
           latency_ms: Date.now() - requestStartedAt,
           request_topic: message.trim().slice(0, 120),
-          steps: normalizedResult.steps?.length ?? 0,
-          tokens: normalizedResult.tokenUsage?.totalTokens ?? 0,
-          cost: normalizedResult.tokenUsage?.estimatedCostUSD ?? 0,
-          response: normalizedResult.message,
+          error: error.message,
+          response: `Error: ${error.message}`,
           conversation: {
             user: message.trim(),
-            assistant: normalizedResult.message,
+            assistant: `Error: ${error.message}`,
           },
         });
+
+        setLastResult({
+          success: false,
+          message: `Error: ${error.message}`,
+          steps: [],
+        });
+      } finally {
+        setIsThinking(false);
+        setStatusText('');
       }
-
-      logger.info('AIAgent', '★ handleSend — SETTING lastResult:', normalizedResult.message.substring(0, 80), '| mode:', mode);
-      logger.info('AIAgent', '★ handleSend — tickets:', tickets.length, 'selectedTicketId:', selectedTicketId);
-
-      // Don't overwrite lastResult if escalation already switched us to human mode
-      // (mode in this closure is stale — the actual mode may have changed during async execution)
-      const stepsHadEscalation = normalizedResult.steps?.some(s => s.action.name === 'escalate_to_human');
-      if (!stepsHadEscalation) {
-        setLastResult(normalizedResult);
-      }
-
-      const assistantMsg: AIMessage = {
-        id: Date.now().toString() + Math.random(),
-        role: 'assistant',
-        content: normalizedResult.message,
-        timestamp: Date.now(),
-        result: normalizedResult,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-
-      // ── Persist to backend (debounced 600ms) ─────────────────────
-      if (analyticsKey) {
-        if (appendDebounceRef.current) clearTimeout(appendDebounceRef.current);
-        appendDebounceRef.current = setTimeout(async () => {
-          try {
-            await initDeviceId();
-            const deviceId = getDeviceId();
-            // Read current messages directly from ref — never use setMessages() to read state
-            const currentMsgs = messagesRef.current;
-            const newMsgs = currentMsgs.slice(lastSavedMessageCountRef.current);
-
-            if (newMsgs.length === 0) return;
-
-            if (!activeConversationIdRef.current) {
-              // First exchange — create a new conversation
-              const id = await ConversationService.startConversation({
-                analyticsKey: analyticsKey!,
-                userId: userContext?.userId,
-                deviceId: deviceId || undefined,
-                messages: newMsgs,
-              });
-              if (id) {
-                activeConversationIdRef.current = id;
-                lastSavedMessageCountRef.current = currentMsgs.length;
-                const newSummary: ConversationSummary = {
-                  id,
-                  title: newMsgs.find(m => m.role === 'user')?.content?.slice(0, 80) || 'New conversation',
-                  preview: assistantMsg.content.slice(0, 100),
-                  previewRole: 'assistant',
-                  messageCount: newMsgs.length,
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                };
-                setConversations(prev => [newSummary, ...prev]);
-                logger.info('AIAgent', `Conversation created: ${id}`);
-              }
-            } else {
-              // Subsequent turns — append only new messages
-              await ConversationService.appendMessages({
-                conversationId: activeConversationIdRef.current!,
-                analyticsKey: analyticsKey!,
-                messages: newMsgs,
-              });
-              lastSavedMessageCountRef.current = currentMsgs.length;
-              setConversations(prev => prev.map(c =>
-                c.id === activeConversationIdRef.current
-                  ? { ...c, preview: assistantMsg.content.slice(0, 100), updatedAt: Date.now(), messageCount: c.messageCount + newMsgs.length }
-                  : c
-              ));
-              logger.info('AIAgent', `Conversation appended: ${activeConversationIdRef.current}`);
-            }
-          } catch (err) {
-            logger.warn('AIAgent', 'Failed to persist conversation:', err);
-          }
-        }, 600);
-      }
-
-      if (options?.onResult) {
-        options.onResult(normalizedResult);
-      } else {
-        onResult?.(normalizedResult);
-      }
-
-      logger.info('AIAgent', `Result: ${normalizedResult.success ? '✅' : '❌'} ${normalizedResult.message}`);
-    } catch (error: any) {
-      logger.error('AIAgent', 'Execution failed:', error);
-
-      // Telemetry: track agent failure
-      telemetryRef.current?.track('agent_complete', {
-        canonical_type: 'ai_answer_failed',
-        success: false,
-        resolved: false,
-        resolution_type: 'execution_error',
-        latency_ms: Date.now() - requestStartedAt,
-        request_topic: message.trim().slice(0, 120),
-        error: error.message,
-        response: `Error: ${error.message}`,
-        conversation: {
-          user: message.trim(),
-          assistant: `Error: ${error.message}`,
-        },
-      });
-
-      setLastResult({
-        success: false,
-        message: `Error: ${error.message}`,
-        steps: [],
-      });
-    } finally {
-      setIsThinking(false);
-      setStatusText('');
-    }
-  }, [runtime, navRef, onResult, messages, isThinking, consentGateActive]);
+    },
+    [runtime, navRef, onResult, messages, isThinking, consentGateActive]
+  );
 
   useEffect(() => {
     if (consentGateActive) return;
@@ -2507,20 +3129,26 @@ export function AIAgent({
 
   // ─── Conversation History Handlers ─────────────────────────────
 
-  const handleConversationSelect = useCallback(async (conversationId: string) => {
-    if (!analyticsKey) return;
-    try {
-      const msgs = await ConversationService.fetchConversation({ conversationId, analyticsKey });
-      if (msgs) {
-        activeConversationIdRef.current = conversationId;
-        lastSavedMessageCountRef.current = msgs.length;
-        setMessages(msgs);
-        setLastResult(null);
+  const handleConversationSelect = useCallback(
+    async (conversationId: string) => {
+      if (!analyticsKey) return;
+      try {
+        const msgs = await ConversationService.fetchConversation({
+          conversationId,
+          analyticsKey,
+        });
+        if (msgs) {
+          activeConversationIdRef.current = conversationId;
+          lastSavedMessageCountRef.current = msgs.length;
+          setMessages(msgs);
+          setLastResult(null);
+        }
+      } catch (err) {
+        logger.warn('AIAgent', 'Failed to load conversation:', err);
       }
-    } catch (err) {
-      logger.warn('AIAgent', 'Failed to load conversation:', err);
-    }
-  }, [analyticsKey]);
+    },
+    [analyticsKey]
+  );
 
   const handleNewConversation = useCallback(() => {
     activeConversationIdRef.current = null;
@@ -2530,16 +3158,28 @@ export function AIAgent({
     setLastUserMessage(null);
   }, []);
 
-  const contextValue = useMemo(() => ({
-    runtime,
-    send: handleSend,
-    isLoading: isThinking,
-    status: statusText,
-    lastResult,
-    messages,
-    clearMessages,
-    cancel: handleCancel,
-  }), [runtime, handleSend, handleCancel, isThinking, statusText, lastResult, messages, clearMessages]);
+  const contextValue = useMemo(
+    () => ({
+      runtime,
+      send: handleSend,
+      isLoading: isThinking,
+      status: statusText,
+      lastResult,
+      messages,
+      clearMessages,
+      cancel: handleCancel,
+    }),
+    [
+      runtime,
+      handleSend,
+      handleCancel,
+      isThinking,
+      statusText,
+      lastResult,
+      messages,
+      clearMessages,
+    ]
+  );
 
   // ─── Render ──────────────────────────────────────────────────
 
@@ -2556,29 +3196,46 @@ export function AIAgent({
             // Skip if the AI agent is currently executing a tool — those are
             // already tracked as `agent_step` events with full context.
             if (telemetryRef.current && !telemetryRef.current.isAgentActing) {
-              const label = extractTouchLabel(event);
-              if (label && label !== 'Unknown Element' && label !== '[pressable]') {
+              syncTelemetryScreen();
+              const target = extractTouchTargetMetadata(event);
+              const pageX = Math.round(event.nativeEvent.pageX);
+              const pageY = Math.round(event.nativeEvent.pageY);
+
+              if (target.label) {
                 telemetryRef.current.track('user_action', {
                   canonical_type: 'button_tapped',
                   type: 'tap',
-                  action: label,
-                  label,
-                  element_label: label,
+                  action: target.label,
+                  label: target.label,
+                  element_label: target.label,
+                  element_kind: target.elementKind,
+                  label_confidence: target.labelConfidence,
+                  zone_id: target.zoneId,
+                  ancestor_path: target.ancestorPath,
+                  sibling_labels: target.siblingLabels,
+                  component_name: target.componentName,
                   actor: 'user',
-                  x: Math.round(event.nativeEvent.pageX),
-                  y: Math.round(event.nativeEvent.pageY),
+                  x: pageX,
+                  y: pageY,
                 });
 
                 // Track if user is rage-tapping this specific element
-                checkRageClick(label, telemetryRef.current);
+                checkRageClick(
+                  { ...target, x: pageX, y: pageY },
+                  telemetryRef.current
+                );
               } else {
                 // Tapped an unlabelled/empty area
                 telemetryRef.current.track('dead_click', {
                   canonical_type: 'dead_click_detected',
-                  x: Math.round(event.nativeEvent.pageX),
-                  y: Math.round(event.nativeEvent.pageY),
+                  x: pageX,
+                  y: pageY,
                   screen: telemetryRef.current.screen,
                   screen_area: 'unknown',
+                  zone_id: target.zoneId,
+                  ancestor_path: target.ancestorPath,
+                  sibling_labels: target.siblingLabels,
+                  component_name: target.componentName,
                 });
               }
             }
@@ -2591,7 +3248,10 @@ export function AIAgent({
             onError={(error, componentStack) => {
               const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
               lastAgentErrorRef.current = errorMsg;
-              logger.warn('AIAgent', `🛡️ Error caught by boundary: ${error.message}\n${componentStack || ''}`);
+              logger.warn(
+                'AIAgent',
+                `🛡️ Error caught by boundary: ${error.message}\n${componentStack || ''}`
+              );
             }}
           >
             {children}
@@ -2605,8 +3265,14 @@ export function AIAgent({
         {showChatBar && (
           <FloatingOverlayWrapper
             ref={Platform.OS === 'android' ? floatingOverlayRef : undefined}
-            androidWindowMetrics={Platform.OS === 'android' ? (androidWindowMetricsRef.current ?? androidWindowMetrics) : null}
-            onAndroidWindowDragEnd={Platform.OS === 'android' ? handleAndroidWindowDragEnd : undefined}
+            androidWindowMetrics={
+              Platform.OS === 'android'
+                ? (androidWindowMetricsRef.current ?? androidWindowMetrics)
+                : null
+            }
+            onAndroidWindowDragEnd={
+              Platform.OS === 'android' ? handleAndroidWindowDragEnd : undefined
+            }
             fallbackStyle={styles.floatingLayer}
           >
             {Platform.OS === 'android' ? (
@@ -2621,9 +3287,15 @@ export function AIAgent({
                 pendingApprovalQuestion={pendingApprovalQuestion}
                 onPendingApprovalAction={(action) => {
                   const resolver = askUserResolverRef.current;
-                  logger.info('AIAgent', `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
+                  logger.info(
+                    'AIAgent',
+                    `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
+                  );
                   if (!resolver) {
-                    logger.error('AIAgent', '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.');
+                    logger.error(
+                      'AIAgent',
+                      '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.'
+                    );
                     return;
                   }
                   askUserResolverRef.current = null;
@@ -2646,15 +3318,32 @@ export function AIAgent({
                   resolver(response);
                 }}
                 language={'en'}
-                onDismiss={() => { setLastResult(null); setLastUserMessage(null); }}
-                theme={accentColor || theme ? {
-                  ...(accentColor ? { primaryColor: accentColor } : {}),
-                  ...theme,
-                } : undefined}
+                onDismiss={() => {
+                  setLastResult(null);
+                  setLastUserMessage(null);
+                }}
+                theme={
+                  accentColor || theme
+                    ? {
+                        ...(accentColor ? { primaryColor: accentColor } : {}),
+                        ...theme,
+                      }
+                    : undefined
+                }
                 availableModes={availableModes}
                 mode={mode}
                 onModeChange={(newMode) => {
-                  logger.info('AIAgent', '★ onModeChange:', mode, '→', newMode, '| tickets:', tickets.length, 'selectedTicketId:', selectedTicketId);
+                  logger.info(
+                    'AIAgent',
+                    '★ onModeChange:',
+                    mode,
+                    '→',
+                    newMode,
+                    '| tickets:',
+                    tickets.length,
+                    'selectedTicketId:',
+                    selectedTicketId
+                  );
                   setMode(newMode);
                 }}
                 isMicActive={isMicActive}
@@ -2665,10 +3354,16 @@ export function AIAgent({
                 isVoiceConnected={isVoiceConnected}
                 onMicToggle={(active) => {
                   if (active && !isVoiceConnected) {
-                    logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
+                    logger.warn(
+                      'AIAgent',
+                      'Cannot toggle mic — VoiceService not connected yet'
+                    );
                     return;
                   }
-                  logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
+                  logger.info(
+                    'AIAgent',
+                    `Mic toggle: ${active ? 'ON' : 'OFF'}`
+                  );
                   setIsMicActive(active);
                   if (active) {
                     logger.info('AIAgent', 'Starting AudioInput...');
@@ -2681,7 +3376,10 @@ export function AIAgent({
                   }
                 }}
                 onSpeakerToggle={(muted) => {
-                  logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
+                  logger.info(
+                    'AIAgent',
+                    `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`
+                  );
                   setIsSpeakerMuted(muted);
                   if (muted) {
                     audioOutputRef.current?.mute();
@@ -2704,7 +3402,9 @@ export function AIAgent({
                 onConversationSelect={handleConversationSelect}
                 onNewConversation={handleNewConversation}
                 renderMode="android-native-window"
-                windowMetrics={androidWindowMetricsRef.current ?? androidWindowMetrics}
+                windowMetrics={
+                  androidWindowMetricsRef.current ?? androidWindowMetrics
+                }
                 onWindowMetricsChange={handleAndroidWindowMetricsChange}
               />
             ) : (
@@ -2724,9 +3424,15 @@ export function AIAgent({
                   pendingApprovalQuestion={pendingApprovalQuestion}
                   onPendingApprovalAction={(action) => {
                     const resolver = askUserResolverRef.current;
-                    logger.info('AIAgent', `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
+                    logger.info(
+                      'AIAgent',
+                      `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
+                    );
                     if (!resolver) {
-                      logger.error('AIAgent', '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.');
+                      logger.error(
+                        'AIAgent',
+                        '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.'
+                      );
                       return;
                     }
                     askUserResolverRef.current = null;
@@ -2749,15 +3455,32 @@ export function AIAgent({
                     resolver(response);
                   }}
                   language={'en'}
-                  onDismiss={() => { setLastResult(null); setLastUserMessage(null); }}
-                  theme={accentColor || theme ? {
-                    ...(accentColor ? { primaryColor: accentColor } : {}),
-                    ...theme,
-                  } : undefined}
+                  onDismiss={() => {
+                    setLastResult(null);
+                    setLastUserMessage(null);
+                  }}
+                  theme={
+                    accentColor || theme
+                      ? {
+                          ...(accentColor ? { primaryColor: accentColor } : {}),
+                          ...theme,
+                        }
+                      : undefined
+                  }
                   availableModes={availableModes}
                   mode={mode}
                   onModeChange={(newMode) => {
-                    logger.info('AIAgent', '★ onModeChange:', mode, '→', newMode, '| tickets:', tickets.length, 'selectedTicketId:', selectedTicketId);
+                    logger.info(
+                      'AIAgent',
+                      '★ onModeChange:',
+                      mode,
+                      '→',
+                      newMode,
+                      '| tickets:',
+                      tickets.length,
+                      'selectedTicketId:',
+                      selectedTicketId
+                    );
                     setMode(newMode);
                   }}
                   isMicActive={isMicActive}
@@ -2768,15 +3491,24 @@ export function AIAgent({
                   isVoiceConnected={isVoiceConnected}
                   onMicToggle={(active) => {
                     if (active && !isVoiceConnected) {
-                      logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
+                      logger.warn(
+                        'AIAgent',
+                        'Cannot toggle mic — VoiceService not connected yet'
+                      );
                       return;
                     }
-                    logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
+                    logger.info(
+                      'AIAgent',
+                      `Mic toggle: ${active ? 'ON' : 'OFF'}`
+                    );
                     setIsMicActive(active);
                     if (active) {
                       logger.info('AIAgent', 'Starting AudioInput...');
                       audioInputRef.current?.start().then((ok) => {
-                        logger.info('AIAgent', `AudioInput start result: ${ok}`);
+                        logger.info(
+                          'AIAgent',
+                          `AudioInput start result: ${ok}`
+                        );
                       });
                     } else {
                       logger.info('AIAgent', 'Stopping AudioInput...');
@@ -2784,7 +3516,10 @@ export function AIAgent({
                     }
                   }}
                   onSpeakerToggle={(muted) => {
-                    logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
+                    logger.info(
+                      'AIAgent',
+                      `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`
+                    );
                     setIsSpeakerMuted(muted);
                     if (muted) {
                       audioOutputRef.current?.mute();
@@ -2814,40 +3549,46 @@ export function AIAgent({
         )}
 
         {/* Overlay (shown while thinking) — render after chat UI so it stays on top */}
-        <AgentOverlay visible={overlayVisible} statusText={overlayStatusText} onCancel={handleCancel} />
+        <AgentOverlay
+          visible={overlayVisible}
+          statusText={overlayStatusText}
+          onCancel={handleCancel}
+        />
 
         {Platform.OS !== 'android' && (
-            <>
-              <SupportChatModal
-                visible={mode === 'human' && !!selectedTicketId}
-                messages={supportMessages}
-                onSend={handleSend}
-                onClose={handleBackToTickets}
-                isAgentTyping={isLiveAgentTyping}
-                isThinking={isThinking}
-                scrollToEndTrigger={chatScrollTrigger}
-                ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
-              />
+          <>
+            <SupportChatModal
+              visible={mode === 'human' && !!selectedTicketId}
+              messages={supportMessages}
+              onSend={handleSend}
+              onClose={handleBackToTickets}
+              isAgentTyping={isLiveAgentTyping}
+              isThinking={isThinking}
+              scrollToEndTrigger={chatScrollTrigger}
+              ticketStatus={
+                tickets.find((t) => t.id === selectedTicketId)?.status
+              }
+            />
 
-              <AIConsentDialog
-                visible={showConsentDialog}
-                provider={providerName}
-                config={consentConfig}
-                language={'en'}
-                onConsent={async () => {
-                  await grantConsent();
-                  setShowConsentDialog(false);
-                  consentConfig.onConsent?.();
-                  logger.info('AIAgent', '✅ AI consent granted by user');
-                }}
-                onDecline={() => {
-                  setShowConsentDialog(false);
-                  consentConfig.onDecline?.();
-                  logger.info('AIAgent', '❌ AI consent declined by user');
-                }}
-              />
-            </>
-          )}
+            <AIConsentDialog
+              visible={showConsentDialog}
+              provider={providerName}
+              config={consentConfig}
+              language={'en'}
+              onConsent={async () => {
+                await grantConsent();
+                setShowConsentDialog(false);
+                consentConfig.onConsent?.();
+                logger.info('AIAgent', '✅ AI consent granted by user');
+              }}
+              onDecline={() => {
+                setShowConsentDialog(false);
+                consentConfig.onDecline?.();
+                logger.info('AIAgent', '❌ AI consent declined by user');
+              }}
+            />
+          </>
+        )}
 
         {Platform.OS === 'android' && (
           <>
@@ -2859,7 +3600,9 @@ export function AIAgent({
               isAgentTyping={isLiveAgentTyping}
               isThinking={isThinking}
               scrollToEndTrigger={chatScrollTrigger}
-              ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
+              ticketStatus={
+                tickets.find((t) => t.id === selectedTicketId)?.status
+              }
             />
 
             <FloatingOverlayWrapper fallbackStyle={styles.floatingLayer}>
@@ -2887,7 +3630,6 @@ export function AIAgent({
     </AgentContext.Provider>
   );
 }
-
 
 const styles = StyleSheet.create({
   root: {

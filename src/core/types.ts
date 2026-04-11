@@ -18,7 +18,10 @@ export type InteractionMode = 'copilot' | 'autopilot';
 // ─── Provider Names ──────────────────────────────────────────
 
 export type AIProviderName = 'gemini' | 'openai';
-export type SupportStyle = 'warm-concise' | 'wow-service' | 'neutral-professional';
+export type SupportStyle =
+  | 'warm-concise'
+  | 'wow-service'
+  | 'neutral-professional';
 
 export interface VerifierConfig {
   enabled?: boolean;
@@ -32,8 +35,34 @@ export interface VerifierConfig {
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 
-export type ElementType = 'pressable' | 'text-input' | 'switch' | 'radio' | 'scrollable'
-  | 'slider' | 'picker' | 'date-picker';
+export type ElementType =
+  | 'pressable'
+  | 'text-input'
+  | 'switch'
+  | 'radio'
+  | 'scrollable'
+  | 'slider'
+  | 'picker'
+  | 'date-picker';
+
+export type AnalyticsElementKind =
+  | 'button'
+  | 'text_input'
+  | 'toggle'
+  | 'slider'
+  | 'picker'
+  | 'link'
+  | 'tab'
+  | 'list_item'
+  | 'image'
+  | 'icon'
+  | 'text'
+  | 'card'
+  | 'modal'
+  | 'sheet'
+  | 'scroll_area'
+  | 'unknown';
+export type AnalyticsLabelConfidence = 'high' | 'low';
 
 export interface InteractiveElement {
   /** Unique index assigned during tree walk */
@@ -73,6 +102,20 @@ export interface InteractiveElement {
     /** 0-based index of the button in the active alert */
     alertButtonIndex: number;
   };
+  /** Sanitized analytics label used for telemetry and wireframes. */
+  analyticsLabel?: string | null;
+  /** Generic analytics-facing element kind. */
+  analyticsElementKind?: AnalyticsElementKind;
+  /** Confidence that the analytics label is user-facing. */
+  analyticsLabelConfidence?: AnalyticsLabelConfidence;
+  /** Nearest enclosing AI zone id, preserved for analytics/debugging. */
+  analyticsZoneId?: string | null;
+  /** Nearest custom component ancestry above the interactive node. */
+  analyticsAncestorPath?: string[];
+  /** Nearby sibling interactive labels from the same parent group. */
+  analyticsSiblingLabels?: string[];
+  /** Concrete component name for the matched interactive host. */
+  analyticsComponentName?: string | null;
 }
 
 // ─── Wireframe Snapshots (Telemetry Layer) ────────────────────
@@ -80,6 +123,12 @@ export interface InteractiveElement {
 export interface WireframeComponent {
   type: ElementType;
   label: string;
+  elementKind?: AnalyticsElementKind;
+  labelConfidence?: AnalyticsLabelConfidence;
+  zoneId?: string | null;
+  ancestorPath?: string[];
+  siblingLabels?: string[];
+  componentName?: string | null;
   x: number;
   y: number;
   width: number;
@@ -92,6 +141,12 @@ export interface WireframeSnapshot {
   deviceWidth: number;
   deviceHeight: number;
   capturedAt: string;
+  /**
+   * Optional JPEG screenshot captured at the same moment as this wireframe.
+   * Base64 payload (without data URI prefix) to avoid embedding UI-dependent
+   * image schemes in analytics payloads.
+   */
+  screenshot?: string | null;
 }
 
 // ─── Dehydrated Screen State ──────────────────────────────────
@@ -155,7 +210,7 @@ export interface AgentConfig {
    */
   provider?: AIProviderName;
 
-  /** 
+  /**
    * API key (for prototyping only).
    * Do not use in production. Use proxyUrl instead.
    */
@@ -307,7 +362,7 @@ export interface AgentConfig {
   /**
    * Called after each step with token usage data.
    * Use to track cost, enforce budgets, or display usage to the user.
-   * NOTE: Estimated costs are raw provider rates. They do not include the 
+   * NOTE: Estimated costs are raw provider rates. They do not include the
    * dashboard's hosted proxy tier multiplier.
    */
   onTokenUsage?: (usage: TokenUsage) => void;
@@ -376,7 +431,7 @@ export interface AgentConfig {
    * Maximum estimated cost (USD) allowed per task.
    * The agent loop auto-stops when this budget is exceeded, returning partial results.
    * Cost is estimated based on the provider's pricing (see provider source for rates).
-   * NOTE: This represents raw provider cost (Gemini's base pricing). 
+   * NOTE: This represents raw provider cost (Gemini's base pricing).
    * It does NOT include the MobileAI dashboard tier-based markup multiplier.
    */
   maxCostUSD?: number;
@@ -516,7 +571,6 @@ export interface ConversationSummary {
   updatedAt: number;
 }
 
-
 // ─── Chat Bar Theme ──────────────────────────────────────────
 
 /** Color customization for the floating chat bar / popup. */
@@ -581,7 +635,7 @@ export interface AIProvider {
     tools: ToolDefinition[],
     history: AgentStep[],
     /** Optional base64-encoded JPEG screenshot for vision */
-    screenshot?: string,
+    screenshot?: string
   ): Promise<ProviderResult>;
 }
 
@@ -601,10 +655,10 @@ export interface AIZoneConfig {
   allowSimplify?: boolean;
   /** Whether the AI is allowed to inject custom cards here */
   allowInjectCard?: boolean;
-  /** 
+  /**
    * Whitelist of React component templates the AI can instantiate.
    * Required if allowInjectCard is true.
-   * IMPORTANT: The AI receives the displayName of these components 
+   * IMPORTANT: The AI receives the displayName of these components
    * and can only produce props for them. It cannot generate JSX.
    */
   templates?: React.ComponentType<any>[];

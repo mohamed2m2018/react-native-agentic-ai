@@ -307,14 +307,13 @@ npm install react-native-agentic-ai
 
 No native modules required by default. Works with **Expo managed workflow** out of the box — no eject needed.
 
-### Optional Dependencies
+### Screenshot Capture
 
 <details>
 <summary><b>📸 Screenshots</b> — for image/video content understanding</summary>
 
-```bash
-npx expo install react-native-view-shot
-```
+`react-native-view-shot` is a required dependency for screenshot capture and is included with
+`@mobileai/react-native`, so you do **not** need to add it separately.
 
 </details>
 
@@ -1275,7 +1274,7 @@ Tag any element with `aiPriority` to control AI visibility:
 | `date_picker(index, date)` | Set a date on a date picker |
 | `navigate(screen)` | Navigate to any screen |
 | `wait(seconds)` | Wait for loading states before acting |
-| `capture_screenshot(reason)` | Capture the screen as an image (requires `react-native-view-shot`) |
+| `capture_screenshot(reason)` | Capture the SDK root component as an image (requires `react-native-view-shot`) |
 | `done(text)` | Finish the task with a response |
 | `ask_user(question)` | Ask the user for clarification |
 | `query_knowledge(question)` | Search the knowledge base |
