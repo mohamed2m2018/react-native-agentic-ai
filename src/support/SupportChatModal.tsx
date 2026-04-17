@@ -90,15 +90,22 @@ export function SupportChatModal({
   const isClosed = !!ticketStatus && CLOSED_STATUSES.includes(ticketStatus);
   const [text, setText] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const seededIntroMessageRef = useRef<AIMessage>({
+    id: 'support-intro-message',
+    role: 'assistant',
+    content: 'A support agent will help you solve this problem soon.',
+    timestamp: Date.now(),
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scrollRef = useRef<any>(null);
+  const renderedMessages = messages.length > 0 ? messages : [seededIntroMessageRef.current];
 
   // Scroll to bottom when new messages arrive or typing indicator changes
   useEffect(() => {
-    if (messages.length > 0 || isAgentTyping) {
+    if (renderedMessages.length > 0 || isAgentTyping) {
       setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 150);
     }
-  }, [messages.length, isAgentTyping]);
+  }, [renderedMessages.length, isAgentTyping]);
 
   // Scroll when externally triggered (e.g., after message update in parent)
   useEffect(() => {
@@ -128,8 +135,6 @@ export function SupportChatModal({
     onSend(text.trim());
     setText('');
   };
-
-  const isEmpty = messages.length === 0 && !isAgentTyping;
 
   return (
     <Modal
@@ -163,77 +168,66 @@ export function SupportChatModal({
         </View>
 
         {/* ── Messages ── */}
-        {isEmpty ? (
-          <View style={s.emptyState}>
-            <View style={s.emptyIcon}>
-              <View style={s.emptyBubble} />
-              <View style={s.emptyTail} />
-            </View>
-            <Text style={s.emptyTitle}>No messages yet</Text>
-            <Text style={s.emptySubtitle}>Start the conversation below</Text>
-          </View>
-        ) : (
-          <ScrollView
-            ref={scrollRef}
-            style={s.messagesList}
-            contentContainerStyle={s.messagesContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {messages.map((msg, i) => {
-              const isUser = msg.role === 'user';
-              const prev = messages[i - 1];
-              const showDate = shouldShowDateSeparator(prev, msg);
+        <ScrollView
+          ref={scrollRef}
+          style={s.messagesList}
+          contentContainerStyle={s.messagesContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {renderedMessages.map((msg, i) => {
+            const isUser = msg.role === 'user';
+            const prev = renderedMessages[i - 1];
+            const showDate = shouldShowDateSeparator(prev, msg);
 
-              return (
-                <View key={msg.id}>
-                  {/* Date separator */}
-                  {showDate && (
-                    <View style={s.dateSeparator}>
-                      <View style={s.dateLine} />
-                      <Text style={s.dateText}>{formatDateSeparator(msg.timestamp)}</Text>
-                      <View style={s.dateLine} />
-                    </View>
-                  )}
+            return (
+              <View key={msg.id}>
+                {/* Date separator */}
+                {showDate && (
+                  <View style={s.dateSeparator}>
+                    <View style={s.dateLine} />
+                    <Text style={s.dateText}>{formatDateSeparator(msg.timestamp)}</Text>
+                    <View style={s.dateLine} />
+                  </View>
+                )}
 
-                  {/* Message row */}
-                  <View style={[s.messageRow, isUser && s.messageRowUser]}>
-                    {/* Agent avatar (left side) */}
-                    {!isUser && <AgentAvatar />}
+                {/* Message row */}
+                <View style={[s.messageRow, isUser && s.messageRowUser]}>
+                  {/* Agent avatar (left side) */}
+                  {!isUser && <AgentAvatar />}
 
-                    <View style={s.bubbleColumn}>
-                      <View
-                        style={[
-                          s.bubble,
-                          isUser ? s.bubbleUser : s.bubbleAgent,
-                        ]}
-                      >
-                        <Text style={[s.bubbleText, !isUser && s.bubbleTextAgent]}>
-                          {msg.content}
-                        </Text>
-                      </View>
-                      <Text style={[s.timestamp, isUser && s.timestampUser]}>
-                        {formatRelativeTime(msg.timestamp)}
+                  <View style={s.bubbleColumn}>
+                    <View
+                      style={[
+                        s.bubble,
+                        isUser ? s.bubbleUser : s.bubbleAgent,
+                      ]}
+                    >
+                      <Text style={[s.bubbleText, !isUser && s.bubbleTextAgent]}>
+                        {msg.content}
                       </Text>
                     </View>
-                  </View>
-                </View>
-              );
-            })}
-
-            {/* Typing indicator */}
-            {isAgentTyping && (
-              <View style={s.messageRow}>
-                <AgentAvatar />
-                <View style={s.bubbleColumn}>
-                  <View style={[s.bubble, s.bubbleAgent, s.typingBubble]}>
-                    <LoadingDots size={20} color="rgba(255,255,255,0.6)" />
+                    <Text style={[s.timestamp, isUser && s.timestampUser]}>
+                      {formatRelativeTime(msg.timestamp)}
+                    </Text>
                   </View>
                 </View>
               </View>
-            )}
-          </ScrollView>
-        )}
+            );
+          })}
+
+          {/* Typing indicator */}
+          {isAgentTyping && (
+            <View style={s.messageRow}>
+              <AgentAvatar />
+              <View style={s.bubbleColumn}>
+                <View style={[s.bubble, s.bubbleAgent, s.typingBubble]}>
+                  <LoadingDots size={20} color="rgba(255,255,255,0.6)" />
+                </View>
+              </View>
+            </View>
+          )}
+        </ScrollView>
 
         {/* ── Input Row or Closed Banner ── */}
         {isClosed ? (

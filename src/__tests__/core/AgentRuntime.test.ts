@@ -81,6 +81,21 @@ class MockProvider implements AIProvider {
   }
 }
 
+class CapturingProvider extends MockProvider {
+  public readonly userMessages: string[] = [];
+
+  override async generateContent(
+    systemPrompt: string,
+    userMessage: string,
+    tools: any[],
+    history: any[],
+    screenshot?: string,
+  ): Promise<ProviderResult> {
+    this.userMessages.push(userMessage);
+    return super.generateContent(systemPrompt, userMessage, tools, history, screenshot);
+  }
+}
+
 /** Creates a ProviderResult that triggers a tool call */
 function createToolResponse(
   actionName: string,
@@ -225,6 +240,61 @@ describe('AgentRuntime', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('verification code is invalid');
       expect(result.steps.map((step) => step.action.name)).toEqual(['tap', 'done', 'done']);
+    }, 10000);
+
+    it('injects bundled missing-field guidance into the next prompt after a controllable validation failure', async () => {
+      const onPress = jest.fn();
+      const provider = new CapturingProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Need more form info', success: false }),
+      ]);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Confirm Location />\n[1]<text-input>Building Name />\n[2]<text-input>Floor No />\n[3]<text-input>Phone Number />\n',
+        interactives: [
+          { index: 0, type: 'pressable' as const, label: 'Confirm Location', fiberNode: {}, props: { onPress } },
+          { index: 1, type: 'text-input' as const, label: 'Building Name', fiberNode: {}, props: {} },
+          { index: 2, type: 'text-input' as const, label: 'Floor No', fiberNode: {}, props: {} },
+          { index: 3, type: 'text-input' as const, label: 'Phone Number', fiberNode: {}, props: {} },
+        ],
+      });
+
+      mockDehydrateScreen
+        .mockReturnValueOnce({
+          screenName: 'ProfileForm',
+          availableScreens: ['ProfileForm'],
+          elementsText: 'Screen: ProfileForm\nBuilding Details  *\n[0]<pressable>Confirm Location />\n[1]<text-input value=\"\">Building Name />\n[2]<text-input value=\"\">Floor No />\n[3]<text-input value=\"\">Phone Number />\n',
+          elements: [
+            { index: 0, type: 'pressable' as const, label: 'Confirm Location', requiresConfirmation: false, fiberNode: {}, props: { onPress } },
+            { index: 1, type: 'text-input' as const, label: 'Building Name', requiresConfirmation: false, fiberNode: {}, props: {} },
+            { index: 2, type: 'text-input' as const, label: 'Floor No', requiresConfirmation: false, fiberNode: {}, props: {} },
+            { index: 3, type: 'text-input' as const, label: 'Phone Number', requiresConfirmation: false, fiberNode: {}, props: {} },
+          ],
+        })
+        .mockReturnValueOnce({
+          screenName: 'ProfileForm',
+          availableScreens: ['ProfileForm'],
+          elementsText: 'Screen: ProfileForm\nBuilding Details  *\n[0]<pressable>Confirm Location />\n[1]<text-input value=\"\">Building Name />\n[2]<text-input value=\"\">Floor No />\nContact Information *\n[3]<text-input value=\"\">Phone Number />\nFloor number is required\n',
+          elements: [
+            { index: 0, type: 'pressable' as const, label: 'Confirm Location', requiresConfirmation: false, fiberNode: {}, props: { onPress } },
+            { index: 1, type: 'text-input' as const, label: 'Building Name', requiresConfirmation: false, fiberNode: {}, props: {} },
+            { index: 2, type: 'text-input' as const, label: 'Floor No', requiresConfirmation: false, fiberNode: {}, props: {} },
+            { index: 3, type: 'text-input' as const, label: 'Phone Number', requiresConfirmation: false, fiberNode: {}, props: {} },
+          ],
+        });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+      });
+      const result = await runtime.execute('Save the profile');
+
+      expect(result.success).toBe(false);
+      expect(provider.userMessages[1]).toContain(
+        'Visible missing required fields: Floor No, Building Name, Phone Number.',
+      );
+      expect(provider.userMessages[1]).toContain(
+        'collect ALL of them in ONE ask_user(grants_workflow_approval=true) call',
+      );
     }, 10000);
 
     it('allows success completion after a critical action changes the screen', async () => {
@@ -446,6 +516,54 @@ describe('AgentRuntime', () => {
       // Hits maxSteps because tap keeps getting blocked/re-attempted
       expect(result.success).toBe(false);
     }, 30000);
+
+    it('stops immediately when the user rejects an approval prompt', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: false, fiberNode: {}, props: {} }],
+      });
+
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_REJECTED__');
+      const provider = new MockProvider([
+        createToolResponse('ask_user', {
+          question: 'I can submit this form for you. May I proceed?',
+          request_app_action: true,
+        }),
+        createToolResponse('ask_user', {
+          question: 'This should never run',
+          request_app_action: true,
+        }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Submit the form');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("I won't do that");
+      expect(onAskUser).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops immediately when the user rejects an aiConfirm action', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<pressable>Place Order />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Place Order', requiresConfirmation: true, fiberNode: {}, props: {} }],
+      });
+
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_REJECTED__');
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('tap', { index: 0 }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Place my order');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("I won't do that");
+      expect(onAskUser).toHaveBeenCalledTimes(1);
+    });
 
     it('acknowledges when the user already completed the action themselves', async () => {
       mockDehydrateScreen.mockReturnValue({

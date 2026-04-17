@@ -381,7 +381,7 @@ export interface AgentConfig {
    * AI-driven taps are not double-counted as user interactions.
    * @param active - true = agent is acting, false = agent finished acting
    */
-  onToolExecute?: (active: boolean) => void;
+  onToolExecute?: (active: boolean, toolName?: string) => void;
 
   /**
    * Called whenever the runtime emits a detailed audit trace event.

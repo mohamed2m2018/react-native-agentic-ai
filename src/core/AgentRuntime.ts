@@ -308,6 +308,8 @@ export class AgentRuntime {
       status: result.status,
       failureKind: result.failureKind,
       evidence: result.evidence,
+      missingFields: result.missingFields,
+      validationMessages: result.validationMessages,
       source: result.source,
       followupSteps: this.pendingCriticalVerification.followupSteps,
     }, stepIndex);
@@ -318,8 +320,23 @@ export class AgentRuntime {
     }
 
     if (result.status === 'error') {
+      const validationDetails = result.validationMessages?.length
+        ? ` Visible validation messages: ${result.validationMessages.join(' | ')}.`
+        : '';
+
+      if (result.failureKind === 'controllable' && result.missingFields && result.missingFields.length > 0) {
+        const fieldLabel = result.missingFields.join(', ');
+        const bundleInstruction = result.missingFields.length > 1
+          ? `Visible missing required fields: ${fieldLabel}. Before retrying the submit/save/confirm action, collect ALL of them in ONE ask_user(grants_workflow_approval=true) call. Do not ask one field at a time or retry between partial answers unless a new validation error appears after filling these fields.`
+          : `Visible missing required field: ${fieldLabel}. Ask for it with ask_user(grants_workflow_approval=true) before retrying the submit/save/confirm action.`;
+        this.observations.push(
+          `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" did NOT complete successfully. ${result.evidence}${validationDetails} Treat this as a controllable failure. ${bundleInstruction}`
+        );
+        return;
+      }
+
       this.observations.push(
-        `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" did NOT complete successfully. ${result.evidence} Treat this as a ${result.failureKind} failure, do not claim success, and either recover or explain the issue clearly.`
+        `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" did NOT complete successfully. ${result.evidence}${validationDetails} Treat this as a ${result.failureKind} failure, do not claim success, and either recover or explain the issue clearly.`
       );
       return;
     }
@@ -547,6 +564,7 @@ export class AgentRuntime {
           } else if (answer === '__APPROVAL_REJECTED__') {
             this.resetAppActionApproval('explicit approval rejected');
             logger.info('AgentRuntime', '🚫 App action gate: REJECTED — UI tools remain blocked');
+            return ACTION_NOT_APPROVED_MESSAGE;
           } else if (
             grantsWorkflowApproval &&
             typeof answer === 'string' &&
@@ -1083,7 +1101,7 @@ ${screen.elementsText}
 
     // Signal analytics that the AGENT is acting (not the user).
     // This prevents AI-driven taps from being tracked as user_interaction events.
-    this.config.onToolExecute?.(true);
+    this.config.onToolExecute?.(true, toolName);
 
     try {
       this.emitTrace('tool_execution_started', {
@@ -1169,7 +1187,7 @@ ${screen.elementsText}
       return `❌ Tool "${toolName}" failed: ${error.message}`;
     } finally {
       // Always restore the flag — even on error or validation rejection
-      this.config.onToolExecute?.(false);
+      this.config.onToolExecute?.(false, toolName);
     }
   }
 
@@ -1784,7 +1802,19 @@ ${screen.elementsText}
         // 3. Handle observations
         this.handleObservations(step, maxSteps, screenName);
 
-        // 4. Assemble structured user prompt
+        // 4. Capture screenshot for Gemini vision (optional)
+        const screenshot = await this.captureScreenshot();
+
+        await this.updateCriticalVerification(
+          screenName,
+          screenContent,
+          screen.elements,
+          screenshot,
+          step,
+        );
+
+        // 5. Assemble structured user prompt after verification updates so
+        // any new observations are included in the very next model turn.
         const contextMessage = this.assembleUserPrompt(
           step, maxSteps, contextualMessage, screenName, screenContent, chatHistory
         );
@@ -1796,18 +1826,7 @@ ${screen.elementsText}
           contextMessage,
         );
 
-        // 4.5. Capture screenshot for Gemini vision (optional)
-        const screenshot = await this.captureScreenshot();
-
-        await this.updateCriticalVerification(
-          screenName,
-          screenContent,
-          screen.elements,
-          screenshot,
-          step,
-        );
-
-        // 5. Send to AI provider
+        // 6. Send to AI provider
         this.config.onStatusUpdate?.('Thinking...');
         const hasKnowledge = !!this.knowledgeService;
         const isCopilot = this.config.interactionMode !== 'autopilot';
@@ -2001,6 +2020,21 @@ ${screen.elementsText}
 
         // Lifecycle: onAfterStep
         await this.config.onAfterStep?.(this.history);
+
+        if (output === ACTION_NOT_APPROVED_MESSAGE) {
+          const result: ExecutionResult = {
+            success: false,
+            message: ACTION_NOT_APPROVED_MESSAGE,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          this.emitTrace('task_stopped_not_approved', {
+            tool: toolCall.name,
+            message: ACTION_NOT_APPROVED_MESSAGE,
+          }, step);
+          await this.config.onAfterTask?.(result);
+          return result;
+        }
 
         // Check if done
         if (toolCall.name === 'done') {
