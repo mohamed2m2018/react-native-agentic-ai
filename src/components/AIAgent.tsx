@@ -23,7 +23,7 @@ import { createProvider } from '../providers/ProviderFactory';
 import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
 import { AgentOverlay } from './AgentOverlay';
-import { AIConsentDialog, useAIConsent } from './AIConsentDialog';
+import { useAIConsent } from './AIConsentDialog';
 import type { AIConsentConfig } from './AIConsentDialog';
 import { FloatingOverlayWrapper } from './FloatingOverlayWrapper';
 import type { FloatingOverlayWrapperHandle } from './FloatingOverlayWrapper';
@@ -3406,6 +3406,20 @@ export function AIAgent({
                   androidWindowMetricsRef.current ?? androidWindowMetrics
                 }
                 onWindowMetricsChange={handleAndroidWindowMetricsChange}
+                consentVisible={showConsentDialog}
+                consentProvider={providerName}
+                consentConfig={consentConfig}
+                onConsentApprove={async () => {
+                  await grantConsent();
+                  setShowConsentDialog(false);
+                  consentConfig.onConsent?.();
+                  logger.info('AIAgent', '✅ AI consent granted by user');
+                }}
+                onConsentDecline={() => {
+                  setShowConsentDialog(false);
+                  consentConfig.onDecline?.();
+                  logger.info('AIAgent', '❌ AI consent declined by user');
+                }}
               />
             ) : (
               <ProactiveHint
@@ -3542,6 +3556,20 @@ export function AIAgent({
                   onConversationSelect={handleConversationSelect}
                   onNewConversation={handleNewConversation}
                   renderMode="default"
+                  consentVisible={showConsentDialog}
+                  consentProvider={providerName}
+                  consentConfig={consentConfig}
+                  onConsentApprove={async () => {
+                    await grantConsent();
+                    setShowConsentDialog(false);
+                    consentConfig.onConsent?.();
+                    logger.info('AIAgent', '✅ AI consent granted by user');
+                  }}
+                  onConsentDecline={() => {
+                    setShowConsentDialog(false);
+                    consentConfig.onDecline?.();
+                    logger.info('AIAgent', '❌ AI consent declined by user');
+                  }}
                 />
               </ProactiveHint>
             )}
@@ -3569,24 +3597,6 @@ export function AIAgent({
                 tickets.find((t) => t.id === selectedTicketId)?.status
               }
             />
-
-            <AIConsentDialog
-              visible={showConsentDialog}
-              provider={providerName}
-              config={consentConfig}
-              language={'en'}
-              onConsent={async () => {
-                await grantConsent();
-                setShowConsentDialog(false);
-                consentConfig.onConsent?.();
-                logger.info('AIAgent', '✅ AI consent granted by user');
-              }}
-              onDecline={() => {
-                setShowConsentDialog(false);
-                consentConfig.onDecline?.();
-                logger.info('AIAgent', '❌ AI consent declined by user');
-              }}
-            />
           </>
         )}
 
@@ -3604,26 +3614,6 @@ export function AIAgent({
                 tickets.find((t) => t.id === selectedTicketId)?.status
               }
             />
-
-            <FloatingOverlayWrapper fallbackStyle={styles.floatingLayer}>
-              <AIConsentDialog
-                visible={showConsentDialog}
-                provider={providerName}
-                config={consentConfig}
-                language={'en'}
-                onConsent={async () => {
-                  await grantConsent();
-                  setShowConsentDialog(false);
-                  consentConfig.onConsent?.();
-                  logger.info('AIAgent', '✅ AI consent granted by user');
-                }}
-                onDecline={() => {
-                  setShowConsentDialog(false);
-                  consentConfig.onDecline?.();
-                  logger.info('AIAgent', '❌ AI consent declined by user');
-                }}
-              />
-            </FloatingOverlayWrapper>
           </>
         )}
       </View>
