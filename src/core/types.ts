@@ -339,6 +339,12 @@ export interface AgentConfig {
    */
   enableUIControl?: boolean;
 
+  /**
+   * Optional allowlist of action names that may be exposed from useAction()/ActionRegistry.
+   * When provided, unlisted app-code actions are hidden from the model.
+   */
+  allowedActionNames?: string[];
+
   /** Delay between steps in ms. */
   stepDelay?: number;
 
