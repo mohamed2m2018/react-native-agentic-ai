@@ -15,6 +15,8 @@ export { createDatePickerTool } from './datePickerTool';
 export { createKeyboardTool } from './keyboardTool';
 export { createGuideTool } from './guideTool';
 export { createSimplifyTool } from './simplifyTool';
+export { createRenderBlockTool } from './renderBlockTool';
+export { createInjectCardTool } from './injectCardTool';
 export { createRestoreTool } from './restoreTool';
 
 export type { AgentTool, ToolContext, ToolParameter } from './types';

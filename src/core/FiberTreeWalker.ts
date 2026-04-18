@@ -1315,11 +1315,30 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (props.allowSimplify) permissions.push('simplify');
       if (props.allowHighlight) permissions.push('highlight');
       if (props.allowInjectHint) permissions.push('hint');
-      if (props.allowInjectCard) permissions.push('card');
+      if (props.allowInjectBlock || props.allowInjectCard) permissions.push('block');
+      const blockSummaries = Array.isArray(props.blocks)
+        ? props.blocks
+          .map((block: any) => {
+            if (!block?.name) return null;
+            const propNames = block.propSchema ? Object.keys(block.propSchema) : [];
+            return propNames.length > 0
+              ? `${block.name}(${propNames.join(',')})`
+              : block.name;
+          })
+          .filter((summary: unknown): summary is string => typeof summary === 'string' && summary.trim().length > 0)
+        : Array.isArray(props.templates)
+          ? props.templates
+            .map((template: any) => template?.displayName || template?.name)
+            .filter((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0)
+        : [];
       const permStr = permissions.length
         ? ` | permissions: ${permissions.join(', ')}`
         : '';
-      zoneHeader = `${indent}[zone: ${props.id}${permStr}]\n`;
+      const blockStr = blockSummaries.length
+        ? ` | blocks: ${blockSummaries.join(', ')}`
+        : '';
+      const interventionStr = props.interventionEligible ? ' | intervention: eligible' : '';
+      zoneHeader = `${indent}[zone: ${props.id}${permStr}${blockStr}${interventionStr}]\n`;
     }
 
     // Process children

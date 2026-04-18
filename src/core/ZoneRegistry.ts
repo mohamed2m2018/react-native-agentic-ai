@@ -23,7 +23,7 @@ export class ZoneRegistry {
     return Array.from(this.zones.values());
   }
 
-  isActionAllowed(zoneId: string, action: 'highlight' | 'hint' | 'simplify' | 'card'): boolean {
+  isActionAllowed(zoneId: string, action: 'highlight' | 'hint' | 'simplify' | 'card' | 'block'): boolean {
     const zone = this.get(zoneId);
     if (!zone) return false;
 
@@ -31,7 +31,8 @@ export class ZoneRegistry {
       case 'highlight': return !!zone.allowHighlight;
       case 'hint': return !!zone.allowInjectHint;
       case 'simplify': return !!zone.allowSimplify;
-      case 'card': return !!zone.allowInjectCard;
+      case 'card': return !!zone.allowInjectCard || !!zone.allowInjectBlock;
+      case 'block': return !!zone.allowInjectBlock || !!zone.allowInjectCard;
       default: return false;
     }
   }

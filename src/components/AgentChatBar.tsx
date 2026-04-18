@@ -36,6 +36,7 @@ import { logger } from '../utils/logger';
 import { DiscoveryTooltip } from './DiscoveryTooltip';
 import type { AIConsentConfig } from './AIConsentDialog';
 import { resolveConsentDialogContent } from './AIConsentDialog';
+import { RichContentRenderer } from './rich-content/RichContentRenderer';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -1030,8 +1031,8 @@ export function AgentChatBar({
                   const lastMsg = [...chatMessages].reverse().find(m => m.role === 'assistant');
                   if (!lastMsg) return isArabic ? 'رسالة جديدة' : 'New message';
                   const content = Array.isArray(lastMsg.content) 
-                    ? lastMsg.content.map(c => c.type === 'text' ? c.text : '').join('')
-                    : lastMsg.content;
+                    ? lastMsg.content.map(c => c.type === 'text' ? c.content : '').join('')
+                    : '';
                   return content || (isArabic ? 'رسالة جديدة' : 'New message');
                })()}
              </Text>
@@ -1266,10 +1267,6 @@ export function AgentChatBar({
             >
               {chatMessages.filter(msg => msg.role === 'user' || msg.role === 'assistant').map((msg) => {
                 const isUser = msg.role === 'user';
-                const contentText = Array.isArray(msg.content)
-                  ? msg.content.map((c: any) => c.type === 'text' ? c.text : '').join('')
-                  : msg.content;
-                if (!contentText || contentText.trim() === '') return null;
                 return (
                   <View
                     key={msg.id || `${msg.role}-${Math.random()}`}
@@ -1279,13 +1276,16 @@ export function AgentChatBar({
                       isUser && theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
                     ]}
                   >
-                    <Text style={[
-                      styles.messageText,
-                      isUser ? styles.messageTextUser : styles.messageTextAI,
-                      { textAlign: isArabic ? 'right' : 'left' },
-                    ]}>
-                      {contentText}
-                    </Text>
+                    <RichContentRenderer
+                      content={msg.content}
+                      surface="chat"
+                      isUser={isUser}
+                      textStyle={[
+                        styles.messageText,
+                        isUser ? styles.messageTextUser : styles.messageTextAI,
+                        { textAlign: isArabic ? 'right' : 'left' },
+                      ]}
+                    />
                   </View>
                 );
               })}

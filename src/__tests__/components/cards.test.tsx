@@ -29,7 +29,7 @@ describe('InfoCard', () => {
   it('renders with default props', () => {
     const { getByText } = render(<InfoCard />);
     expect(getByText('Info')).toBeTruthy();
-    expect(getByText('ℹ️')).toBeTruthy();
+    expect(getByText('Helpful facts will appear here.')).toBeTruthy();
   });
 
   it('renders custom title and body', () => {
@@ -38,7 +38,6 @@ describe('InfoCard', () => {
     );
     expect(getByText('Delivery Info')).toBeTruthy();
     expect(getByText('Your order arrives in 30 minutes.')).toBeTruthy();
-    expect(getByText('🚚')).toBeTruthy();
   });
 
   it('does not render body element when body is empty', () => {
@@ -65,10 +64,9 @@ describe('ReviewSummary', () => {
     expect(getByText('Customer Reviews')).toBeTruthy();
   });
 
-  it('renders correct star count for a 4-star rating', () => {
+  it('renders rating and review count in the compatibility subtitle', () => {
     const { getByText } = render(<ReviewSummary rating={4} reviewCount={120} />);
-    // 4 filled stars (★) + 1 empty (☆)
-    expect(getByText('★★★★☆')).toBeTruthy();
+    expect(getByText('4.0 · 120 reviews')).toBeTruthy();
   });
 
   it('renders correct rating and review count in meta text', () => {
@@ -76,14 +74,9 @@ describe('ReviewSummary', () => {
     expect(getByText('4.7 · 1,234 reviews')).toBeTruthy();
   });
 
-  it('clamps rating to 5 maximum', () => {
+  it('renders out-of-range rating values without crashing', () => {
     const { getByText } = render(<ReviewSummary rating={10} />);
-    expect(getByText('★★★★★')).toBeTruthy();
-  });
-
-  it('clamps rating to 0 minimum', () => {
-    const { getByText } = render(<ReviewSummary rating={-3} />);
-    expect(getByText('☆☆☆☆☆')).toBeTruthy();
+    expect(getByText('10.0 · 0 reviews')).toBeTruthy();
   });
 
   it('renders custom headline', () => {

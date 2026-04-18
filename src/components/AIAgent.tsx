@@ -81,6 +81,23 @@ import {
   type RemoteConfiguredAction,
 } from '../services/MobileAIActionService';
 import { formatActionToolResult } from '../utils/actionResult';
+import {
+  createAIMessage,
+  normalizeExecutionResult,
+  normalizeRichContent,
+} from '../core/richContent';
+import { RichUIProvider } from './rich-content/RichUIContext';
+import type { BlockActionHandler } from '../core/ActionBridge';
+import { ActionBridgeProvider } from '../core/ActionBridge';
+import type { RichUIThemeOverride } from '../theme/RichUITheme';
+import type { BlockDefinition } from '../core/types';
+import {
+  ActionCardDefinition,
+  ComparisonCardDefinition,
+  FactCardDefinition,
+  FormCardDefinition,
+  ProductCardDefinition,
+} from './blocks';
 
 type AndroidWindowMetrics = {
   x: number;
@@ -336,6 +353,14 @@ interface AIAgentProps {
    * Overrides accentColor for any specified key.
    */
   theme?: ChatBarTheme;
+  /** Global rich blocks available to chat and zone rendering. */
+  blocks?: Array<BlockDefinition | React.ComponentType<any>>;
+  /** Rich UI token overrides for built-in blocks and rich rendering. */
+  richUITheme?: RichUIThemeOverride;
+  /** Optional per-surface rich UI token overrides. */
+  richUISurfaceThemes?: Partial<Record<'chat' | 'zone' | 'support', RichUIThemeOverride>>;
+  /** App-defined action handlers for interactive rich blocks. */
+  blockActionHandlers?: Record<string, BlockActionHandler>;
   /**
    * Pre-generated screen map from `npx react-native-ai-agent generate-map`.
    * Gives the AI knowledge of all screens, their content, and navigation chains.
@@ -498,6 +523,10 @@ export function AIAgent({
   enableUIControl,
   accentColor,
   theme,
+  blocks,
+  richUITheme,
+  richUISurfaceThemes,
+  blockActionHandlers,
   screenMap,
   useScreenMap = true,
   maxTokenBudget,
@@ -702,7 +731,7 @@ export function AIAgent({
         setSupportMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
           if (
-            lastMessage?.content === normalizedReply &&
+            lastMessage?.previewText === normalizedReply &&
             (lastMessage.role === 'assistant' ||
               lastMessage.role === ('live_agent' as any))
           ) {
@@ -710,17 +739,20 @@ export function AIAgent({
           }
           return [
             ...prev,
-            {
+            createAIMessage({
               id: `human-${ticketId}-${now}`,
               role: 'assistant',
               content: normalizedReply,
+              previewText: normalizedReply,
               timestamp: now,
-            },
+            }),
           ];
         });
         setLastResult({
           success: true,
           message: `👤 ${normalizedReply}`,
+          previewText: `👤 ${normalizedReply}`,
+          reply: normalizeRichContent(normalizedReply),
           steps: [],
         });
       } else if (!selectedTicketIdRef.current) {
@@ -1005,14 +1037,17 @@ export function AIAgent({
       });
 
       if (options?.history) {
-        const restored: AIMessage[] = options.history.map((entry, i) => ({
-          id: `restored-${ticketId}-${i}`,
-          role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
-          content: entry.content,
-          timestamp: entry.timestamp
-            ? new Date(entry.timestamp).getTime()
-            : Date.now(),
-        }));
+        const restored: AIMessage[] = options.history.map((entry, i) =>
+          createAIMessage({
+            id: `restored-${ticketId}-${i}`,
+            role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
+            content: entry.content,
+            previewText: entry.content,
+            timestamp: entry.timestamp
+              ? new Date(entry.timestamp).getTime()
+              : Date.now(),
+          })
+        );
         setSupportMessages(restored);
       }
 
@@ -1172,14 +1207,15 @@ export function AIAgent({
             if (prev.some((msg) => msg.id === `reported-${id}`)) return prev;
             return [
               ...prev,
-              {
+              createAIMessage({
                 id: `reported-${id}`,
                 role: 'assistant',
                 content: message,
+                previewText: message,
                 timestamp: Number.isFinite(entryTimestamp)
                   ? entryTimestamp
                   : Date.now(),
-              },
+              }),
             ];
           });
         });
@@ -1301,7 +1337,7 @@ export function AIAgent({
         stepsBeforeEscalation: 0,
       }),
       getHistory: () =>
-        messages.map((m) => ({ role: m.role, content: m.content })),
+        messages.map((m) => ({ role: m.role, content: m.previewText })),
       getToolCalls: () => {
         const toolCalls: Array<{
           name: string;
@@ -1454,7 +1490,7 @@ export function AIAgent({
       analyticsKey,
       getCurrentScreen: getResolvedScreenName,
       getHistory: () =>
-        messages.map((m) => ({ role: m.role, content: m.content })),
+        messages.map((m) => ({ role: m.role, content: m.previewText })),
       getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
       userContext,
     });
@@ -1707,16 +1743,19 @@ export function AIAgent({
             serverHistory,
             ticket.history || []
           );
-          const restored: AIMessage[] = mergedHistory.map((entry, i) => ({
-            id: `restored-${ticketId}-${i}`,
-            role: (entry.role === 'live_agent'
-              ? 'assistant'
-              : entry.role) as any,
-            content: entry.content,
-            timestamp: entry.timestamp
-              ? new Date(entry.timestamp).getTime()
-              : Date.now(),
-          }));
+          const restored: AIMessage[] = mergedHistory.map((entry, i) =>
+            createAIMessage({
+              id: `restored-${ticketId}-${i}`,
+              role: (entry.role === 'live_agent'
+                ? 'assistant'
+                : entry.role) as any,
+              content: entry.content,
+              previewText: entry.content,
+              timestamp: entry.timestamp
+                ? new Date(entry.timestamp).getTime()
+                : Date.now(),
+            })
+          );
           setSupportMessages(restored);
           // Update ticket in local list with fresh history + wsUrl
           if (data.wsUrl) {
@@ -1741,16 +1780,18 @@ export function AIAgent({
               (
                 entry: { role: string; content: string; timestamp?: string },
                 i: number
-              ) => ({
-                id: `restored-${ticketId}-${i}`,
-                role: (entry.role === 'live_agent'
-                  ? 'assistant'
-                  : entry.role) as any,
-                content: entry.content,
-                timestamp: entry.timestamp
-                  ? new Date(entry.timestamp).getTime()
-                  : Date.now(),
-              })
+              ) =>
+                createAIMessage({
+                  id: `restored-${ticketId}-${i}`,
+                  role: (entry.role === 'live_agent'
+                    ? 'assistant'
+                    : entry.role) as any,
+                  content: entry.content,
+                  previewText: entry.content,
+                  timestamp: entry.timestamp
+                    ? new Date(entry.timestamp).getTime()
+                    : Date.now(),
+                })
             );
             setSupportMessages(restored);
           } else {
@@ -1768,16 +1809,18 @@ export function AIAgent({
             (
               entry: { role: string; content: string; timestamp?: string },
               i: number
-            ) => ({
-              id: `restored-${ticketId}-${i}`,
-              role: (entry.role === 'live_agent'
-                ? 'assistant'
-                : entry.role) as any,
-              content: entry.content,
-              timestamp: entry.timestamp
-                ? new Date(entry.timestamp).getTime()
-                : Date.now(),
-            })
+            ) =>
+              createAIMessage({
+                id: `restored-${ticketId}-${i}`,
+                role: (entry.role === 'live_agent'
+                  ? 'assistant'
+                  : entry.role) as any,
+                content: entry.content,
+                previewText: entry.content,
+                timestamp: entry.timestamp
+                  ? new Date(entry.timestamp).getTime()
+                  : Date.now(),
+              })
           );
           setSupportMessages(restored);
         } else {
@@ -2209,14 +2252,15 @@ export function AIAgent({
                   // then immediately resolve the Promise with the queued message.
                   setMessages((prev) => [
                     ...prev,
-                    {
+                    createAIMessage({
                       id: `assistant-ask-${Date.now()}`,
                       role: 'assistant' as const,
                       content: question,
+                      previewText: question,
                       timestamp: Date.now(),
                       promptKind:
                         forcedKind === 'approval' ? 'approval' : undefined,
-                    },
+                    }),
                   ]);
                   askUserResolverRef.current = null;
                   pendingAskUserKindRef.current = null;
@@ -2233,15 +2277,22 @@ export function AIAgent({
                 // Add AI question to the message thread so it appears in chat
                 setMessages((prev) => [
                   ...prev,
-                  {
+                  createAIMessage({
                     id: `assistant-ask-${Date.now()}`,
                     role: 'assistant' as const,
                     content: question,
+                    previewText: question,
                     timestamp: Date.now(),
                     promptKind: kind === 'approval' ? 'approval' : undefined,
-                  },
+                  }),
                 ]);
-                setLastResult({ success: true, message: question, steps: [] });
+                setLastResult({
+                  success: true,
+                  message: question,
+                  previewText: question,
+                  reply: normalizeRichContent(question),
+                  steps: [],
+                });
                 setIsThinking(false);
                 setStatusText('');
               });
@@ -3042,12 +3093,13 @@ export function AIAgent({
         if (supportSocket.sendText(message)) {
           setSupportMessages((prev) => [
             ...prev,
-            {
+            createAIMessage({
               id: `user-${Date.now()}`,
               role: 'user',
               content: message.trim(),
+              previewText: message.trim(),
               timestamp: Date.now(),
-            },
+            }),
           ]);
           setIsThinking(true);
           setStatusText('Sending to agent...');
@@ -3069,12 +3121,13 @@ export function AIAgent({
       // Append user message to AI thread
       setMessages((prev) => [
         ...prev,
-        {
+        createAIMessage({
           id: Date.now().toString() + Math.random(),
           role: 'user',
           content: message.trim(),
+          previewText: message.trim(),
           timestamp: Date.now(),
-        },
+        }),
       ]);
 
       // If there's a pending ask_user, resolve it instead of starting a new execution
@@ -3172,8 +3225,7 @@ export function AIAgent({
         const priorFrustrationCount = messages.filter(
           (m) =>
             m.role === 'user' &&
-            typeof m.content === 'string' &&
-            FRUSTRATION_REGEX.test(m.content)
+            FRUSTRATION_REGEX.test(m.previewText)
         ).length;
 
         if (escalateTool && !selectedTicketId) {
@@ -3203,6 +3255,8 @@ export function AIAgent({
             const res: ExecutionResult = {
               success: true,
               message: customerMessage,
+              previewText: customerMessage,
+              reply: normalizeRichContent(customerMessage),
               steps: [
                 {
                   stepIndex: 0,
@@ -3223,13 +3277,14 @@ export function AIAgent({
             setLastResult(res);
             setMessages((prev) => [
               ...prev,
-              {
+              createAIMessage({
                 id: `assistant-${Date.now()}`,
                 role: 'assistant',
                 content: res.message,
+                previewText: res.previewText || res.message,
                 timestamp: Date.now(),
                 result: res,
-              },
+              }),
             ]);
 
             setIsThinking(false);
@@ -3246,6 +3301,8 @@ export function AIAgent({
             const res: ExecutionResult = {
               success: true,
               message: frustrationMessage,
+              previewText: frustrationMessage,
+              reply: normalizeRichContent(frustrationMessage),
               steps: [
                 {
                   stepIndex: 0,
@@ -3269,13 +3326,14 @@ export function AIAgent({
             setLastResult(res);
             setMessages((prev) => [
               ...prev,
-              {
+              createAIMessage({
                 id: `assistant-${Date.now()}`,
                 role: 'assistant',
                 content: frustrationMessage,
+                previewText: frustrationMessage,
                 timestamp: Date.now(),
                 result: res,
-              },
+              }),
             ]);
 
             setIsThinking(false);
@@ -3287,8 +3345,14 @@ export function AIAgent({
         // Ensure we have the latest Fiber tree ref
         runtime.updateRefs(rootViewRef.current, navRef);
 
-        const result = await runtime.execute(message, messages);
-        let normalizedResult = result;
+        const result = await runtime.execute(
+          message,
+          messages.map((entry) => ({
+            role: entry.role,
+            content: entry.previewText,
+          }))
+        );
+        let normalizedResult = normalizeExecutionResult(result);
 
         const reportStep = result.steps?.find(
           (step) => step.action.name === 'report_issue'
@@ -3305,8 +3369,10 @@ export function AIAgent({
               seenReportedIssueUpdatesRef.current.add(historyId);
             }
             normalizedResult = {
-              ...result,
+              ...normalizedResult,
               message: resolvedCustomerMessage,
+              previewText: resolvedCustomerMessage,
+              reply: normalizeRichContent(resolvedCustomerMessage),
               steps: result.steps.map((step) =>
                 step === reportStep
                   ? {
@@ -3391,13 +3457,14 @@ export function AIAgent({
           setLastResult(normalizedResult);
         }
 
-        const assistantMsg: AIMessage = {
+        const assistantMsg: AIMessage = createAIMessage({
           id: Date.now().toString() + Math.random(),
           role: 'assistant',
-          content: normalizedResult.message,
+          content: normalizedResult.reply || normalizedResult.message,
+          previewText: normalizedResult.previewText || normalizedResult.message,
           timestamp: Date.now(),
           result: normalizedResult,
-        };
+        });
 
         setMessages((prev) => [...prev, assistantMsg]);
 
@@ -3433,8 +3500,8 @@ export function AIAgent({
                     title:
                       newMsgs
                         .find((m) => m.role === 'user')
-                        ?.content?.slice(0, 80) || 'New conversation',
-                    preview: assistantMsg.content.slice(0, 100),
+                        ?.previewText?.slice(0, 80) || 'New conversation',
+                    preview: assistantMsg.previewText.slice(0, 100),
                     previewRole: 'assistant',
                     messageCount: newMsgs.length,
                     createdAt: Date.now(),
@@ -3456,7 +3523,7 @@ export function AIAgent({
                     c.id === activeConversationIdRef.current
                       ? {
                           ...c,
-                          preview: assistantMsg.content.slice(0, 100),
+                          preview: assistantMsg.previewText.slice(0, 100),
                           updatedAt: Date.now(),
                           messageCount: c.messageCount + newMsgs.length,
                         }
@@ -3595,11 +3662,28 @@ export function AIAgent({
       clearMessages,
     ]
   );
+  const richBlocks = useMemo(
+    () => [
+      FactCardDefinition,
+      ProductCardDefinition,
+      ActionCardDefinition,
+      ComparisonCardDefinition,
+      FormCardDefinition,
+      ...(blocks || []),
+    ],
+    [blocks]
+  );
 
   // ─── Render ──────────────────────────────────────────────────
 
   return (
     <AgentContext.Provider value={contextValue}>
+      <RichUIProvider
+        blocks={richBlocks}
+        theme={richUITheme}
+        surfaceThemes={richUISurfaceThemes}
+      >
+        <ActionBridgeProvider handlers={blockActionHandlers}>
       <View style={styles.root}>
         {/* App content — rootViewRef captures Fiber tree for element detection */}
         <View
@@ -4034,6 +4118,8 @@ export function AIAgent({
           </>
         )}
       </View>
+        </ActionBridgeProvider>
+      </RichUIProvider>
     </AgentContext.Provider>
   );
 }
