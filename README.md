@@ -1080,6 +1080,51 @@ const { send } = useAI({
 });
 ```
 
+### Rich Chat UI
+
+Assistant messages can now contain structured rich content, not just plain strings.
+
+- Use plain text for short conversational answers.
+- Use rich chat blocks when the answer is better as a visual artifact in the transcript.
+- Keep screen blocks for narrow in-place interventions inside an `AIZone`.
+
+Supported built-in chat blocks:
+
+- `ProductCard` for a product, dish, offer, or other concrete entity
+- `ComparisonCard` for comparing options and tradeoffs
+- `FactCard` for structured support, policy, status, or FAQ answers
+- `ActionCard` for next-step guidance
+- `FormCard` for lightweight in-chat choice or confirmation
+
+The preferred rich completion shape is:
+
+```ts
+done(
+  JSON.stringify([
+    { type: 'text', content: 'Here is the best option for tonight.' },
+    {
+      type: 'block',
+      blockType: 'ProductCard',
+      props: {
+        title: 'Whole chicken stuffed with flavorful rice',
+        description: 'A classic crowd-pleaser with a generous portion.',
+        imageUrl: 'https://cdn.example.com/dishes/chicken.jpg',
+        price: '450 EGP',
+        badges: ['Popular', 'Hearty'],
+      },
+    },
+  ]),
+  'Recommended whole chicken stuffed with flavorful rice',
+  true
+);
+```
+
+Compatibility notes:
+
+- `done(text, success)` still works for text-only replies.
+- If a model sends rich JSON through `text` instead of `reply`, the runtime now salvages it and still renders the block.
+- Legacy block props such as `name` and `image` are still accepted by the built-in product/comparison cards.
+
 ---
 
 ## 📊 Zero-Config Analytics — Auto-Capture Every Tap
