@@ -1080,50 +1080,211 @@ const { send } = useAI({
 });
 ```
 
-### Rich Chat UI
+### Rich UI in Chat and on Screen
 
-Assistant messages can now contain structured rich content, not just plain strings.
+The SDK can answer in three surfaces:
 
-- Use plain text for short conversational answers.
-- Use rich chat blocks when the answer is better as a visual artifact in the transcript.
-- Keep screen blocks for narrow in-place interventions inside an `AIZone`.
+- plain text for short conversational or one-line answers
+- chat UI for structured content that should live in the transcript
+- screen UI for temporary contextual UI placed inside an `AIZone`
 
-Supported built-in chat blocks:
+As the app developer, your job is to define the UI surfaces the AI is allowed to use. You do that by registering block components on `AIAgent`, optionally adding themed screen zones with `AIZone`, and rendering rich message content correctly if you build your own chat UI.
 
-- `ProductCard` for a product, dish, offer, or other concrete entity
-- `ComparisonCard` for comparing options and tradeoffs
-- `FactCard` for structured support, policy, status, or FAQ answers
-- `ActionCard` for next-step guidance
-- `FormCard` for lightweight in-chat choice or confirmation
+#### Chat UI: Reusable UI Inside the Transcript
 
-The preferred rich completion shape is:
+Use chat UI when the answer should remain part of the conversation and be easy to scan again later.
 
-```ts
-done(
-  JSON.stringify([
-    { type: 'text', content: 'Here is the best option for tonight.' },
-    {
-      type: 'block',
-      blockType: 'ProductCard',
-      props: {
-        title: 'Whole chicken stuffed with flavorful rice',
-        description: 'A classic crowd-pleaser with a generous portion.',
-        imageUrl: 'https://cdn.example.com/dishes/chicken.jpg',
-        price: '450 EGP',
-        badges: ['Popular', 'Hearty'],
-      },
-    },
-  ]),
-  'Recommended whole chicken stuffed with flavorful rice',
-  true
-);
+Typical use cases:
+
+- product, dish, offer, or plan recommendations
+- comparing 2-3 options with tradeoffs
+- structured support answers such as fees, ETA, status, refunds, or policy details
+- next-step guidance after an issue or decision point
+- lightweight in-chat confirmations or preference capture
+
+Built-in chat block interfaces:
+
+- `ProductCard` for a concrete entity such as a dish, product, offer, listing, or plan
+- `ComparisonCard` for side-by-side choices and tradeoffs
+- `FactCard` for support, FAQ, status, and policy information
+- `ActionCard` for guided next steps and recommended actions
+- `FormCard` for lightweight choices, confirmations, and inline inputs
+
+#### Screen UI: Temporary UI Anchored to a Screen Region
+
+Use screen UI only when placement matters more than transcript history.
+
+Typical use cases:
+
+- checkout clarification near price or payment UI
+- decision support attached to the current item
+- inline form help or recovery guidance near the blocked step
+- contextual warnings or explanations that should appear next to the relevant area
+
+For most apps, chat UI should be the default rich surface. Add screen UI only where in-place help is clearly more useful than a chat response.
+
+#### Setup: Register Rich Blocks on `AIAgent`
+
+Register the blocks you want the AI to use across chat and screen surfaces:
+
+```tsx
+import {
+  AIAgent,
+  ProductCard,
+  ComparisonCard,
+  FactCard,
+  ActionCard,
+  FormCard,
+} from '@mobileai/react-native';
+import {
+  NavigationContainer,
+  useNavigationContainerRef,
+} from '@react-navigation/native';
+
+export default function App() {
+  const navRef = useNavigationContainerRef();
+
+  return (
+    <AIAgent
+      analyticsKey="mobileai_pub_xxxxxxxx"
+      navRef={navRef}
+      blocks={[ProductCard, ComparisonCard, FactCard, ActionCard, FormCard]}
+      richUITheme={{
+        colors: {
+          blockSurface: '#141327',
+          primaryText: '#161616',
+          inverseText: '#ffffff',
+          accent: '#ff6a6a',
+        },
+      }}
+      blockActionHandlers={{
+        choose_option: (payload) => {
+          console.log('User chose option', payload);
+        },
+        submit_preferences: (payload) => {
+          console.log('Submitted preferences', payload);
+        },
+      }}
+    >
+      <NavigationContainer ref={navRef}>
+        <AppNavigator />
+      </NavigationContainer>
+    </AIAgent>
+  );
+}
 ```
 
-Compatibility notes:
+What this enables:
 
-- `done(text, success)` still works for text-only replies.
-- If a model sends rich JSON through `text` instead of `reply`, the runtime now salvages it and still renders the block.
-- Legacy block props such as `name` and `image` are still accepted by the built-in product/comparison cards.
+- chat cards inside the built-in MobileAI chat UI
+- screen injection into any matching `AIZone`
+- theming for built-in block components
+- button, chip, toggle, and form actions through `blockActionHandlers`
+
+#### Setup: Add `AIZone` Only Where On-Screen Placement Makes Sense
+
+If you want the AI to place UI inside the current screen, wrap the relevant area in an `AIZone` and whitelist the allowed blocks:
+
+```tsx
+import { AIZone, FactCard, ProductCard } from '@mobileai/react-native';
+
+function DishDetailScreen() {
+  return (
+    <AIZone
+      id="dish-detail-summary"
+      allowInjectBlock
+      interventionEligible
+      proactiveIntervention={false}
+      blocks={[FactCard, ProductCard]}
+    >
+      <DishDetailContent />
+    </AIZone>
+  );
+}
+```
+
+Use `AIZone` for narrow, contextual placement. It is not required for chat cards.
+
+#### Setup: Custom Chat UI
+
+If you build your own chat surface with `useAI()`, render message content with `RichContentRenderer` so text and blocks appear correctly:
+
+```tsx
+import { FlatList } from 'react-native';
+import { RichContentRenderer, useAI } from '@mobileai/react-native';
+
+function CustomChatScreen() {
+  const { messages } = useAI();
+
+  return (
+    <FlatList
+      data={messages}
+      keyExtractor={(item, index) => `${item.timestamp}-${index}`}
+      renderItem={({ item }) => (
+        <RichContentRenderer
+          content={item.content}
+          surface="chat"
+          isUser={item.role === 'user'}
+        />
+      )}
+    />
+  );
+}
+```
+
+This is the only extra setup needed for custom chat rendering. The built-in MobileAI chat bar already renders rich content automatically.
+
+#### Setup: Custom Block Interfaces
+
+You can define your own block interfaces when the built-ins are not specific enough for your app.
+
+Use custom blocks for domain-specific UI such as:
+
+- restaurant or marketplace cards
+- order status summaries
+- loyalty or rewards UI
+- checkout warnings
+- onboarding or account setup helpers
+
+Custom blocks are plain React components registered as `BlockDefinition` objects:
+
+```tsx
+import type { BlockDefinition } from '@mobileai/react-native';
+import { Text, View } from 'react-native';
+
+function RewardCard(props: {
+  title: string;
+  points: number;
+  description?: string;
+}) {
+  return (
+    <View>
+      <Text>{props.title}</Text>
+      <Text>{props.points} points</Text>
+      {props.description ? <Text>{props.description}</Text> : null}
+    </View>
+  );
+}
+
+const RewardCardBlock: BlockDefinition = {
+  name: 'RewardCard',
+  component: RewardCard,
+  allowedPlacements: ['chat', 'zone'],
+  interventionEligible: true,
+  interventionType: 'decision_support',
+  propSchema: {
+    title: { type: 'string', required: true },
+    points: { type: 'number', required: true },
+    description: { type: 'string' },
+  },
+};
+
+<AIAgent blocks={[ProductCard, FactCard, RewardCardBlock]}>
+  <App />
+</AIAgent>
+```
+
+The AI only sees the block name and prop schema, not your component source. Keep block props explicit and serializable.
 
 ---
 
