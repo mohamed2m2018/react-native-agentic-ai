@@ -608,9 +608,27 @@ export function AIAgent({
   // Ref mirrors selectedTicketId — lets socket callbacks access current value
   // without stale closures (sockets are long-lived, closures capture old state).
   const selectedTicketIdRef = useRef<string | null>(null);
+  const openSupportTicketModalRef = useRef<
+    | ((
+        ticketId: string,
+        options?: {
+          history?: Array<{
+            role: string;
+            content: string;
+            timestamp?: string;
+          }>;
+          wsUrl?: string;
+        }
+      ) => void)
+    | null
+  >(null);
+  const supportSocketRef = useRef<EscalationSocket | null>(null);
   useEffect(() => {
     selectedTicketIdRef.current = selectedTicketId;
   }, [selectedTicketId]);
+  useEffect(() => {
+    supportSocketRef.current = supportSocket;
+  }, [supportSocket]);
   // Cache of live sockets by ticketId — keeps sockets alive even when user
   // navigates back to the ticket list, so new messages still trigger badge updates.
   const pendingSocketsRef = useRef<Map<string, EscalationSocket>>(new Map());
@@ -648,26 +666,34 @@ export function AIAgent({
         at: now,
       });
 
+      const incomingEntry = {
+        role: 'live_agent',
+        content: normalizedReply,
+        timestamp: new Date(now).toISOString(),
+      } as const;
+      let updatedHistory: Array<{
+        role: string;
+        content: string;
+        timestamp?: string;
+      }> | null = null;
+      let ticketWsUrl: string | undefined;
+
       setTickets((prev) =>
         prev.map((t) => {
           if (t.id !== ticketId) return t;
+          ticketWsUrl = t.wsUrl;
           const lastEntry = t.history?.[t.history.length - 1];
           if (
             lastEntry?.role === 'live_agent' &&
             lastEntry.content === normalizedReply
           ) {
+            updatedHistory = t.history || [];
             return t;
           }
+          updatedHistory = [...(t.history || []), incomingEntry];
           return {
             ...t,
-            history: [
-              ...(t.history || []),
-              {
-                role: 'live_agent',
-                content: normalizedReply,
-                timestamp: new Date(now).toISOString(),
-              },
-            ],
+            history: updatedHistory,
           };
         })
       );
@@ -697,6 +723,12 @@ export function AIAgent({
           message: `👤 ${normalizedReply}`,
           steps: [],
         });
+      } else if (!selectedTicketIdRef.current) {
+        openSupportTicketModalRef.current?.(ticketId, {
+          history: updatedHistory ?? undefined,
+          wsUrl: ticketWsUrl,
+        });
+        setAutoExpandTrigger((prev) => prev + 1);
       } else {
         setUnreadCounts((prev) => ({
           ...prev,
@@ -954,6 +986,150 @@ export function AIAgent({
     setMessages([]);
     setLastResult(null);
   }, []);
+
+  const openSupportTicketModal = useCallback(
+    (
+      ticketId: string,
+      options?: {
+        history?: Array<{ role: string; content: string; timestamp?: string }>;
+        wsUrl?: string;
+      }
+    ) => {
+      setMode('human');
+      setSelectedTicketId(ticketId);
+      setUnreadCounts((prev) => {
+        if (!prev[ticketId]) return prev;
+        const next = { ...prev };
+        delete next[ticketId];
+        return next;
+      });
+
+      if (options?.history) {
+        const restored: AIMessage[] = options.history.map((entry, i) => ({
+          id: `restored-${ticketId}-${i}`,
+          role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
+          content: entry.content,
+          timestamp: entry.timestamp
+            ? new Date(entry.timestamp).getTime()
+            : Date.now(),
+        }));
+        setSupportMessages(restored);
+      }
+
+      const cachedSocket = pendingSocketsRef.current.get(ticketId);
+      if (cachedSocket) {
+        pendingSocketsRef.current.delete(ticketId);
+        setSupportSocket(cachedSocket);
+      } else if (options?.wsUrl) {
+        const socket = new EscalationSocket({
+          onReply: (reply: string) => {
+            appendIncomingSupportReply(ticketId, reply);
+          },
+          onTypingChange: (isTyping) => {
+            if (selectedTicketIdRef.current === ticketId) {
+              setIsLiveAgentTyping(isTyping);
+            }
+          },
+          onTicketClosed: (closedTicketId?: string) => {
+            if (closedTicketId) {
+              setUnreadCounts((prev) => {
+                const next = { ...prev };
+                delete next[closedTicketId];
+                return next;
+              });
+            }
+            clearSupport(ticketId);
+          },
+          onError: (err) =>
+            logger.warn('AIAgent', '★ Socket error while auto-opening:', err),
+        });
+        socket.connect(options.wsUrl);
+        setSupportSocket(socket);
+      }
+
+      setChatScrollTrigger((prev) => prev + 1);
+
+      (async () => {
+        try {
+          await fetch(
+            `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}/read?analyticsKey=${analyticsKey}`,
+            { method: 'POST' }
+          );
+          logger.info(
+            'AIAgent',
+            '★ Marked auto-opened ticket as read:',
+            ticketId
+          );
+        } catch (err) {
+          logger.warn(
+            'AIAgent',
+            '★ Failed to mark auto-opened ticket as read:',
+            err
+          );
+        }
+      })();
+    },
+    [analyticsKey, appendIncomingSupportReply, clearSupport]
+  );
+
+  const ensureBackgroundTicketSocket = useCallback(
+    (ticket: import('../support/types').SupportTicket) => {
+      if (!ticket.wsUrl) {
+        logger.warn(
+          'AIAgent',
+          '★ Restored ticket has no wsUrl — skipping background socket:',
+          ticket.id
+        );
+        return;
+      }
+
+      if (
+        selectedTicketIdRef.current === ticket.id &&
+        supportSocketRef.current
+      ) {
+        return;
+      }
+
+      if (pendingSocketsRef.current.has(ticket.id)) {
+        return;
+      }
+
+      const socket = new EscalationSocket({
+        onReply: (reply: string) => {
+          appendIncomingSupportReply(ticket.id, reply);
+        },
+        onTypingChange: (isTyping) => {
+          if (selectedTicketIdRef.current === ticket.id) {
+            setIsLiveAgentTyping(isTyping);
+          }
+        },
+        onTicketClosed: (closedTicketId?: string) => {
+          if (closedTicketId) {
+            setUnreadCounts((prev) => {
+              const next = { ...prev };
+              delete next[closedTicketId];
+              return next;
+            });
+          }
+          clearSupport(ticket.id);
+        },
+        onError: (err) =>
+          logger.warn('AIAgent', '★ Background socket error:', err),
+      });
+      socket.connect(ticket.wsUrl);
+      pendingSocketsRef.current.set(ticket.id, socket);
+      logger.info(
+        'AIAgent',
+        '★ Background socket opened for ticket:',
+        ticket.id
+      );
+    },
+    [appendIncomingSupportReply, clearSupport]
+  );
+
+  useEffect(() => {
+    openSupportTicketModalRef.current = openSupportTicketModal;
+  }, [openSupportTicketModal]);
 
   useEffect(() => {
     return () => {
@@ -1375,89 +1551,24 @@ export function AIAgent({
         // Open SSE for every restored ticket — reliable ticket_closed delivery
         for (const t of fetchedTickets) {
           openSSE(t.id);
+          ensureBackgroundTicketSocket(t);
         }
 
-        // If there is exactly one ticket, open it immediately so live agent replies
-        // render into the visible chat instead of sitting in the unread bucket.
-        if (fetchedTickets.length === 1) {
-          const ticket = fetchedTickets[0]!;
-          setSelectedTicketId(ticket.id);
-          setUnreadCounts((prev) => {
-            if (!prev[ticket.id]) return prev;
-            const next = { ...prev };
-            delete next[ticket.id];
-            return next;
+        // Keep restored human conversations available, but only auto-open the
+        // modal when there is exactly one unread ticket that clearly contains a
+        // new incoming human message for the user.
+        const unreadTickets = fetchedTickets.filter(
+          (ticket) => (ticket.unreadCount ?? 0) > 0
+        );
+        if (unreadTickets.length === 1) {
+          const ticket = unreadTickets[0]!;
+          openSupportTicketModal(ticket.id, {
+            history: ticket.history,
+            wsUrl: ticket.wsUrl,
           });
-          setChatScrollTrigger((prev) => prev + 1);
-
-          if (ticket.history?.length) {
-            const restored: AIMessage[] = ticket.history.map(
-              (
-                entry: { role: string; content: string; timestamp?: string },
-                i: number
-              ) => ({
-                id: `restored-${ticket.id}-${i}`,
-                role: (entry.role === 'live_agent'
-                  ? 'assistant'
-                  : entry.role) as any,
-                content: entry.content,
-                timestamp: entry.timestamp
-                  ? new Date(entry.timestamp).getTime()
-                  : Date.now(),
-              })
-            );
-            setSupportMessages(restored);
-          }
-
-          const existingActiveSocket =
-            selectedTicketIdRef.current === ticket.id ? supportSocket : null;
-          if (existingActiveSocket) {
-            logger.info(
-              'AIAgent',
-              '★ Single ticket restore reusing active socket:',
-              ticket.id
-            );
-            return;
-          }
-
-          const cachedSocket = pendingSocketsRef.current.get(ticket.id);
-          if (cachedSocket) {
-            if (!cachedSocket.isConnected && ticket.wsUrl) {
-              cachedSocket.connect(ticket.wsUrl);
-            }
-            pendingSocketsRef.current.delete(ticket.id);
-            setSupportSocket(cachedSocket);
-            logger.info(
-              'AIAgent',
-              '★ Single ticket restore reusing cached socket:',
-              ticket.id
-            );
-            return;
-          }
-
-          const socket = new EscalationSocket({
-            onReply: (reply: string) => {
-              const tid = ticket.id;
-              appendIncomingSupportReply(tid, reply);
-            },
-            onTypingChange: setIsLiveAgentTyping,
-            onTicketClosed: () => clearSupport(ticket.id),
-            onError: (err) =>
-              logger.warn('AIAgent', '★ Restored socket error:', err),
-          });
-          if (ticket.wsUrl) {
-            socket.connect(ticket.wsUrl);
-          } else {
-            logger.warn(
-              'AIAgent',
-              '★ Restored ticket has no wsUrl — skipping socket connect:',
-              ticket.id
-            );
-          }
-          setSupportSocket(socket);
           logger.info(
             'AIAgent',
-            '★ Single ticket restored and opened:',
+            '★ Restored unread ticket auto-opened:',
             ticket.id
           );
         }
@@ -1466,7 +1577,7 @@ export function AIAgent({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsKey]);
+  }, [analyticsKey, ensureBackgroundTicketSocket, openSSE, openSupportTicketModal]);
 
   useEffect(() => {
     if (!analyticsKey) return;
