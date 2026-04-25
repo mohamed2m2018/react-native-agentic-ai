@@ -2,7 +2,7 @@
 
 > The Model Context Protocol (MCP) bridge for React Native. Connect any AI (like Claude Desktop or Google Antigravity) to your React Native app.
 
-This is the companion MCP server for the [`@mobileai/react-native`](https://www.npmjs.com/package/@mobileai/react-native) package, the React Native SDK for MobileAI Cloud by Twomilia.
+This is the companion MCP server for the [`@mobileai/react-native`](https://www.npmjs.com/package/@mobileai/react-native) package, the MobileAI React Native SDK.
 
 It acts as a local proxy that translates standard MCP traffic (from AI editors/agents) into WebSockets that communicate directly with your running React Native app (iOS/Android emulator or physical device).
 
