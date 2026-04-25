@@ -1,7 +1,7 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.9.40",
-  "description": "MobileAI React Native SDK for AI-native UI traversal, tool calling, support escalation, and structured reasoning.",
+  "version": "0.9.41",
+  "description": "Add an in-app AI support agent to React Native apps that understands UI, navigates screens, fills forms, and escalates to humans.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
   "exports": {
