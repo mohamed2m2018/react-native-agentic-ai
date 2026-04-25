@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.9.35",
+  "version": "0.9.38",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -25,7 +25,8 @@
     "bin",
     "generate-map.js",
     "android",
-    "ios",
+    "ios/MobileAIFloatingOverlayComponentView.h",
+    "ios/MobileAIFloatingOverlayComponentView.mm",
     "cpp",
     "*.podspec",
     "react-native.config.js",
@@ -131,7 +132,7 @@
     "@react-native-async-storage/async-storage": "*",
     "expo-speech-recognition": "*",
     "react": "*",
-    "react-native": "*",
+    "react-native": ">=0.83.0 <0.84.0",
     "react-native-audio-api": "*",
     "react-native-screens": "*"
   },
