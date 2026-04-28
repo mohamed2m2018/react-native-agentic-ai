@@ -17,7 +17,9 @@ import React, {
 } from 'react';
 import { View, StyleSheet, InteractionManager, Platform } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
+import { ReactNativePlatformAdapter } from '../core/ReactNativePlatformAdapter';
 import { actionRegistry } from '../core/ActionRegistry';
+import { dataRegistry } from '../core/DataRegistry';
 import { captureWireframe } from '../core/FiberTreeWalker';
 import { humanizeScreenName } from '../utils/humanizeScreenName';
 import { createProvider } from '../providers/ProviderFactory';
@@ -159,6 +161,28 @@ function sanitizeWireframeScreenshot(value: string | null | undefined): string |
     : trimmed;
 
   return base64.length > 0 ? base64 : null;
+}
+
+function resolveRouteKeyFromPath(path: string | null | undefined): string {
+  if (!path) return '';
+
+  let route = path;
+  route = route.replace(/\([^)]+\)\//g, '');
+  route = route.replace(/^\/|\/$/g, '');
+
+  if (!route) return 'index';
+  if (route.includes('_layout') || route.includes('[...')) return '';
+  if (route.endsWith('/index')) {
+    route = route.replace(/\/index$/, '');
+  }
+  if (!route) return 'index';
+
+  const segments = route
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => segment.replace(/\[([^\]]+)\]/g, '$1'));
+
+  return segments[segments.length - 1] || 'index';
 }
 
 function mergeSupportHistory(
@@ -383,6 +407,8 @@ interface AIAgentProps {
    * @default true
    */
   useScreenMap?: boolean;
+  /** Whether to surface native alert buttons as interactive elements to the AI. */
+  interceptNativeAlerts?: boolean;
 
   // ── Analytics (opt-in) ──
 
@@ -515,6 +541,7 @@ export function AIAgent({
   mcpServerUrl,
   router,
   pathname,
+  interceptNativeAlerts,
   enableVoice = false,
   onTokenUsage,
   debug = false,
@@ -593,6 +620,7 @@ export function AIAgent({
     RemoteConfiguredAction[]
   >([]);
   const [registeredActionRevision, setRegisteredActionRevision] = useState(0);
+  const [registeredDataRevision, setRegisteredDataRevision] = useState(0);
   const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
   // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
   const messagesRef = useRef<AIMessage[]>([]);
@@ -603,15 +631,136 @@ export function AIAgent({
   const activeConversationIdRef = useRef<string | null>(null);
   const lastSavedMessageCountRef = useRef(0);
   const appendDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPersistingConversationRef = useRef(false);
+  const pendingConversationPersistRef = useRef(false);
+  const conversationGenerationRef = useRef(0);
 
   // Keep messagesRef always in sync — used by async save callbacks
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
+  const clearPendingConversationSave = useCallback(() => {
+    if (appendDebounceRef.current) {
+      clearTimeout(appendDebounceRef.current);
+      appendDebounceRef.current = null;
+    }
+    pendingConversationPersistRef.current = false;
+  }, []);
+
+  const persistConversationMessages = useCallback(async () => {
+    if (!analyticsKey) return;
+
+    if (isPersistingConversationRef.current) {
+      pendingConversationPersistRef.current = true;
+      return;
+    }
+
+    isPersistingConversationRef.current = true;
+    const persistGeneration = conversationGenerationRef.current;
+    try {
+      do {
+        pendingConversationPersistRef.current = false;
+        await initDeviceId();
+        if (persistGeneration !== conversationGenerationRef.current) return;
+        const deviceId = getDeviceId();
+        const currentMsgs = messagesRef.current;
+        const newMsgs = currentMsgs.slice(lastSavedMessageCountRef.current);
+
+        if (newMsgs.length === 0) continue;
+
+        const lastMessage = currentMsgs[currentMsgs.length - 1];
+        const preview = (lastMessage?.previewText || '').slice(0, 100);
+        const previewRole = lastMessage?.role || 'assistant';
+
+        if (!activeConversationIdRef.current) {
+          const id = await ConversationService.startConversation({
+            analyticsKey,
+            userId: userContext?.userId,
+            deviceId: deviceId || undefined,
+            messages: newMsgs,
+          });
+          if (persistGeneration !== conversationGenerationRef.current) return;
+          if (!id) continue;
+
+          activeConversationIdRef.current = id;
+          lastSavedMessageCountRef.current = currentMsgs.length;
+          const newSummary: ConversationSummary = {
+            id,
+            title:
+              currentMsgs
+                .find((m) => m.role === 'user')
+                ?.previewText?.slice(0, 80) || 'New conversation',
+            preview,
+            previewRole,
+            messageCount: currentMsgs.length,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          setConversations((prev) => [newSummary, ...prev]);
+          logger.info('AIAgent', `Conversation created: ${id}`);
+          continue;
+        }
+
+        const saved = await ConversationService.appendMessages({
+          conversationId: activeConversationIdRef.current,
+          analyticsKey,
+          userId: userContext?.userId,
+          deviceId: deviceId || undefined,
+          messages: newMsgs,
+        });
+        if (persistGeneration !== conversationGenerationRef.current) return;
+        if (!saved) continue;
+
+        lastSavedMessageCountRef.current = currentMsgs.length;
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeConversationIdRef.current
+              ? {
+                  ...c,
+                  preview,
+                  previewRole,
+                  updatedAt: Date.now(),
+                  messageCount: currentMsgs.length,
+                }
+              : c
+          )
+        );
+        logger.info(
+          'AIAgent',
+          `Conversation appended: ${activeConversationIdRef.current}`
+        );
+      } while (pendingConversationPersistRef.current);
+    } catch (err) {
+      logger.warn('AIAgent', 'Failed to persist conversation:', err);
+    } finally {
+      isPersistingConversationRef.current = false;
+    }
+  }, [analyticsKey, userContext?.userId]);
+
+  useEffect(() => {
+    if (!analyticsKey || messages.length <= lastSavedMessageCountRef.current) {
+      return;
+    }
+
+    if (appendDebounceRef.current) {
+      clearTimeout(appendDebounceRef.current);
+    }
+    appendDebounceRef.current = setTimeout(() => {
+      appendDebounceRef.current = null;
+      void persistConversationMessages();
+    }, 150);
+  }, [analyticsKey, messages.length, persistConversationMessages]);
+
   useEffect(() => {
     return actionRegistry.onChange(() => {
       setRegisteredActionRevision((prev) => prev + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    return dataRegistry.onChange(() => {
+      setRegisteredDataRevision((prev) => prev + 1);
     });
   }, []);
 
@@ -1015,9 +1164,13 @@ export function AIAgent({
   );
 
   const clearMessages = useCallback(() => {
+    clearPendingConversationSave();
+    conversationGenerationRef.current += 1;
+    activeConversationIdRef.current = null;
+    lastSavedMessageCountRef.current = 0;
     setMessages([]);
     setLastResult(null);
-  }, []);
+  }, [clearPendingConversationSave]);
 
   const openSupportTicketModal = useCallback(
     (
@@ -1241,25 +1394,21 @@ export function AIAgent({
     return typeof route.name === 'string' ? route.name : null;
   }, []);
 
-  const resolveScreenName = useCallback(() => {
+  const resolveRawScreenName = useCallback(() => {
     if (pathname) {
-      const humanizedPath = humanizeScreenName(
-        pathname === '/' ? 'index' : pathname
-      );
-      if (humanizedPath) return humanizedPath;
+      const routeKey = resolveRouteKeyFromPath(pathname === '/' ? 'index' : pathname);
+      if (routeKey) return routeKey;
     }
 
     const navState = (navRef as any)?.getRootState?.() ?? (navRef as any)?.getState?.();
     const deepestFromState = getDeepestRouteName(navState);
     if (deepestFromState) {
-      const humanized = humanizeScreenName(deepestFromState);
-      if (humanized) return humanized;
+      return deepestFromState;
     }
 
     const routeName = (navRef as any)?.getCurrentRoute?.()?.name;
     if (typeof routeName === 'string' && routeName.trim().length > 0) {
-      const humanized = humanizeScreenName(routeName);
-      if (humanized) return humanized;
+      return routeName;
     }
 
     const telemetryScreen = telemetryRef.current?.screen;
@@ -1274,6 +1423,14 @@ export function AIAgent({
     return 'unknown';
   }, [pathname, navRef, getDeepestRouteName]);
 
+  const resolveScreenName = useCallback(() => {
+    const rawScreenName = resolveRawScreenName();
+    if (rawScreenName === 'unknown') return rawScreenName;
+
+    const humanized = humanizeScreenName(rawScreenName);
+    return humanized || rawScreenName;
+  }, [resolveRawScreenName]);
+
   const syncTelemetryScreen = useCallback(() => {
     const screen = resolveScreenName();
     if (screen === 'unknown') {
@@ -1287,6 +1444,10 @@ export function AIAgent({
     resolveScreenName,
   ]);
 
+  const getRawScreenName = useCallback(() => resolveRawScreenName(), [
+    resolveRawScreenName,
+  ]);
+
   const resolvedKnowledgeBase = useMemo(() => {
     if (knowledgeBase) return knowledgeBase;
     if (!analyticsKey) return undefined;
@@ -1297,6 +1458,32 @@ export function AIAgent({
       headers: analyticsProxyHeaders,
     });
   }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl, knowledgeBase]);
+
+  const platformAdapter = useMemo(
+    () =>
+      new ReactNativePlatformAdapter({
+        getRootRef: () => rootViewRef.current,
+        getWalkConfig: () => ({
+          interactiveBlacklist,
+          interactiveWhitelist,
+          screenName: getRawScreenName(),
+          interceptNativeAlerts,
+        }),
+        navRef,
+        router,
+        pathname,
+        getCurrentScreenName: getRawScreenName,
+      }),
+    [
+      getRawScreenName,
+      interactiveBlacklist,
+      interactiveWhitelist,
+      interceptNativeAlerts,
+      navRef,
+      pathname,
+      router,
+    ]
+  );
 
   useEffect(() => {
     if (!analyticsKey) {
@@ -1939,10 +2126,40 @@ export function AIAgent({
     ].join("\n");
   }, [remoteConfiguredActions]);
 
+  const registeredDataInstructions = useMemo(() => {
+    const sources = dataRegistry.getAll();
+    if (sources.length === 0) return "";
+
+    const lines = sources.map((source) => {
+      const schema = source.schema
+        ? Object.entries(source.schema)
+            .map(([key, value]) => {
+              if (typeof value === 'string') {
+                return `${key}: ${value}`;
+              }
+              return `${key}: ${value.type || 'string'} - ${value.description}`;
+            })
+            .join('; ')
+        : '';
+
+      return schema.length > 0
+        ? `- Data source \`${source.name}\`: ${source.description}. Fields: ${schema}`
+        : `- Data source \`${source.name}\`: ${source.description}`;
+    });
+
+    return [
+      "### MobileAI Registered Data Sources",
+      "The app exposes live data sources you can query with `query_data(source, query)`.",
+      "Use them for recommendations, catalog lookup, live pricing, inventory, order status, or any structured data that is better fetched directly than inferred from the current screen.",
+      ...lines,
+    ].join("\n");
+  }, [registeredDataRevision]);
+
   const resolvedInstructions = useMemo(() => {
     const combinedSystem = [
       instructions?.system?.trim(),
       remoteActionInstructions.trim(),
+      registeredDataInstructions.trim(),
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -1955,7 +2172,7 @@ export function AIAgent({
       ...instructions,
       system: combinedSystem || undefined,
     };
-  }, [instructions, remoteActionInstructions]);
+  }, [instructions, remoteActionInstructions, registeredDataInstructions]);
 
   const remoteActionTools = useMemo<Record<string, ToolDefinition>>(() => {
     if (!analyticsKey || remoteConfiguredActions.length === 0) {
@@ -2188,6 +2405,7 @@ export function AIAgent({
       mcpServerUrl,
       router,
       pathname,
+      interceptNativeAlerts,
       onStatusUpdate: setStatusText,
       onTokenUsage,
       knowledgeBase: resolvedKnowledgeBase,
@@ -2201,6 +2419,7 @@ export function AIAgent({
       maxTokenBudget,
       maxCostUSD,
       interactionMode,
+      platformAdapter,
       // Block the agent loop until user responds
       onAskUser:
         mode === 'voice'
@@ -2346,6 +2565,7 @@ export function AIAgent({
       maxTokenBudget,
       maxCostUSD,
       interactionMode,
+      platformAdapter,
       verifier,
       supportStyle,
     ]
@@ -3215,133 +3435,6 @@ export function AIAgent({
       });
 
       try {
-        // ─── Business-grade escalation policy ───
-        const FRUSTRATION_REGEX =
-          /\b(angry|frustrated|useless|terrible|hate|worst|ridiculous|awful)\b/i;
-        const HIGH_RISK_ESCALATION_REGEX =
-          /\b(human|agent|representative|supervisor|manager|refund|chargeback|charged|billing|payment|fraud|scam|lawsuit|attorney|lawyer|sue|legal|privacy|data breach|account locked|can't log in|cannot log in)\b/i;
-        const escalateTool =
-          customTools?.['escalate_to_human'] || autoEscalateTool;
-        const priorFrustrationCount = messages.filter(
-          (m) =>
-            m.role === 'user' &&
-            FRUSTRATION_REGEX.test(m.previewText)
-        ).length;
-
-        if (escalateTool && !selectedTicketId) {
-          if (HIGH_RISK_ESCALATION_REGEX.test(message)) {
-            logger.warn(
-              'AIAgent',
-              'High-risk support signal detected — auto-escalating to human'
-            );
-            telemetryRef.current?.track('business_escalation', {
-              canonical_type: 'support_escalated',
-              message,
-              trigger: 'high_risk',
-              escalation_reason: 'high_risk',
-              topic: message.trim().slice(0, 120),
-            });
-
-            const escalationResult = await escalateTool.execute({
-              reason: `Customer needs human support: ${message.trim()}`,
-            });
-
-            const customerMessage =
-              typeof escalationResult === 'string' &&
-              escalationResult.trim().length > 0
-                ? escalationResult.replace(/^ESCALATED:\s*/i, '')
-                : 'Your request has been sent to our support team. A human agent will reply here as soon as possible.';
-
-            const res: ExecutionResult = {
-              success: true,
-              message: customerMessage,
-              previewText: customerMessage,
-              reply: normalizeRichContent(customerMessage),
-              steps: [
-                {
-                  stepIndex: 0,
-                  reflection: {
-                    previousGoalEval: '',
-                    memory: '',
-                    plan: 'Escalate to human support for a high-risk or explicitly requested issue',
-                  },
-                  action: {
-                    name: 'escalate_to_human',
-                    input: { reason: 'business_escalation' },
-                    output: 'Escalated',
-                  },
-                },
-              ],
-            };
-
-            setLastResult(res);
-            setMessages((prev) => [
-              ...prev,
-              createAIMessage({
-                id: `assistant-${Date.now()}`,
-                role: 'assistant',
-                content: res.message,
-                previewText: res.previewText || res.message,
-                timestamp: Date.now(),
-                result: res,
-              }),
-            ]);
-
-            setIsThinking(false);
-            setStatusText('');
-            return;
-          }
-
-          if (FRUSTRATION_REGEX.test(message)) {
-            const frustrationMessage =
-              priorFrustrationCount > 0
-                ? "I'm sorry this has been frustrating. I can keep helping here, or I can connect you with a human support agent if you'd prefer."
-                : "I'm sorry this has been frustrating. Tell me what went wrong, and I'll do my best to fix it.";
-
-            const res: ExecutionResult = {
-              success: true,
-              message: frustrationMessage,
-              previewText: frustrationMessage,
-              reply: normalizeRichContent(frustrationMessage),
-              steps: [
-                {
-                  stepIndex: 0,
-                  reflection: {
-                    previousGoalEval: '',
-                    memory: '',
-                    plan:
-                      priorFrustrationCount > 0
-                        ? 'Acknowledge repeated frustration and offer escalation without forcing a handoff'
-                        : 'Acknowledge first-time frustration and continue trying to resolve the issue',
-                  },
-                  action: {
-                    name: 'done',
-                    input: {},
-                    output: frustrationMessage,
-                  },
-                },
-              ],
-            };
-
-            setLastResult(res);
-            setMessages((prev) => [
-              ...prev,
-              createAIMessage({
-                id: `assistant-${Date.now()}`,
-                role: 'assistant',
-                content: frustrationMessage,
-                previewText: frustrationMessage,
-                timestamp: Date.now(),
-                result: res,
-              }),
-            ]);
-
-            setIsThinking(false);
-            setStatusText('');
-            return;
-          }
-        }
-
         // Ensure we have the latest Fiber tree ref
         runtime.updateRefs(rootViewRef.current, navRef);
 
@@ -3468,79 +3561,6 @@ export function AIAgent({
 
         setMessages((prev) => [...prev, assistantMsg]);
 
-        // ── Persist to backend (debounced 600ms) ─────────────────────
-        if (analyticsKey) {
-          if (appendDebounceRef.current)
-            clearTimeout(appendDebounceRef.current);
-          appendDebounceRef.current = setTimeout(async () => {
-            try {
-              await initDeviceId();
-              const deviceId = getDeviceId();
-              // Read current messages directly from ref — never use setMessages() to read state
-              const currentMsgs = messagesRef.current;
-              const newMsgs = currentMsgs.slice(
-                lastSavedMessageCountRef.current
-              );
-
-              if (newMsgs.length === 0) return;
-
-              if (!activeConversationIdRef.current) {
-                // First exchange — create a new conversation
-                const id = await ConversationService.startConversation({
-                  analyticsKey: analyticsKey!,
-                  userId: userContext?.userId,
-                  deviceId: deviceId || undefined,
-                  messages: newMsgs,
-                });
-                if (id) {
-                  activeConversationIdRef.current = id;
-                  lastSavedMessageCountRef.current = currentMsgs.length;
-                  const newSummary: ConversationSummary = {
-                    id,
-                    title:
-                      newMsgs
-                        .find((m) => m.role === 'user')
-                        ?.previewText?.slice(0, 80) || 'New conversation',
-                    preview: assistantMsg.previewText.slice(0, 100),
-                    previewRole: 'assistant',
-                    messageCount: newMsgs.length,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                  };
-                  setConversations((prev) => [newSummary, ...prev]);
-                  logger.info('AIAgent', `Conversation created: ${id}`);
-                }
-              } else {
-                // Subsequent turns — append only new messages
-                await ConversationService.appendMessages({
-                  conversationId: activeConversationIdRef.current!,
-                  analyticsKey: analyticsKey!,
-                  messages: newMsgs,
-                });
-                lastSavedMessageCountRef.current = currentMsgs.length;
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === activeConversationIdRef.current
-                      ? {
-                          ...c,
-                          preview: assistantMsg.previewText.slice(0, 100),
-                          updatedAt: Date.now(),
-                          messageCount: c.messageCount + newMsgs.length,
-                        }
-                      : c
-                  )
-                );
-                logger.info(
-                  'AIAgent',
-                  `Conversation appended: ${activeConversationIdRef.current}`
-                );
-              }
-            } catch (err) {
-              logger.warn('AIAgent', 'Failed to persist conversation:', err);
-            }
-          }, 600);
-        }
-
         if (options?.onResult) {
           options.onResult(normalizedResult);
         } else {
@@ -3615,11 +3635,16 @@ export function AIAgent({
     async (conversationId: string) => {
       if (!analyticsKey) return;
       try {
+        await initDeviceId();
         const msgs = await ConversationService.fetchConversation({
           conversationId,
           analyticsKey,
+          userId: userContext?.userId,
+          deviceId: getDeviceId() || undefined,
         });
         if (msgs) {
+          clearPendingConversationSave();
+          conversationGenerationRef.current += 1;
           activeConversationIdRef.current = conversationId;
           lastSavedMessageCountRef.current = msgs.length;
           setMessages(msgs);
@@ -3629,16 +3654,70 @@ export function AIAgent({
         logger.warn('AIAgent', 'Failed to load conversation:', err);
       }
     },
-    [analyticsKey]
+    [analyticsKey, clearPendingConversationSave, userContext?.userId]
   );
 
   const handleNewConversation = useCallback(() => {
+    clearPendingConversationSave();
+    conversationGenerationRef.current += 1;
     activeConversationIdRef.current = null;
     lastSavedMessageCountRef.current = 0;
     setMessages([]);
     setLastResult(null);
     setLastUserMessage(null);
-  }, []);
+  }, [clearPendingConversationSave]);
+
+  const handlePendingApprovalAction = useCallback(
+    (action: 'approve' | 'reject') => {
+      const resolver = askUserResolverRef.current;
+      logger.info(
+        'AIAgent',
+        `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
+      );
+      if (!resolver) {
+        logger.error(
+          'AIAgent',
+          '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.'
+        );
+        return;
+      }
+
+      askUserResolverRef.current = null;
+      pendingAskUserKindRef.current = null;
+      pendingAppApprovalRef.current = false;
+      queuedApprovalAnswerRef.current = null;
+      setPendingApprovalQuestion(null);
+
+      const approvalLabel = action === 'approve' ? 'Allow' : "Don’t Allow";
+      setLastUserMessage(approvalLabel);
+      setMessages((prev) => [
+        ...prev,
+        createAIMessage({
+          id: `user-approval-${Date.now()}`,
+          role: 'user',
+          content: approvalLabel,
+          previewText: approvalLabel,
+          timestamp: Date.now(),
+        }),
+      ]);
+
+      const response =
+        action === 'approve'
+          ? '__APPROVAL_GRANTED__'
+          : '__APPROVAL_REJECTED__';
+      if (action === 'approve') {
+        setIsThinking(true);
+        setStatusText('Working...');
+      }
+      telemetryRef.current?.track('agent_trace', {
+        stage: 'approval_button_pressed',
+        action,
+        renderedAnswer: approvalLabel,
+      });
+      resolver(response);
+    },
+    [pendingApprovalQuestion]
+  );
 
   const contextValue = useMemo(
     () => ({
@@ -3785,38 +3864,7 @@ export function AIAgent({
                 lastUserMessage={lastUserMessage}
                 chatMessages={messages}
                 pendingApprovalQuestion={pendingApprovalQuestion}
-                onPendingApprovalAction={(action) => {
-                  const resolver = askUserResolverRef.current;
-                  logger.info(
-                    'AIAgent',
-                    `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
-                  );
-                  if (!resolver) {
-                    logger.error(
-                      'AIAgent',
-                      '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.'
-                    );
-                    return;
-                  }
-                  askUserResolverRef.current = null;
-                  pendingAskUserKindRef.current = null;
-                  pendingAppApprovalRef.current = false;
-                  queuedApprovalAnswerRef.current = null;
-                  setPendingApprovalQuestion(null);
-                  const response =
-                    action === 'approve'
-                      ? '__APPROVAL_GRANTED__'
-                      : '__APPROVAL_REJECTED__';
-                  if (action === 'approve') {
-                    setIsThinking(true);
-                    setStatusText('Working...');
-                  }
-                  telemetryRef.current?.track('agent_trace', {
-                    stage: 'approval_button_pressed',
-                    action,
-                  });
-                  resolver(response);
-                }}
+                onPendingApprovalAction={handlePendingApprovalAction}
                 language={'en'}
                 onDismiss={() => {
                   setLastResult(null);
@@ -3937,38 +3985,7 @@ export function AIAgent({
                   lastUserMessage={lastUserMessage}
                   chatMessages={messages}
                   pendingApprovalQuestion={pendingApprovalQuestion}
-                  onPendingApprovalAction={(action) => {
-                    const resolver = askUserResolverRef.current;
-                    logger.info(
-                      'AIAgent',
-                      `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`
-                    );
-                    if (!resolver) {
-                      logger.error(
-                        'AIAgent',
-                        '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.'
-                      );
-                      return;
-                    }
-                    askUserResolverRef.current = null;
-                    pendingAskUserKindRef.current = null;
-                    pendingAppApprovalRef.current = false;
-                    queuedApprovalAnswerRef.current = null;
-                    setPendingApprovalQuestion(null);
-                    const response =
-                      action === 'approve'
-                        ? '__APPROVAL_GRANTED__'
-                        : '__APPROVAL_REJECTED__';
-                    if (action === 'approve') {
-                      setIsThinking(true);
-                      setStatusText('Working...');
-                    }
-                    telemetryRef.current?.track('agent_trace', {
-                      stage: 'approval_button_pressed',
-                      action,
-                    });
-                    resolver(response);
-                  }}
+                  onPendingApprovalAction={handlePendingApprovalAction}
                   language={'en'}
                   onDismiss={() => {
                     setLastResult(null);

@@ -13,6 +13,7 @@ import { config as loadEnv } from 'dotenv';
 import React from 'react';
 import { act, create, ReactTestRenderer as RTR } from 'react-test-renderer';
 import { AgentRuntime } from '../../core/AgentRuntime';
+import { ReactNativePlatformAdapter } from '../../core/ReactNativePlatformAdapter';
 import { GeminiProvider } from '../../providers/GeminiProvider';
 import type {
   AIProvider,
@@ -142,6 +143,14 @@ export function createLiveRuntime(opts: LiveTestConfig) {
   const apiKey = getApiKey();
   const provider = new GeminiProvider(apiKey, 'gemini-2.5-flash');
   const navRef = createMockNavRef(opts.nav);
+  const platformAdapter = new ReactNativePlatformAdapter({
+    getRootRef: () => opts.fiber,
+    getWalkConfig: () => ({
+      screenName: navRef.currentScreen,
+    }),
+    navRef,
+    getCurrentScreenName: () => navRef.currentScreen,
+  });
 
   const runtime = new AgentRuntime(
     provider,
@@ -155,6 +164,7 @@ export function createLiveRuntime(opts: LiveTestConfig) {
       onAfterStep: async () => {
         await act(async () => {});
       },
+      platformAdapter,
       ...opts.config,
     },
     opts.fiber,
@@ -268,6 +278,14 @@ export function createScriptedRuntime(opts: {
 }) {
   const provider = new ScriptedProvider(opts.responses);
   const navRef = createMockNavRef(opts.nav);
+  const platformAdapter = new ReactNativePlatformAdapter({
+    getRootRef: () => opts.fiber,
+    getWalkConfig: () => ({
+      screenName: navRef.currentScreen,
+    }),
+    navRef,
+    getCurrentScreenName: () => navRef.currentScreen,
+  });
   const runtime = new AgentRuntime(
     provider,
     {
@@ -276,6 +294,7 @@ export function createScriptedRuntime(opts: {
       onAfterStep: async () => {
         await act(async () => {});
       },
+      platformAdapter,
       ...opts.config,
     },
     opts.fiber,

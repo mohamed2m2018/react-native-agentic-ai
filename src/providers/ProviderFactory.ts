@@ -7,6 +7,7 @@
 
 import type { AIProvider, AIProviderName } from '../core/types';
 import { OpenAIProvider } from './OpenAIProvider';
+import { GeminiProvider } from './GeminiProvider';
 
 export function createProvider(
   provider: AIProviderName = 'gemini',
@@ -24,14 +25,12 @@ export function createProvider(
         proxyHeaders,
       );
     case 'gemini':
-    default: {
-      const { GeminiProvider } = require('./GeminiProvider');
+    default:
       return new GeminiProvider(
         apiKey,
         model || 'gemini-2.5-flash',
         proxyUrl,
         proxyHeaders,
       );
-    }
   }
 }

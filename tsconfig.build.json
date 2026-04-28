@@ -1,4 +1,15 @@
 {
   "extends": "./tsconfig",
-  "exclude": ["example-react-navigation", "example-expo-router", "lib", "src/cli", "mcp-server", "**/__tests__", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": [
+    "example-react-navigation",
+    "example-expo-router",
+    "example-shopify-clone",
+    "lib",
+    "src/cli",
+    "src/__cli_tmp__.tsx",
+    "mcp-server",
+    "**/__tests__",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
 }

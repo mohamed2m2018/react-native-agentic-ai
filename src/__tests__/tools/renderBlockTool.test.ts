@@ -1,18 +1,16 @@
-import React from 'react';
 import { createRenderBlockTool } from '../../tools/renderBlockTool';
+import type { ToolContext } from '../../tools/types';
 
-const mockIsActionAllowed = jest.fn();
-const mockGet = jest.fn();
-
-jest.mock('../../core/ZoneRegistry', () => ({
-  globalZoneRegistry: {
-    isActionAllowed: (...args: unknown[]) => mockIsActionAllowed(...args),
-    get: (...args: unknown[]) => mockGet(...args),
-  },
-}));
-
-function FactCard() {
-  return null;
+function createMockContext(): ToolContext {
+  return {
+    platformAdapter: {
+      getScreenSnapshot: jest.fn(),
+      getNavigationSnapshot: jest.fn(),
+      getLastScreenSnapshot: jest.fn(),
+      captureScreenshot: jest.fn(),
+      executeAction: jest.fn().mockResolvedValue('✅ Rendered "FactCard" in zone "checkout-zone".'),
+    },
+  };
 }
 
 describe('renderBlockTool', () => {
@@ -20,61 +18,24 @@ describe('renderBlockTool', () => {
     jest.clearAllMocks();
   });
 
-  it('renders an eligible block into an intervention-eligible zone', async () => {
-    const renderBlock = jest.fn();
-    mockIsActionAllowed.mockReturnValue(true);
-    mockGet.mockReturnValue({
-      allowInjectBlock: true,
-      interventionEligible: true,
-      blocks: [
-        {
-          name: 'FactCard',
-          component: FactCard,
-          allowedPlacements: ['chat', 'zone'],
-          interventionEligible: true,
-          interventionType: 'contextual_help',
-        },
-      ],
-      _controller: { renderBlock },
-    });
+  it('delegates render_block intents to the platform adapter', async () => {
+    const context = createMockContext();
+    const tool = createRenderBlockTool(context);
 
-    const tool = createRenderBlockTool();
     const result = await tool.execute({
       zoneId: 'checkout-zone',
       blockType: 'FactCard',
       props: JSON.stringify({ title: 'Delivery', body: 'Arrives in 25 min' }),
+      lifecycle: 'persistent',
     });
 
-    expect(result).toContain('✅');
-    expect(renderBlock).toHaveBeenCalledTimes(1);
-    expect(renderBlock.mock.calls[0][1]).toBe('dismissible');
-  });
-
-  it('rejects blocks that are not intervention eligible', async () => {
-    mockIsActionAllowed.mockReturnValue(true);
-    mockGet.mockReturnValue({
-      allowInjectBlock: true,
-      interventionEligible: true,
-      blocks: [
-        {
-          name: 'FactCard',
-          component: FactCard,
-          allowedPlacements: ['chat', 'zone'],
-          interventionEligible: false,
-          interventionType: 'none',
-        },
-      ],
-      _controller: { renderBlock: jest.fn() },
-    });
-
-    const tool = createRenderBlockTool();
-    const result = await tool.execute({
+    expect(context.platformAdapter.executeAction).toHaveBeenCalledWith({
+      type: 'render_block',
       zoneId: 'checkout-zone',
       blockType: 'FactCard',
-      props: '{}',
+      props: JSON.stringify({ title: 'Delivery', body: 'Arrives in 25 min' }),
+      lifecycle: 'persistent',
     });
-
-    expect(result).toContain('❌');
-    expect(result).toContain('not eligible for screen intervention');
+    expect(result).toContain('✅');
   });
 });

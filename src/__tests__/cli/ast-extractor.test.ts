@@ -155,4 +155,40 @@ describe('AST extractor', () => {
     expect(description).toContain('list with selectable rows');
     expect(description).toContain('rows navigate to product/[id]');
   });
+
+  it('prefers durable renderItem structure over transient loading or empty-state copy', () => {
+    const source = `
+      export function SearchScreen() {
+        return (
+          <View>
+            {isLoading ? <ActivityIndicator /> : null}
+            {products.length === 0 ? <Text>No products found</Text> : null}
+            <FlatList
+              data={products}
+              renderItem={({ item }) => (
+                <Pressable onPress={() => navigation.navigate('ProductDetails')}>
+                  <Image source={{ uri: item.image }} />
+                  <Text>{item.name}</Text>
+                  <Text>{'$'}{item.price}</Text>
+                  <Button title="Add" onPress={() => addToCart(item)} />
+                </Pressable>
+              )}
+            />
+          </View>
+        );
+      }
+    `;
+
+    const extracted = extractContentFromAST(source, '/tmp/SearchScreen.tsx');
+    const description = buildDescription(extracted);
+
+    expect(description).toContain('scrollable list with selectable rows');
+    expect(description).toContain('product image');
+    expect(description).toContain('product name');
+    expect(description).toContain('price');
+    expect(description).toContain('add button');
+    expect(description).toContain('rows navigate to ProductDetails');
+    expect(description).not.toContain('ActivityIndicator');
+    expect(description).not.toContain('No products found');
+  });
 });

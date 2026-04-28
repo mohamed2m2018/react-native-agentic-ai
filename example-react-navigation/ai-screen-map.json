@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-04-01T18:01:28.048Z",
+  "generatedAt": "2026-04-21T07:58:25.228Z",
   "framework": "react-navigation",
   "screens": {
     "Home": {
       "title": "FoodApp",
-      "description": "$ (button), + (button), Load More Dishes (button), FlatList (list), Image (image), ActivityIndicator (component), MediaReel (component)",
+      "description": "scrollable list. Load More Dishes (button)",
       "navigatesTo": [
         "DishDetail",
         "Menu"
       ]
     },
     "Menu": {
-      "description": "Add (button), FlatList (list), ActivityIndicator (component)",
+      "description": "scrollable list. Add (button)",
       "navigatesTo": [
         "DishDetail"
       ]
@@ -75,30 +75,22 @@
     },
     "NotificationPrefs": {
       "title": "Notification Preferences",
-      "description": "toggle (switch), Reset to Defaults (button)"
+      "description": "Promotional Offers (switch), Order Status Updates (switch), New Dishes Alerts (switch), Weekly Digest (switch), Flash Sale Notifications (switch), Reset to Defaults (button)"
     },
     "Profile": {
       "title": "Profile",
-      "description": "Orders & delivery (button), Billing history (button), Subscriptions (button), Loyalty activity (button), Gift history (button), Account security (button), Log Out (button)",
-      "navigatesTo": [
-        "OrdersList",
-        "BillingHistory",
-        "SubscriptionManagement",
-        "LoyaltyActivity",
-        "GiftHistory",
-        "AccountSecurity"
-      ]
+      "description": "Advanced Support (New) (button), Orders & delivery (button), Billing history (button), Subscriptions (button), Loyalty activity (button), Gift history (button), Log Out (button)"
     },
     "OrdersList": {
       "title": "Orders",
-      "description": "ETA (button), ActivityIndicator (component)",
+      "description": "ETA (button)",
       "navigatesTo": [
         "OrderDetails"
       ]
     },
     "OrderDetails": {
       "title": "Order Details",
-      "description": "Open Delivery Tracker (button), Open Linked Charge (button), ActivityIndicator (component)",
+      "description": "Open Delivery Tracker (button), Open Linked Charge (button)",
       "navigatesTo": [
         "DeliveryTracker",
         "ChargeDetails"
@@ -106,32 +98,32 @@
     },
     "DeliveryTracker": {
       "title": "Delivery Tracker",
-      "description": "Screen content"
+      "description": "Tracking courier updates..., Tracker unavailable., courier status, timestamp, detail, ETA"
     },
     "BillingHistory": {
       "title": "Billing History",
-      "description": "· (button), ActivityIndicator (component)",
+      "description": "line items recorded for this charge. (button)",
       "navigatesTo": [
         "ChargeDetails"
       ]
     },
     "ChargeDetails": {
       "title": "Charge Details",
-      "description": "Open Linked Order (button), ActivityIndicator (component)",
+      "description": "Open Linked Order (button)",
       "navigatesTo": [
         "OrderDetails"
       ]
     },
     "SubscriptionManagement": {
       "title": "Subscriptions",
-      "description": "· Renews (button), ActivityIndicator (component), Plans needing review (SubscriptionSectionCard), · Renews (SubscriptionSectionCard), What this flow contains (SubscriptionSectionCard)",
+      "description": "· Renews (button), Plans needing review (SubscriptionSectionCard), · Renews (SubscriptionSectionCard), What this flow contains (SubscriptionSectionCard)",
       "navigatesTo": [
         "SubscriptionWorkspace"
       ]
     },
     "SubscriptionWorkspace": {
       "title": "Subscription Workspace",
-      "description": "Control room (button), Pause planner (button), Cancellation review (button), ActivityIndicator (component), Workspace seats (SubscriptionSectionCard), Control room (SubscriptionSectionCard), Included benefits (SubscriptionSectionCard)",
+      "description": "Control room (button), Pause planner (button), Cancellation review (button), Workspace seats (SubscriptionSectionCard), Control room (SubscriptionSectionCard), Included benefits (SubscriptionSectionCard)",
       "navigatesTo": [
         "SubscriptionControls",
         "SubscriptionPause",
@@ -148,37 +140,94 @@
     },
     "SubscriptionPause": {
       "title": "Pause Planner",
-      "description": "Explain why this pause exists or what support should watch for on resume. (text-input), Keep manager alerts on (switch), Preserve promo pricing (switch), Pause invoice generation (switch), Pause starts (button), Resume on (button), Review pause plan (button), Scheduling… (button)"
+      "description": "Explain why this pause exists or what support should watch for on resume. (text-input), Keep manager alerts on (switch), Preserve promo pricing (switch), Pause invoice generation (switch), Pause starts (button), Resume on (button), Review pause plan (button)"
     },
     "SubscriptionCancellation": {
       "title": "Cancellation Review",
-      "description": "Add any notes about refund timing, accidental renewal, account state, or support promises. (text-input), I understand benefits end after cancellation review (switch), Review cancellation request (button), Submitting… (button), Submit cancellation review (button), Final cancellation confirmation (modal), ActivityIndicator (component), Additional context (SubscriptionSectionCard)"
+      "description": "Add any notes about refund timing, accidental renewal, account state, or support promises. (text-input), I understand benefits end after cancellation review (switch), Review cancellation request (button), Submit cancellation review (button), Additional context (SubscriptionSectionCard)"
     },
     "LoyaltyActivity": {
       "title": "Loyalty Activity",
-      "description": "Screen content"
+      "description": "Loyalty Activity, Linked order:, happened at, status, Points usually post after orders and bonus activity sync shortly afterward."
     },
     "GiftHistory": {
       "title": "Gift History",
-      "description": "Sent (button), ActivityIndicator (component)",
+      "description": "Gift History, reward name, recipient email, Review sent gift cards and delivery status.",
       "navigatesTo": [
         "GiftDetails"
       ]
     },
     "GiftDetails": {
       "title": "Gift Details",
-      "description": "Screen content"
+      "description": "Gift record not found., Ops note, reward name, sent at, delivery status"
     },
     "AccountSecurity": {
       "title": "Account Security",
-      "description": "Open Notification Preferences (button), ActivityIndicator (component)",
+      "description": "Open Notification Preferences (button)",
       "navigatesTo": [
         "ProfileNotificationPrefs"
       ]
     },
     "ProfileNotificationPrefs": {
       "title": "Notification Preferences",
-      "description": "toggle (switch), Reset to Defaults (button)"
+      "description": "Promotional Offers (switch), Order Status Updates (switch), New Dishes Alerts (switch), Weekly Digest (switch), Flash Sale Notifications (switch), Reset to Defaults (button)"
+    },
+    "AdvancedSupportDashboard": {
+      "title": "Advanced Support",
+      "description": "Account Security Hold (button), Delivery Forensic Dispute (button)",
+      "navigatesTo": [
+        "FraudLockdown",
+        "LogisticsEvidence"
+      ]
+    },
+    "FraudLockdown": {
+      "title": "Account Locked",
+      "description": "Start Verification Wizard (button)",
+      "navigatesTo": [
+        "FraudQuiz"
+      ]
+    },
+    "FraudQuiz": {
+      "title": "Step 1: Identity",
+      "description": "Verify Identity (button), FraudStepIndicator (component), FraudIdentityQuiz (component)",
+      "navigatesTo": [
+        "FraudDevice"
+      ]
+    },
+    "FraudDevice": {
+      "title": "Step 2: Devices",
+      "description": "scrollable list. Confirm Devices (button)",
+      "navigatesTo": [
+        "FraudResolution"
+      ]
+    },
+    "FraudResolution": {
+      "title": "Step 3: Verification Complete",
+      "description": "Unlock Account (button), FraudStepIndicator (component)",
+      "navigatesTo": [
+        "Profile"
+      ]
+    },
+    "LogisticsEvidence": {
+      "title": "Missing Order Investigation",
+      "description": "Next: Complete Checks (button), LogisticsEvidenceViewer (component)",
+      "navigatesTo": [
+        "LogisticsChecklist"
+      ]
+    },
+    "LogisticsChecklist": {
+      "title": "Mandatory Checks",
+      "description": "Next: Select Resolution (button), LogisticsChecklist (component)",
+      "navigatesTo": [
+        "LogisticsResolution"
+      ]
+    },
+    "LogisticsResolution": {
+      "title": "Select Resolution",
+      "description": "Refund to original payment (button), Submit Claim (button)",
+      "navigatesTo": [
+        "Profile"
+      ]
     },
     "HomeTab": {
       "title": "Home",
@@ -186,14 +235,14 @@
     },
     "Search": {
       "title": "Search",
-      "description": "Search dishes... (text-input), Add (button), FlatList (list), Image (image), ActivityIndicator (component)",
+      "description": "scrollable list. Search dishes... (text-input), Add (button)",
       "navigatesTo": [
         "HomeTab"
       ]
     },
     "Cart": {
       "title": "Cart",
-      "description": "✕ (button), Checkout (button), FlatList (list)"
+      "description": "scrollable list with selectable rows showing product name and price, with quantity controls. Checkout (button)"
     },
     "Settings": {
       "title": "Settings",
@@ -225,61 +274,64 @@
       "GiftConfirmation"
     ],
     [
-      "Profile",
+      "AdvancedSupportDashboard",
+      "FraudLockdown",
+      "FraudQuiz",
+      "FraudDevice",
+      "FraudResolution",
+      "Profile"
+    ],
+    [
+      "AdvancedSupportDashboard",
+      "LogisticsEvidence",
+      "LogisticsChecklist",
+      "LogisticsResolution",
+      "Profile"
+    ],
+    [
       "BillingHistory",
       "ChargeDetails",
       "OrderDetails",
       "DeliveryTracker"
     ],
     [
-      "Profile",
       "SubscriptionManagement",
       "SubscriptionWorkspace",
       "SubscriptionControls",
       "SubscriptionPause"
     ],
     [
-      "Profile",
       "SubscriptionManagement",
       "SubscriptionWorkspace",
       "SubscriptionControls",
       "SubscriptionCancellation"
     ],
     [
-      "Profile",
       "OrdersList",
       "OrderDetails",
       "DeliveryTracker"
     ],
     [
-      "Profile",
       "SubscriptionManagement",
       "SubscriptionWorkspace",
       "SubscriptionPause"
     ],
     [
-      "Profile",
       "SubscriptionManagement",
       "SubscriptionWorkspace",
       "SubscriptionCancellation"
-    ],
-    [
-      "Profile",
-      "GiftHistory",
-      "GiftDetails"
-    ],
-    [
-      "Profile",
-      "AccountSecurity",
-      "ProfileNotificationPrefs"
     ],
     [
       "SettingsMain",
       "NotificationPrefs"
     ],
     [
-      "Profile",
-      "LoyaltyActivity"
+      "GiftHistory",
+      "GiftDetails"
+    ],
+    [
+      "AccountSecurity",
+      "ProfileNotificationPrefs"
     ],
     [
       "Search",

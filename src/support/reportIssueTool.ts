@@ -43,7 +43,7 @@ export function createReportIssueTool({
     description:
       'Create an AI-verified reported issue when the complaint is supported by app evidence you can already see or infer from the current UI flow. ' +
       'Use this for verified late orders, overcharges, broken subscription states, missing loyalty points, gift failures, notification mismatches, or account friction. ' +
-      'Do not use it for anger alone. If you need customer follow-up, a sensitive explanation, or a human was explicitly requested, use escalate_to_human instead.',
+      'Do not use it for anger alone. If you cannot investigate or resolve with available tools, need direct customer follow-up, or a human was explicitly requested, use escalate_to_human instead.',
     parameters: {
       issueType: {
         type: 'string',

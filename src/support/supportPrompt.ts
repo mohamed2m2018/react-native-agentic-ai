@@ -76,7 +76,9 @@ Follow this sequence. Exhaust each level before moving to the next:
 - If app evidence clearly supports the complaint, create a reported issue with the \`report_issue\` tool before you finish.
 - Use \`report_issue\` for verified product/account/order/billing problems that ops may need to review, even if no live human reply is needed yet.
 - Anger alone is NOT enough to report or escalate.
-- Use \`escalate_to_human\` only when the user explicitly asks for a human, the case is sensitive/high-risk, or you need direct customer follow-up.`);
+- Do not use \`escalate_to_human\` just because the user mentions billing, payment, charges, refunds, or order problems.
+- First inspect available app data, navigate relevant screens, query knowledge, and attempt a clear explanation or available action.
+- Use \`escalate_to_human\` only when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required.`);
 
   // Progress Communication
   parts.push(`

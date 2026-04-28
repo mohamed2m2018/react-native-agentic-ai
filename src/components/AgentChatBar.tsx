@@ -330,6 +330,7 @@ function TextInputRow({
   isThinking,
   isArabic,
   theme,
+  compact = false,
 }: {
   text: string;
   setText: (t: string) => void;
@@ -338,6 +339,7 @@ function TextInputRow({
   isThinking: boolean;
   isArabic: boolean;
   theme?: ChatBarTheme;
+  compact?: boolean;
 }) {
   const inputRef = useRef<any>(null);
 
@@ -364,6 +366,7 @@ function TextInputRow({
         ref={inputRef}
         style={[
           styles.input,
+          compact && styles.inputCompact,
           isArabic && styles.inputRTL,
           theme?.inputBackgroundColor ? { backgroundColor: theme.inputBackgroundColor } : undefined,
           theme?.textColor ? { color: theme.textColor } : undefined,
@@ -539,6 +542,7 @@ export function AgentChatBar({
   const [localUnread, setLocalUnread] = useState(0);
   const [fabX, setFabX] = useState(10);
   const [showHistory, setShowHistory] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const prevMsgCount = useRef(chatMessages.length);
   const scrollRef = useRef<any>(null);
   const { height, width } = useWindowDimensions();
@@ -563,6 +567,22 @@ export function AgentChatBar({
     expanded: boolean;
     measuredPanelHeight: number;
   } | null>(null);
+  const keyboardAwareMode = isExpanded && mode === 'text';
+
+  const getExpandedMaxHeight = useCallback(
+    (panelY: number = panPositionRef.current.y) => {
+      const baseMaxHeight = Math.min(height * 0.65, 520);
+      if (!keyboardAwareMode || keyboardHeight <= 0) return baseMaxHeight;
+
+      const keyboardMargin = 12;
+      const topInset = 10;
+      const availableAboveKeyboard =
+        height - keyboardHeight - keyboardMargin - Math.max(panelY, topInset);
+
+      return Math.max(140, Math.min(baseMaxHeight, availableAboveKeyboard));
+    },
+    [height, keyboardAwareMode, keyboardHeight]
+  );
 
   const getExpandedWindowHeight = useCallback(
     (measuredPanelHeight: number) => {
@@ -579,12 +599,13 @@ export function AgentChatBar({
                 ? 220
                 : 164;
 
-      const maxExpandedHeight = Math.min(height * 0.65, 520);
+      const maxExpandedHeight = getExpandedMaxHeight();
       const naturalHeight = measuredPanelHeight > 0 ? measuredPanelHeight : minExpandedHeight;
+      const effectiveMinHeight = Math.min(minExpandedHeight, maxExpandedHeight);
 
-      return Math.max(minExpandedHeight, Math.min(naturalHeight, maxExpandedHeight));
+      return Math.max(effectiveMinHeight, Math.min(naturalHeight, maxExpandedHeight));
     },
-    [consentVisible, height, mode, pendingApprovalQuestion, showHistory]
+    [consentVisible, getExpandedMaxHeight, mode, pendingApprovalQuestion, showHistory]
   );
 
   const getWindowSize = useCallback((
@@ -780,6 +801,31 @@ export function AgentChatBar({
 
   const tooltipSide = fabX < width / 2 ? 'right' : 'left';
   const expandedContentMinHeight = getExpandedWindowHeight(0);
+  const hasKeyboardDockContent =
+    chatMessages.length > 0 ||
+    isThinking ||
+    Boolean(pendingApprovalQuestion) ||
+    consentVisible;
+  const keyboardDockHeight = keyboardAwareMode && keyboardHeight > 0
+    ? hasKeyboardDockContent
+      ? Math.max(180, Math.min(300, height - keyboardHeight - 16))
+      : Math.min(166, Math.max(146, height - keyboardHeight - 16))
+    : 0;
+  const expandedContentMaxHeight = keyboardDockHeight || getExpandedMaxHeight();
+  const fixedChatChromeHeight = keyboardDockHeight > 0 ? 214 : 178;
+  const messageListMaxHeight = Math.max(
+    keyboardDockHeight > 0 ? 40 : 72,
+    expandedContentMaxHeight - fixedChatChromeHeight
+  );
+  const keyboardDockStyle =
+    keyboardDockHeight > 0 && !isAndroidNativeWindow
+      ? {
+          left: Math.max(10, Math.round((width - 340) / 2)),
+          top: Math.max(10, height - keyboardHeight - keyboardDockHeight - 8),
+          height: keyboardDockHeight,
+          maxHeight: keyboardDockHeight,
+        }
+      : null;
 
   useEffect(() => {
     isExpandedRef.current = isExpanded;
@@ -835,13 +881,18 @@ export function AgentChatBar({
     const keyboardMargin = 12;
 
     const showSub = Keyboard.addListener(showEvent, (e) => {
-      if (!isExpanded || mode !== 'text' || panelHeight <= 0) return;
+      const nextKeyboardHeight = e.endCoordinates.height;
+      setKeyboardHeight(nextKeyboardHeight);
+      setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 80);
+
+      if (!isExpanded || mode !== 'text') return;
+      const effectivePanelHeight = getExpandedWindowHeight(panelHeight);
 
       if (isAndroidNativeWindow) {
         const currentY = panPositionRef.current.y;
         const targetY = Math.max(
           keyboardMargin,
-          height - e.endCoordinates.height - panelHeight - keyboardMargin
+          height - nextKeyboardHeight - effectivePanelHeight - keyboardMargin
         );
 
         preKeyboardYRef.current = currentY;
@@ -857,7 +908,7 @@ export function AgentChatBar({
       pan.y.stopAnimation((currentY: number) => {
         const targetY = Math.max(
           keyboardMargin,
-          height - e.endCoordinates.height - panelHeight - keyboardMargin
+          height - nextKeyboardHeight - effectivePanelHeight - keyboardMargin
         );
 
         // Preserve the pre-keyboard position so we can restore it on hide.
@@ -874,6 +925,7 @@ export function AgentChatBar({
       });
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
       const restoreY = preKeyboardYRef.current;
       if (restoreY == null) return;
 
@@ -886,18 +938,53 @@ export function AgentChatBar({
         return;
       }
 
-        Animated.timing(pan.y, {
-          toValue: restoreY,
-          duration: 200,
-          useNativeDriver: false,
-        }).start();
+      Animated.timing(pan.y, {
+        toValue: restoreY,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
     });
 
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [height, isAndroidNativeWindow, isExpanded, mode, pan.y, panelHeight, publishNativeWindowPosition]);
+  }, [getExpandedWindowHeight, height, isAndroidNativeWindow, isExpanded, mode, pan.y, panelHeight, publishNativeWindowPosition]);
+
+  useEffect(() => {
+    if (!isExpanded || mode !== 'text' || keyboardHeight <= 0 || panelHeight <= 0) {
+      return;
+    }
+
+    const keyboardMargin = 12;
+    const targetY = Math.max(
+      keyboardMargin,
+      height - keyboardHeight - panelHeight - keyboardMargin
+    );
+    const currentY = panPositionRef.current.y;
+
+    if (Math.abs(currentY - targetY) <= 2) return;
+
+    if (isAndroidNativeWindow) {
+      publishNativeWindowPosition(panPositionRef.current.x, targetY);
+      return;
+    }
+
+    Animated.timing(pan.y, {
+      toValue: targetY,
+      duration: 160,
+      useNativeDriver: false,
+    }).start();
+  }, [
+    height,
+    isAndroidNativeWindow,
+    isExpanded,
+    keyboardHeight,
+    mode,
+    pan.y,
+    panelHeight,
+    publishNativeWindowPosition,
+  ]);
   const panResponder = useMemo(
     () => PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
@@ -1082,7 +1169,8 @@ export function AgentChatBar({
       styles.expandedContainer,
       isAndroidNativeWindow ? styles.expandedContainerNativeWindow : pan.getLayout(),
       isAndroidNativeWindow ? { minHeight: expandedContentMinHeight } : null,
-      { maxHeight: height * 0.65 },
+      { maxHeight: expandedContentMaxHeight },
+      keyboardDockStyle,
       theme?.backgroundColor ? { backgroundColor: theme.backgroundColor } : undefined,
     ]}
       onLayout={(event) => {
@@ -1260,7 +1348,7 @@ export function AgentChatBar({
         <>
           {mode !== 'human' && chatMessages.length > 0 && (
             <ScrollView
-              style={[styles.messageList, { maxHeight: height * 0.65 - 178 }]}
+              style={[styles.messageList, { maxHeight: messageListMaxHeight }]}
               nestedScrollEnabled
               ref={scrollRef}
               onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
@@ -1409,6 +1497,7 @@ export function AgentChatBar({
                   isThinking={isThinking}
                   isArabic={isArabic}
                   theme={theme}
+                  compact={keyboardDockHeight > 0}
                 />
               )}
             </>
@@ -1767,6 +1856,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 48,
     maxHeight: 120, // wrap up to ~5 lines before scrolling internal
+  },
+  inputCompact: {
+    maxHeight: 72,
   },
   inputRTL: {
     textAlign: 'right',

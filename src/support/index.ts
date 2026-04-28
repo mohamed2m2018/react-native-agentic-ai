@@ -29,5 +29,4 @@ export type { SocketReplyHandler } from './EscalationSocket';
 export { EscalationEventSource } from './EscalationEventSource';
 
 // UI Components
-export { SupportGreeting } from './SupportGreeting';
 export { CSATSurvey } from './CSATSurvey';

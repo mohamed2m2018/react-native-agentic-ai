@@ -77,8 +77,9 @@ export function createEscalateTool(
     description:
       'Hand off the conversation to a human support agent. ' +
       'Use this when: (1) the user explicitly asks for a human, ' +
-      '(2) you cannot resolve the issue after multiple attempts, or ' +
-      '(3) the topic requires human judgment (billing disputes, account issues).',
+      '(2) you have investigated with the available app data/tools and still cannot resolve the issue, or ' +
+      '(3) direct customer follow-up or human judgment is required. ' +
+      'Do not use this just because the user mentions billing, payment, charges, refunds, or order problems; investigate first.',
     parameters: {
       reason: {
         type: 'string',

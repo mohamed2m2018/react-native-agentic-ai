@@ -36,9 +36,10 @@ export {
 export { GeminiProvider } from './providers/GeminiProvider';
 export { OpenAIProvider } from './providers/OpenAIProvider';
 export { createProvider } from './providers/ProviderFactory';
+export { ReactNativePlatformAdapter } from './core/ReactNativePlatformAdapter';
 
 // ─── Hooks ───────────────────────────────────────────────────
-export { useAction, useAI } from './hooks/useAction';
+export { useAction, useData, useAI } from './hooks/useAction';
 
 // ─── Services ────────────────────────────────────────────────
 export { VoiceService } from './services/VoiceService';
@@ -57,11 +58,20 @@ export { logger } from './utils/logger';
 export type {
   AgentConfig,
   AgentMode,
+  ActionIntent,
   ExecutionResult,
+  InteractiveNode,
   InteractiveElement,
   DehydratedScreen,
+  NavigationSnapshot,
+  PlatformAdapter,
+  ScreenSnapshot,
+  ZoneSnapshot,
   ToolDefinition,
   ActionDefinition,
+  DataDefinition,
+  DataFieldDef,
+  DataQueryContext,
   TokenUsage,
   KnowledgeEntry,
   KnowledgeRetriever,
@@ -91,11 +101,10 @@ export type {
 export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
 
 // ─── Support Mode ────────────────────────────────────────────
-// SupportGreeting, CSATSurvey, buildSupportPrompt work standalone (no backend)
+// CSATSurvey and buildSupportPrompt work standalone (no backend)
 // createEscalateTool works with provider='custom' (no backend)
 // EscalationSocket and provider='mobileai' require api.mobileai.dev
 export {
-  SupportGreeting,
   CSATSurvey,
   buildSupportPrompt,
   createEscalateTool,
