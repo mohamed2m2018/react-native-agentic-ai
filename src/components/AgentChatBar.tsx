@@ -731,6 +731,12 @@ export function AgentChatBar({
 
   const displayUnread = totalUnread + localUnread;
 
+  useEffect(() => {
+    if (isExpanded && localUnread > 0) {
+      setLocalUnread(0);
+    }
+  }, [isExpanded, localUnread]);
+
   // Auto-expand when triggered (e.g. on escalation)
   useEffect(() => {
     if (autoExpandTrigger > 0) setIsExpanded(true);
@@ -1092,6 +1098,13 @@ export function AgentChatBar({
           accessibilityLabel={displayUnread > 0 ? `Open AI Agent Chat - ${displayUnread} unread messages` : 'Open AI Agent Chat'}
         >
           {isThinking ? <LoadingDots size={28} color={theme?.textColor || '#fff'} /> : <AIBadge size={28} />}
+          {displayUnread > 0 && (
+            <View style={styles.fabUnreadBadge} pointerEvents="none">
+              <Text style={styles.fabUnreadBadgeText}>
+                {displayUnread > 99 ? '99+' : displayUnread}
+              </Text>
+            </View>
+          )}
         </Pressable>
         {/* Discovery tooltip — shows above FAB on first use */}
         {showDiscoveryTooltip && !isAndroidNativeWindow && (
@@ -1123,14 +1136,6 @@ export function AgentChatBar({
                   return content || (isArabic ? 'رسالة جديدة' : 'New message');
                })()}
              </Text>
-             {/* Unread badge sits gracefully on the corner of the popup */}
-             {displayUnread > 1 && (
-                <View style={[styles.fabUnreadBadge, styles.popupBadgeOverride]} pointerEvents="none">
-                  <Text style={styles.fabUnreadBadgeText}>
-                    {displayUnread > 99 ? '99+' : displayUnread}
-                  </Text>
-                </View>
-             )}
           </Pressable>
         )}
 
@@ -1150,14 +1155,6 @@ export function AgentChatBar({
           </Pressable>
         )}
         
-        {/* Fallback Unread badge on collapsed FAB if we only have human unread, no local AI unread */}
-        {displayUnread > 0 && localUnread === 0 && (
-          <View style={styles.fabUnreadBadge} pointerEvents="none">
-            <Text style={styles.fabUnreadBadgeText}>
-              {displayUnread > 99 ? '99+' : displayUnread}
-            </Text>
-          </View>
-        )}
       </Animated.View>
     );
   }
@@ -1640,11 +1637,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     flex: 1,
   },
-  popupBadgeOverride: {
-    top: -8,
-    right: -8,
-    borderColor: '#fff',
-  },
   expandedContainer: {
     position: 'absolute',
     zIndex: 9999,
@@ -2020,7 +2012,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 5,
     borderWidth: 2,
-    borderColor: '#1a1a2e',
+    borderColor: '#fff',
   },
   fabUnreadBadgeText: {
     color: '#fff',
