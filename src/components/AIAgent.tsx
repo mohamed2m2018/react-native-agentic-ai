@@ -15,7 +15,13 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { View, StyleSheet, InteractionManager, Platform } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  InteractionManager,
+  Platform,
+  NativeModules,
+} from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
 import { ReactNativePlatformAdapter } from '../core/ReactNativePlatformAdapter';
 import { actionRegistry } from '../core/ActionRegistry';
@@ -244,6 +250,7 @@ async function captureHeatmapScreenshot(
 ): Promise<string | null> {
   try {
     if (!rootView) return null;
+    if (!(NativeModules as any)?.RNViewShot) return null;
 
     const viewShot = require('react-native-view-shot');
     const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
@@ -2292,12 +2299,16 @@ export function AIAgent({
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
+  const [voiceTranscripts, setVoiceTranscripts] = useState<
+    Array<{ id: string; role: 'user' | 'model'; text: string }>
+  >([]);
 
   const voiceServiceRef = useRef<VoiceService | null>(null);
   const audioInputRef = useRef<AudioInputService | null>(null);
   const audioOutputRef = useRef<AudioOutputService | null>(null);
   const toolLockRef = useRef<boolean>(false);
   const userHasSpokenRef = useRef<boolean>(false);
+  const voiceTranscriptSeqRef = useRef(0);
   const lastScreenContextRef = useRef<string>('');
   const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
@@ -3024,6 +3035,14 @@ export function AIAgent({
           'AIAgent',
           `Transcript [${role}] (final=${isFinal}): "${text}"`
         );
+        const normalized = text.trim();
+        if (isFinal && normalized) {
+          const id = `voice-transcript-${Date.now()}-${voiceTranscriptSeqRef.current++}`;
+          setVoiceTranscripts((prev) => [
+            ...prev,
+            { id, role, text: normalized },
+          ]);
+        }
         if (role === 'user') {
           userHasSpokenRef.current = true;
         }
@@ -3034,6 +3053,8 @@ export function AIAgent({
           '✅ SDK setup complete — sending initial screen context now'
         );
         userHasSpokenRef.current = false;
+        voiceTranscriptSeqRef.current = 0;
+        setVoiceTranscripts([]);
         const initialContext = runtime.getScreenContext();
         lastScreenContextRef.current = initialContext; // Seed for screen change detection
         const passiveContext = `[SYSTEM CONTEXT — THIS IS NOT A USER REQUEST. DO NOT RESPOND. DO NOT NAVIGATE. DO NOT CALL ANY TOOLS. DO NOT SPEAK. Just silently read and memorize this screen layout. You will use it when the user speaks their first voice command.]\n\n${initialContext}`;
@@ -3263,6 +3284,8 @@ export function AIAgent({
     setIsMicActive(false);
     setIsAISpeaking(false);
     setIsVoiceConnected(false);
+    voiceTranscriptSeqRef.current = 0;
+    setVoiceTranscripts([]);
     // 6. Switch back to text mode (triggers cleanup effect naturally)
     setMode('text');
     logger.info('AIAgent', '🛑 Voice session fully stopped');
@@ -3863,6 +3886,7 @@ export function AIAgent({
                 lastResult={lastResult}
                 lastUserMessage={lastUserMessage}
                 chatMessages={messages}
+                voiceTranscripts={voiceTranscripts}
                 pendingApprovalQuestion={pendingApprovalQuestion}
                 onPendingApprovalAction={handlePendingApprovalAction}
                 language={'en'}
@@ -3984,6 +4008,7 @@ export function AIAgent({
                   lastResult={lastResult}
                   lastUserMessage={lastUserMessage}
                   chatMessages={messages}
+                  voiceTranscripts={voiceTranscripts}
                   pendingApprovalQuestion={pendingApprovalQuestion}
                   onPendingApprovalAction={handlePendingApprovalAction}
                   language={'en'}

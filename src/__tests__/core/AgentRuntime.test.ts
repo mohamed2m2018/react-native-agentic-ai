@@ -741,6 +741,102 @@ describe('AgentRuntime', () => {
       expect(result.steps[1]?.action.output).toContain('APP ACTION BLOCKED');
       expect(onChangeText).not.toHaveBeenCalled();
     });
+
+    it('desired: treats string request_app_action true as approval', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const runtime = createRuntime(new MockProvider([]), { onAskUser });
+
+      await runtime.executeTool('ask_user', {
+        question: 'I can open Profile. May I proceed?',
+        request_app_action: 'true',
+      });
+
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'approval',
+          question: 'I can open Profile. May I proceed?',
+        })
+      );
+    });
+
+    it('desired: treats string request_app_action false as freeform', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('answer');
+      const runtime = createRuntime(new MockProvider([]), { onAskUser });
+
+      await runtime.executeTool('ask_user', {
+        question: 'Which profile?',
+        request_app_action: 'false',
+      });
+
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'freeform',
+          question: 'Which profile?',
+        })
+      );
+    });
+
+    it('desired: string grants_workflow_approval true unlocks routine in-flow type action', async () => {
+      const onChangeText = jest.fn();
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<text-input>Street Address />\n',
+        elements: [{ index: 0, type: 'text-input' as const, label: 'Street Address', requiresConfirmation: false, fiberNode: {}, props: { onChangeText } }],
+      });
+      const onAskUser = jest.fn().mockResolvedValue('123 Main St');
+      const runtime = createRuntime(new MockProvider([]), { onAskUser });
+
+      await runtime.executeTool('ask_user', {
+        question: 'What street address should I use?',
+        request_app_action: false,
+        grants_workflow_approval: 'true',
+      });
+      const typeResult = await runtime.executeTool('type', {
+        index: 0,
+        text: '123 Main St',
+      });
+
+      expect(typeResult).not.toContain('APP ACTION BLOCKED');
+      expect(onChangeText).toHaveBeenCalledWith('123 Main St');
+    });
+
+    it('desired: approval result is human-readable and does not expose internal token', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const runtime = createRuntime(new MockProvider([]), { onAskUser });
+
+      const result = await runtime.executeTool('ask_user', {
+        question: 'I can open Profile. May I proceed?',
+        request_app_action: true,
+      });
+
+      expect(result).toContain('approved');
+      expect(result).not.toContain('__APPROVAL_GRANTED__');
+    });
+
+    it('desired: rejection result is human-readable and does not expose internal token', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_REJECTED__');
+      const runtime = createRuntime(new MockProvider([]), { onAskUser });
+
+      const result = await runtime.executeTool('ask_user', {
+        question: 'I can open Profile. May I proceed?',
+        request_app_action: true,
+      });
+
+      expect(result).toMatch(/declined|rejected/i);
+      expect(result).not.toContain('__APPROVAL_REJECTED__');
+    });
+
+    it('desired: blocked output avoids user-facing technical failure wording', async () => {
+      const runtime = createRuntime(new MockProvider([]), {
+        onAskUser: jest.fn().mockResolvedValue('yes'),
+      });
+
+      const result = await runtime.executeTool('navigate', { screen: 'Settings' });
+
+      expect(result).toContain('APP ACTION BLOCKED');
+      expect(result).not.toMatch(/technical issue|can't navigate|cannot navigate|runtime failure|right now/i);
+    });
   });
 
   describe('configured action filtering', () => {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { NativeModules } from 'react-native';
 import { ReactNativePlatformAdapter } from '../../core/ReactNativePlatformAdapter';
 import { globalBlockRegistry } from '../../core/BlockRegistry';
 import { globalZoneRegistry } from '../../core/ZoneRegistry';
@@ -17,9 +18,15 @@ jest.mock('../../utils/logger', () => ({
   },
 }));
 
+jest.mock('react-native-view-shot', () => ({
+  captureRef: jest.fn().mockResolvedValue('base64-screenshot'),
+}));
+
 import { walkFiberTree } from '../../core/FiberTreeWalker';
+import { captureRef } from 'react-native-view-shot';
 
 const mockWalkFiberTree = walkFiberTree as jest.MockedFunction<typeof walkFiberTree>;
+const mockCaptureRef = captureRef as jest.MockedFunction<typeof captureRef>;
 
 function FactCard() {
   return null;
@@ -30,6 +37,24 @@ describe('ReactNativePlatformAdapter', () => {
     jest.clearAllMocks();
     globalBlockRegistry.clear();
     globalZoneRegistry.unregister('test-zone');
+  });
+
+  it('skips screenshot capture when RNViewShot native module is unavailable', async () => {
+    const previousViewShot = (NativeModules as any).RNViewShot;
+    delete (NativeModules as any).RNViewShot;
+
+    const adapter = new ReactNativePlatformAdapter({
+      getRootRef: () => ({ child: null }),
+      getWalkConfig: () => ({ screenName: 'Home' }),
+      getCurrentScreenName: () => 'Home',
+    });
+
+    await expect(adapter.captureScreenshot()).resolves.toBeUndefined();
+    expect(mockCaptureRef).not.toHaveBeenCalled();
+
+    if (previousViewShot) {
+      (NativeModules as any).RNViewShot = previousViewShot;
+    }
   });
 
   it('maps Fiber output into a normalized screen snapshot', () => {

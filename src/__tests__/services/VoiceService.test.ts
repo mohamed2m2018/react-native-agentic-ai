@@ -380,6 +380,154 @@ describe('VoiceService', () => {
 
       expect(callbacks.onTranscript).toHaveBeenCalledWith('What food is on screen?', true, 'user');
     });
+
+    it('does not emit modelTurn text as visible transcript', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          modelTurn: { parts: [{ text: 'internal model text' }] },
+        },
+      });
+
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith('internal model text', true, 'model');
+    });
+
+    it('flushes incomplete model output transcription on turnComplete', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          outputTranscription: { text: 'I can open that for you' },
+        },
+      });
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith('I can open that for you', true, 'model');
+
+      ws.simulateMessage({ serverContent: { turnComplete: true } });
+
+      expect(callbacks.onTranscript).toHaveBeenCalledWith('I can open that for you', true, 'model');
+    });
+
+    it('desired: buffers user transcript until sentence boundary', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Open' } } });
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'profile' } } });
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith(expect.any(String), true, 'user');
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'please.' } } });
+      expect(callbacks.onTranscript).toHaveBeenCalledWith('Open profile please.', true, 'user');
+    });
+
+    it('desired: turnComplete flushes one incomplete user sentence once', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Open profile please' } } });
+      ws.simulateMessage({ serverContent: { turnComplete: true } });
+      ws.simulateMessage({ serverContent: { turnComplete: true } });
+
+      expect(callbacks.onTranscript.mock.calls.filter(
+        (call) => call[0] === 'Open profile please' && call[2] === 'user'
+      )).toHaveLength(1);
+    });
+
+    it('desired: cumulative partial transcripts do not duplicate words', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Open' } } });
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Open profile' } } });
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Open profile please.' } } });
+
+      expect(callbacks.onTranscript).toHaveBeenCalledWith('Open profile please.', true, 'user');
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith(
+        'Open Open profile Open profile please.',
+        true,
+        'user'
+      );
+    });
+
+    it('desired: emits multiple transcript sentences in order from one chunk', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          inputTranscription: { text: 'Open profile. Then go back.' },
+        },
+      });
+
+      expect(callbacks.onTranscript.mock.calls.slice(-2)).toEqual([
+        ['Open profile.', true, 'user'],
+        ['Then go back.', true, 'user'],
+      ]);
+    });
+
+    it('desired: modelTurn text is not emitted as visible transcript', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          modelTurn: { parts: [{ text: 'do not show this thinking' }] },
+        },
+      });
+
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith('do not show this thinking', true, 'model');
+    });
+
+    it('desired: whitespace-only transcript chunks are ignored', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: '   ' } } });
+
+      expect(callbacks.onTranscript).not.toHaveBeenCalled();
+    });
   });
 
   describe('function response', () => {
