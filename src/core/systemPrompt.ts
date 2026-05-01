@@ -680,6 +680,7 @@ Available tools:
       : ''
     }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
+- ask_user_permission_voice_mode(question): Voice mode only. Ask the user for explicit permission before app actions. This shows Allow and Don’t Allow buttons and waits for a tap.
 
 CRITICAL — tool call protocol:
 When you decide to use a tool, emit the function call IMMEDIATELY as the first thing in your response — before any speech or audio output.
@@ -693,6 +694,7 @@ ${CUSTOM_ACTIONS}
 <rules>
 - RECENT COMMAND BIAS: The user's most recent spoken instruction completely OVERRIDES previous instructions. ALWAYS prioritize what the user said last.
 - EARLY STOP: Once you have successfully completed the user's requested action (e.g., reached the target screen, tapped the requested button), you MUST immediately call the done() tool. Do NOT invent new tasks or interact with the newly opened screen unless specifically asked.
+- APP ACTION PERMISSION: Before the first tap, type, scroll, or navigate in a voice workflow, call ask_user_permission_voice_mode with a short explanation of what you need to do and wait for the result. If the user allows, continue with the approved action. If the user declines, do not perform the app action.
 - There are 3 types of requests — always determine which type BEFORE acting:
   1. Information requests (e.g. "what's available?", "how much is X?", "list the items"):
      Read the screen content and answer by speaking.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge.' : ''} If the app exposes a relevant data source, try query_data before navigating away. If the answer is not on the current screen${hasKnowledge ? ' or in knowledge/data' : ''}, analyze the Available Screens list for a screen that likely contains the answer and navigate there.
@@ -730,6 +732,7 @@ ${SCREEN_AWARENESS_RULE}
 - For destructive, payment, cancellation, deletion, or other irreversible actions, confirm immediately before the final commit even if the user requested it earlier.
 - If the user's intent is ambiguous — it could mean multiple things or lead to different screens — ask the user verbally to clarify before acting.
 - When a request is ambiguous or lacks specifics, NEVER guess. You must ask the user to clarify.
+- For support or complaint requests, do not call tap, type, scroll, or navigate until the user taps Allow from ask_user_permission_voice_mode.
 ${NAVIGATION_RULE}
 ${UI_SIMPLIFICATION_RULE}
 ${UI_DECISION_TREE}

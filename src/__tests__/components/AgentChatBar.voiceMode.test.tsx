@@ -132,6 +132,7 @@ describe('AgentChatBar voice mode', () => {
 
     expect(utils.getByText('Open my profile')).toBeTruthy();
     expect(utils.getByText('Open profile.')).toBeTruthy();
+    expect(utils.getByText('I can open Profile. May I proceed?')).toBeTruthy();
     expect(utils.getByText('Allow')).toBeTruthy();
     expect(utils.getByText('Don’t Allow')).toBeTruthy();
   });

@@ -1,7 +1,8 @@
-import { fireEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import {
   emitAudioResponse,
   emitConnected,
+  emitTranscript,
   flushPromises,
   renderVoiceAgent,
   resetVoiceHarness,
@@ -13,31 +14,32 @@ import {
 } from './voiceTabHarness';
 
 async function markUserSpoken() {
-  const voice = voiceInstances[voiceInstances.length - 1]!;
-  await voice.lastCallbacks?.onTranscript?.('Open profile', true, 'user');
-  await flushPromises();
+  await emitTranscript('Open profile', true, 'user');
 }
 
-async function emitApprovalToolCall(id = 'approval-1', requestAppAction: any = true) {
+async function emitApprovalToolCall(id = 'approval-1') {
   const voice = voiceInstances[voiceInstances.length - 1]!;
-  const pending = voice.lastCallbacks.onToolCall({
-    name: 'ask_user',
-    args: {
-      question: 'I can open Profile. May I proceed?',
-      request_app_action: requestAppAction,
-    },
-    id,
+  let pending!: Promise<void>;
+  await act(async () => {
+    pending = voice.lastCallbacks.onToolCall({
+      name: 'ask_user_permission_voice_mode',
+      args: {
+        question: 'I can open Profile. May I proceed?',
+      },
+      id,
+    });
+    await Promise.resolve();
   });
   await flushPromises();
   return pending;
 }
 
-describe('AIAgent voice tab approval desired behavior', () => {
+describe('AIAgent voice tab approval behavior', () => {
   beforeEach(() => {
     resetVoiceHarness();
   });
 
-  it('desired: voice ask_user approval renders Allow and Don’t Allow', async () => {
+  it('voice permission tool renders Allow and Don’t Allow', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -45,24 +47,23 @@ describe('AIAgent voice tab approval desired behavior', () => {
 
     await emitApprovalToolCall();
 
+    expect(utils.getByText('I can open Profile. May I proceed?')).toBeTruthy();
     expect(utils.getByText('Allow')).toBeTruthy();
     expect(utils.getByText('Don’t Allow')).toBeTruthy();
     expect(utils.getByText(/permission/i)).toBeTruthy();
   });
 
-  it('desired: string true request_app_action also renders approval', async () => {
+  it('registers the voice-only permission tool instead of ask_user', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
-    await emitConnected();
-    await markUserSpoken();
+    const voice = await waitForVoiceService();
 
-    await emitApprovalToolCall('approval-string', 'true');
-
-    expect(utils.getByText('Allow')).toBeTruthy();
-    expect(utils.getByText('Don’t Allow')).toBeTruthy();
+    const toolNames = voice.config.tools.map((tool: any) => tool.name);
+    expect(toolNames).toContain('ask_user_permission_voice_mode');
+    expect(toolNames).not.toContain('ask_user');
   });
 
-  it('desired: no function response is sent before user taps approval', async () => {
+  it('no function response is sent before user taps approval', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -74,7 +75,7 @@ describe('AIAgent voice tab approval desired behavior', () => {
     expect(voice.sendFunctionResponse).not.toHaveBeenCalled();
   });
 
-  it('desired: Allow sends exactly one human-readable function response with original id', async () => {
+  it('Allow sends exactly one human-readable function response with original id', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -82,12 +83,14 @@ describe('AIAgent voice tab approval desired behavior', () => {
     const voice = await waitForVoiceService();
 
     await emitApprovalToolCall('approval-allow');
-    fireEvent.press(utils.getByText('Allow'));
+    await act(async () => {
+      fireEvent.press(utils.getByText('Allow'));
+    });
     await flushPromises();
 
     expect(voice.sendFunctionResponse).toHaveBeenCalledTimes(1);
     expect(voice.sendFunctionResponse).toHaveBeenCalledWith(
-      'ask_user',
+      'ask_user_permission_voice_mode',
       'approval-allow',
       expect.objectContaining({
         result: expect.not.stringContaining('__APPROVAL_GRANTED__'),
@@ -95,7 +98,7 @@ describe('AIAgent voice tab approval desired behavior', () => {
     );
   });
 
-  it('desired: double tapping Allow still sends one response and one visible user answer', async () => {
+  it('double tapping Allow still sends one response and keeps prior transcript visible', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -103,15 +106,18 @@ describe('AIAgent voice tab approval desired behavior', () => {
     const voice = await waitForVoiceService();
 
     await emitApprovalToolCall('approval-double-allow');
-    fireEvent.press(utils.getByText('Allow'));
-    fireEvent.press(utils.getByText('Allow'));
+    await act(async () => {
+      fireEvent.press(utils.getByText('Allow'));
+      fireEvent.press(utils.getByText('Allow'));
+    });
     await flushPromises();
 
     expect(voice.sendFunctionResponse).toHaveBeenCalledTimes(1);
-    expect(utils.getAllByText('Allow')).toHaveLength(1);
+    expect(utils.queryByText('Allow')).toBeNull();
+    expect(utils.getByText('Open profile')).toBeTruthy();
   });
 
-  it('desired: Don’t Allow sends exactly one rejection response', async () => {
+  it('Don’t Allow sends exactly one rejection response', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -119,12 +125,14 @@ describe('AIAgent voice tab approval desired behavior', () => {
     const voice = await waitForVoiceService();
 
     await emitApprovalToolCall('approval-deny');
-    fireEvent.press(utils.getByText('Don’t Allow'));
+    await act(async () => {
+      fireEvent.press(utils.getByText('Don’t Allow'));
+    });
     await flushPromises();
 
     expect(voice.sendFunctionResponse).toHaveBeenCalledTimes(1);
     expect(voice.sendFunctionResponse).toHaveBeenCalledWith(
-      'ask_user',
+      'ask_user_permission_voice_mode',
       'approval-deny',
       expect.objectContaining({
         result: expect.not.stringContaining('__APPROVAL_REJECTED__'),
@@ -132,7 +140,7 @@ describe('AIAgent voice tab approval desired behavior', () => {
     );
   });
 
-  it('desired: approval does not stop audio output, reconnect voice, or restart mic repeatedly', async () => {
+  it('approval does not stop audio output, reconnect voice, or restart mic repeatedly', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -152,7 +160,7 @@ describe('AIAgent voice tab approval desired behavior', () => {
     expect(audioOutput.enqueue).toHaveBeenCalledTimes(1);
   });
 
-  it('desired: approval keeps existing chat history visible', async () => {
+  it('approval keeps existing chat history visible', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -161,25 +169,34 @@ describe('AIAgent voice tab approval desired behavior', () => {
     await emitApprovalToolCall('approval-history');
 
     expect(utils.getByText('Home Screen')).toBeTruthy();
+    expect(utils.getByText('Open profile')).toBeTruthy();
+    expect(utils.getByText('I can open Profile. May I proceed?')).toBeTruthy();
     expect(utils.getByText('Allow')).toBeTruthy();
   });
 
-  it('desired: closing overlay rejects once and clears approval UI', async () => {
+  it('closing overlay rejects once, stops voice, and ignores late audio', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
     await markUserSpoken();
     const voice = await waitForVoiceService();
+    const audioOutput = await waitForAudioOutput();
 
     await emitApprovalToolCall('approval-cancel');
-    fireEvent.press(utils.getByLabelText('Stop AI Agent request'));
+    audioOutput.enqueue.mockClear();
+    await act(async () => {
+      fireEvent.press(utils.getByLabelText('Stop AI Agent request'));
+    });
     await flushPromises();
+    await emitAudioResponse('late-audio-after-stop');
 
     expect(voice.sendFunctionResponse).toHaveBeenCalledTimes(1);
+    expect(voice.disconnect).toHaveBeenCalledTimes(1);
+    expect(audioOutput.enqueue).not.toHaveBeenCalled();
     expect(utils.queryByText('Allow')).toBeNull();
   });
 
-  it('desired: stale approval button clears safely without deadlock', async () => {
+  it('stale approval button clears safely without deadlock', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     await emitConnected();
@@ -188,8 +205,10 @@ describe('AIAgent voice tab approval desired behavior', () => {
 
     await emitApprovalToolCall('approval-stale');
     voice.sendFunctionResponse.mockClear();
-    fireEvent.press(utils.getByText('Allow'));
-    fireEvent.press(utils.getByText('Allow'));
+    await act(async () => {
+      fireEvent.press(utils.getByText('Allow'));
+      fireEvent.press(utils.getByText('Allow'));
+    });
     await flushPromises();
 
     expect(voice.sendFunctionResponse.mock.calls.length).toBeLessThanOrEqual(1);

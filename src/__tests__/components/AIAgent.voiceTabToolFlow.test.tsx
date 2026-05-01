@@ -1,22 +1,20 @@
-import { waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import {
   audioInputInstances,
   deferAudioInputStop,
   emitConnected,
+  emitTranscript,
   emitToolCall,
   flushPromises,
   renderVoiceAgent,
   resetVoiceHarness,
   switchToVoice,
-  voiceInstances,
   waitForAudioInput,
   waitForVoiceService,
 } from './voiceTabHarness';
 
 async function markUserSpoken() {
-  const voice = voiceInstances[voiceInstances.length - 1]!;
-  await voice.lastCallbacks?.onTranscript?.('Open profile', true, 'user');
-  await flushPromises();
+  await emitTranscript('Open profile', true, 'user');
 }
 
 describe('AIAgent voice tab tool flow', () => {
@@ -52,10 +50,13 @@ describe('AIAgent voice tab tool flow', () => {
 
     let pending: Promise<void> | undefined;
     try {
-      pending = voice.lastCallbacks.onToolCall({
-        name: 'done',
-        args: { text: 'Done', success: true },
-        id: 'done-1',
+      await act(async () => {
+        pending = voice.lastCallbacks.onToolCall({
+          name: 'done',
+          args: { text: 'Done', success: true },
+          id: 'done-1',
+        });
+        await Promise.resolve();
       });
       await flushPromises();
 
@@ -64,12 +65,16 @@ describe('AIAgent voice tab tool flow', () => {
       await new Promise((resolve) => setTimeout(resolve, 2500));
       expect(voice.sendFunctionResponse).not.toHaveBeenCalled();
 
-      stop.resolve();
-      await pending;
+      await act(async () => {
+        stop.resolve();
+        await pending;
+      });
       await waitFor(() => expect(voice.sendFunctionResponse).toHaveBeenCalledTimes(1));
     } finally {
-      stop.resolve();
-      await pending?.catch(() => undefined);
+      await act(async () => {
+        stop.resolve();
+        await pending?.catch(() => undefined);
+      });
     }
   });
 
@@ -122,6 +127,71 @@ describe('AIAgent voice tab tool flow', () => {
     );
   });
 
+  it('renders approval UI when a voice UI action arrives before workflow approval', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    await markUserSpoken();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+
+    await emitToolCall('navigate', { screen: 'Profile' }, 'navigate-direct');
+
+    expect(audioInput.stop).toHaveBeenCalled();
+    expect(utils.getByText('I can open Profile. May I proceed?')).toBeTruthy();
+    expect(utils.getByText('Open profile')).toBeTruthy();
+    expect(utils.getByText('Allow')).toBeTruthy();
+    expect(utils.getByText('Don’t Allow')).toBeTruthy();
+    expect(voice.sendFunctionResponse).not.toHaveBeenCalled();
+  });
+
+  it('executes the original voice UI action after Allow', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    await markUserSpoken();
+    const voice = await waitForVoiceService();
+
+    await emitToolCall('navigate', { screen: 'Profile' }, 'navigate-after-allow');
+    await act(async () => {
+      fireEvent.press(utils.getByText('Allow'));
+    });
+
+    await waitFor(
+      () =>
+        expect(voice.sendFunctionResponse).toHaveBeenCalledWith(
+          'navigate',
+          'navigate-after-allow',
+          expect.objectContaining({
+            result: expect.not.stringContaining('APP ACTION BLOCKED'),
+          })
+        ),
+      { timeout: 5000 }
+    );
+  });
+
+  it('rejects the original voice UI action after Don’t Allow', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    await markUserSpoken();
+    const voice = await waitForVoiceService();
+
+    await emitToolCall('navigate', { screen: 'Profile' }, 'navigate-denied');
+    await act(async () => {
+      fireEvent.press(utils.getByText('Don’t Allow'));
+    });
+    await flushPromises();
+
+    expect(voice.sendFunctionResponse).toHaveBeenCalledWith(
+      'navigate',
+      'navigate-denied',
+      expect.objectContaining({
+        result: expect.stringContaining('declined'),
+      })
+    );
+  });
+
   it('desired: concurrent tool calls are serialized', async () => {
     const stop = deferAudioInputStop();
     const utils = renderVoiceAgent();
@@ -130,15 +200,20 @@ describe('AIAgent voice tab tool flow', () => {
     await markUserSpoken();
     const voice = await waitForVoiceService();
 
-    const first = voice.lastCallbacks.onToolCall({
-      name: 'done',
-      args: { text: 'First', success: true },
-      id: 'first',
-    });
-    const second = voice.lastCallbacks.onToolCall({
-      name: 'done',
-      args: { text: 'Second', success: true },
-      id: 'second',
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    await act(async () => {
+      first = voice.lastCallbacks.onToolCall({
+        name: 'done',
+        args: { text: 'First', success: true },
+        id: 'first',
+      });
+      second = voice.lastCallbacks.onToolCall({
+        name: 'done',
+        args: { text: 'Second', success: true },
+        id: 'second',
+      });
+      await Promise.resolve();
     });
     await flushPromises();
 
@@ -147,9 +222,11 @@ describe('AIAgent voice tab tool flow', () => {
       'second',
       expect.anything()
     );
-    stop.resolve();
-    await first;
-    await second;
+    await act(async () => {
+      stop.resolve();
+      await first;
+      await second;
+    });
 
     expect(voice.sendFunctionResponse.mock.calls.map((call) => call[1])).toEqual([
       'first',
@@ -166,17 +243,25 @@ describe('AIAgent voice tab tool flow', () => {
     const voice = await waitForVoiceService();
     const audioInput = await waitForAudioInput();
 
-    const pending = voice.lastCallbacks.onToolCall({
-      name: 'done',
-      args: { text: 'Done', success: true },
-      id: 'pending-tool',
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = voice.lastCallbacks.onToolCall({
+        name: 'done',
+        args: { text: 'Done', success: true },
+        id: 'pending-tool',
+      });
+      await Promise.resolve();
     });
-    audioInput.config.onAudioChunk('chunk-while-pending');
+    await act(async () => {
+      audioInput.config.onAudioChunk('chunk-while-pending');
+    });
     await flushPromises();
 
     expect(voice.sendAudio).not.toHaveBeenCalledWith('chunk-while-pending');
 
-    stop.resolve();
-    await pending;
+    await act(async () => {
+      stop.resolve();
+      await pending;
+    });
   });
 });

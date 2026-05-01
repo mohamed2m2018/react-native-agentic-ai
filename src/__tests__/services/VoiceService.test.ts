@@ -119,6 +119,11 @@ const createCallbacks = (): VoiceServiceCallbacks & { [key: string]: jest.Mock }
 describe('VoiceService', () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
+    jest.useRealTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('connection', () => {
@@ -223,6 +228,25 @@ describe('VoiceService', () => {
       expect(setup.setup.inputAudioTranscription).toBeDefined();
       expect(setup.setup.outputAudioTranscription).toBeDefined();
     });
+
+    it('configures automatic activity detection for responsive voice turns', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const setup = JSON.parse(MockWebSocket.instances[0]!.sentMessages[0]!);
+      expect(setup.setup.realtimeInputConfig).toMatchObject({
+        automaticActivityDetection: {
+          startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+          endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+          silenceDurationMs: 700,
+          prefixPaddingMs: 100,
+        },
+        turnCoverage: 'TURN_INCLUDES_ONLY_ACTIVITY',
+      });
+    });
   });
 
   describe('sending audio', () => {
@@ -274,6 +298,7 @@ describe('VoiceService', () => {
 
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('What is on screen?');
+      expect(lastMsg.clientContent.turnComplete).toBe(true);
     });
   });
 
@@ -293,14 +318,100 @@ describe('VoiceService', () => {
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
       expect(lastMsg.clientContent.turns[0].parts).toHaveLength(1);
       expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('<screen>...</screen>');
-      // turnComplete is true because it forces the model to respond to the view
-      expect(lastMsg.clientContent.turnComplete).toBe(true);
+      expect(lastMsg.clientContent.turnComplete).toBe(false);
     });
 
     it('does not send when not connected', async () => {
       const service = createService();
       service.sendScreenContext('<screen>test</screen>');
       // No crash, no message sent (not connected)
+    });
+  });
+
+  describe('user turn end watchdog', () => {
+    it('sends audioStreamEnd after a user sentence if no model or tool event follows', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      jest.useFakeTimers();
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Go to profile.' } } });
+
+      expect(ws.sentMessages.some((msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd)).toBe(false);
+
+      jest.advanceTimersByTime(1499);
+      expect(ws.sentMessages.some((msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd)).toBe(false);
+
+      jest.advanceTimersByTime(1);
+      expect(ws.sentMessages.some((msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd)).toBe(true);
+    });
+
+    it('does not send audioStreamEnd if a tool call arrives after the user sentence', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      jest.useFakeTimers();
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Go to profile.' } } });
+      ws.simulateMessage({
+        toolCall: {
+          functionCalls: [{ name: 'navigate', args: { screen: 'Profile' }, id: 'nav-1' }],
+        },
+      });
+
+      jest.advanceTimersByTime(1500);
+
+      expect(ws.sentMessages.some((msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd)).toBe(false);
+      expect(callbacks.onToolCall).toHaveBeenCalledWith({
+        name: 'navigate',
+        args: { screen: 'Profile' },
+        id: 'nav-1',
+      });
+    });
+
+    it('does not send audioStreamEnd if model output starts after the user sentence', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      jest.useFakeTimers();
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Hello.' } } });
+      ws.simulateMessage({ serverContent: { outputTranscription: { text: 'Hi there.' } } });
+
+      jest.advanceTimersByTime(1500);
+
+      expect(ws.sentMessages.some((msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd)).toBe(false);
+    });
+
+    it('sends audioStreamEnd at most once for one unanswered user sentence', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      jest.useFakeTimers();
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: 'Go to profile.' } } });
+      jest.advanceTimersByTime(5000);
+
+      const streamEndMessages = ws.sentMessages.filter(
+        (msg) => JSON.parse(msg).realtimeInput?.audioStreamEnd
+      );
+      expect(streamEndMessages).toHaveLength(1);
     });
   });
 
@@ -527,6 +638,49 @@ describe('VoiceService', () => {
       ws.simulateMessage({ serverContent: { inputTranscription: { text: '   ' } } });
 
       expect(callbacks.onTranscript).not.toHaveBeenCalled();
+    });
+
+    it('ignores Gemini control-token transcript chunks', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { outputTranscription: { text: '<ctrl46>' } } });
+      ws.simulateMessage({ serverContent: { turnComplete: true } });
+
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith('<ctrl46>', true, 'model');
+      expect(callbacks.onTranscript).not.toHaveBeenCalled();
+    });
+
+    it('strips Gemini control tokens from otherwise valid transcripts', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          outputTranscription: { text: 'I can open settings. <ctrl46>' },
+        },
+      });
+
+      expect(callbacks.onTranscript).toHaveBeenCalledWith(
+        'I can open settings.',
+        true,
+        'model'
+      );
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith(
+        'I can open settings. <ctrl46>',
+        true,
+        'model'
+      );
     });
   });
 
