@@ -38,9 +38,11 @@ export class AudioInputService {
   // Auto-recovery: detect when mic session dies after audio playback.
   // This is a react-native-audio-api bug where AudioRecorder loses mic access
   // after AudioBufferQueueSourceNode plays audio (audio session conflict).
+  // Only treat near-zero PCM as dead. Quiet rooms and soft speech can sit around
+  // 0.002-0.004 max amplitude; restarting there chops user utterances.
   private consecutiveSilentFrames = 0;
   private isRecovering = false;
-  private static readonly SILENT_THRESHOLD = 0.01;
+  private static readonly DEAD_MIC_THRESHOLD = 0.00001;
   private static readonly SILENT_FRAMES_BEFORE_RESTART = 15;
 
   constructor(config: AudioInputConfig) {
@@ -110,11 +112,11 @@ export class AudioInputService {
               logger.info('AudioInput', `🔬 Frame #${frameCount}: maxAmp=${maxAmp.toFixed(6)}, samples=${float32Data.length}`);
             }
 
-            // ─── Auto-Recovery: Silent mic detection ─────────────
+            // ─── Auto-Recovery: Dead mic detection ───────────────
             // After audio playback, react-native-audio-api's AudioRecorder
-            // can lose its mic session (all-zero frames). Detect this and
-            // restart the recorder to re-acquire the audio session.
-            if (maxAmp < AudioInputService.SILENT_THRESHOLD) {
+            // can lose its mic session (all-zero frames). Detect only that
+            // dead-recorder shape and do not classify quiet valid audio as dead.
+            if (maxAmp <= AudioInputService.DEAD_MIC_THRESHOLD) {
               this.consecutiveSilentFrames++;
               if (
                 this.consecutiveSilentFrames >= AudioInputService.SILENT_FRAMES_BEFORE_RESTART &&
@@ -133,9 +135,9 @@ export class AudioInputService {
                 return; // Skip this frame
               }
             } else {
-              // Got real audio — reset counter
+              // Got valid audio — reset counter, even if it is quiet.
               if (this.consecutiveSilentFrames > 5) {
-                logger.info('AudioInput', `🎤 Mic recovered after ${this.consecutiveSilentFrames} silent frames`);
+                logger.info('AudioInput', `🎤 Mic produced valid audio after ${this.consecutiveSilentFrames} near-zero frames`);
               }
               this.consecutiveSilentFrames = 0;
             }

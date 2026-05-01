@@ -82,7 +82,8 @@ jest.mock('@google/genai/dist/web/index.mjs', () => ({
       })
     }
   })),
-  Modality: { AUDIO: 'audio', TEXT: 'text' }
+  Modality: { AUDIO: 'audio', TEXT: 'text' },
+  ThinkingLevel: { MINIMAL: 'MINIMAL', LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH' },
 }), { virtual: true });
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -90,7 +91,6 @@ jest.mock('@google/genai/dist/web/index.mjs', () => ({
 const createService = (overrides: any = {}) =>
   new VoiceService({
     apiKey: 'test-key',
-    model: 'gemini-live-2.5-flash-native-audio',
     ...overrides,
   });
 
@@ -158,6 +158,45 @@ describe('VoiceService', () => {
 
       expect(callbacks.onStatusChange).toHaveBeenCalledWith('disconnected');
     });
+
+    it('treats Live close code 1001 as recoverable without console.error', async () => {
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const ws = MockWebSocket.instances[0]!;
+      ws.onclose?.({ code: 1001, reason: 'Stream end encountered' });
+
+      expect(callbacks.onError).not.toHaveBeenCalled();
+      expect(callbacks.onStatusChange).toHaveBeenCalledWith('disconnected');
+      expect(consoleError).not.toHaveBeenCalledWith(
+        expect.stringContaining('SDK session closed UNEXPECTEDLY')
+      );
+
+      consoleError.mockRestore();
+    });
+
+    it('reports non-recoverable Live close codes as errors', async () => {
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const ws = MockWebSocket.instances[0]!;
+      ws.onclose?.({ code: 1011, reason: 'Internal error' });
+
+      expect(callbacks.onError).toHaveBeenCalledWith('Connection lost (code: 1011)');
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('SDK session closed UNEXPECTEDLY')
+      );
+
+      consoleError.mockRestore();
+    });
   });
 
   describe('setup message', () => {
@@ -173,7 +212,41 @@ describe('VoiceService', () => {
       expect(ws.sentMessages.length).toBeGreaterThanOrEqual(1);
 
       const setup = JSON.parse(ws.sentMessages[0]!);
-      expect(setup.setup.model).toBe('gemini-live-2.5-flash-native-audio');
+      expect(setup.setup.model).toBe('gemini-2.5-flash-native-audio-preview-12-2025');
+    });
+
+    it('allows overriding the default model name', async () => {
+      const service = createService({ model: 'custom-live-model' });
+      const callbacks = createCallbacks();
+
+      service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const setup = JSON.parse(MockWebSocket.instances[0]!.sentMessages[0]!);
+      expect(setup.setup.model).toBe('custom-live-model');
+    });
+
+    it('does not send 3.1 thinking config to the default low-latency native-audio model', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const setup = JSON.parse(MockWebSocket.instances[0]!.sentMessages[0]!);
+      expect(setup.setup.thinkingConfig).toBeUndefined();
+    });
+
+    it('uses Gemini 3.1 thinkingLevel config when explicitly configured', async () => {
+      const service = createService({ model: 'gemini-3.1-flash-live-preview' });
+      const callbacks = createCallbacks();
+
+      service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const setup = JSON.parse(MockWebSocket.instances[0]!.sentMessages[0]!);
+      expect(setup.setup.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+      expect(setup.setup.thinkingConfig.thinkingBudget).toBeUndefined();
     });
 
     it('includes responseModalities when configured', async () => {
@@ -284,7 +357,7 @@ describe('VoiceService', () => {
   });
 
   describe('sending text', () => {
-    it('sends text in clientContent format', async () => {
+    it('sends text in clientContent format for the default low-latency model', async () => {
       const service = createService();
       const callbacks = createCallbacks();
 
@@ -300,10 +373,27 @@ describe('VoiceService', () => {
       expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('What is on screen?');
       expect(lastMsg.clientContent.turnComplete).toBe(true);
     });
+
+    it('sends text via realtimeInput when Gemini 3.1 is explicitly configured', async () => {
+      const service = createService({ model: 'gemini-3.1-flash-live-preview' });
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      service.sendText('What is on screen?');
+
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
+      expect(lastMsg.realtimeInput.text).toBe('What is on screen?');
+      expect(lastMsg.clientContent).toBeUndefined();
+    });
   });
 
   describe('sending screen context (live mode)', () => {
-    it('sends DOM text + screenshot as context', async () => {
+    it('sends DOM text context through passive clientContent for the default low-latency model', async () => {
       const service = createService();
       const callbacks = createCallbacks();
 
@@ -319,6 +409,23 @@ describe('VoiceService', () => {
       expect(lastMsg.clientContent.turns[0].parts).toHaveLength(1);
       expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('<screen>...</screen>');
       expect(lastMsg.clientContent.turnComplete).toBe(false);
+    });
+
+    it('sends DOM text context via realtimeInput when Gemini 3.1 is explicitly configured', async () => {
+      const service = createService({ model: 'gemini-3.1-flash-live-preview' });
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      service.sendScreenContext('<screen>...</screen>');
+
+      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
+      expect(lastMsg.realtimeInput.text).toBe('<screen>...</screen>');
+      expect(lastMsg.clientContent).toBeUndefined();
     });
 
     it('does not send when not connected', async () => {
@@ -453,6 +560,53 @@ describe('VoiceService', () => {
         name: 'tap',
         args: { index: 5 },
         id: 'call-123',
+      });
+    });
+
+    it('processes mixed Gemini 3.1 events without dropping audio, transcript, or tool call', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          modelTurn: {
+            parts: [
+              { inlineData: { data: 'audio-chunk', mimeType: 'audio/pcm;rate=24000' } },
+              { text: 'internal thought text' },
+            ],
+          },
+          outputTranscription: { text: 'I can open Profile.' },
+        },
+        toolCall: {
+          functionCalls: [{
+            name: 'ask_user_permission_voice_mode',
+            args: { question: 'May I open Profile?' },
+            id: 'approval-3-1',
+          }],
+        },
+      });
+
+      expect(callbacks.onAudioResponse).toHaveBeenCalledWith('audio-chunk');
+      expect(callbacks.onTranscript).toHaveBeenCalledWith(
+        'I can open Profile.',
+        true,
+        'model'
+      );
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith(
+        'internal thought text',
+        true,
+        'model'
+      );
+      expect(callbacks.onToolCall).toHaveBeenCalledWith({
+        name: 'ask_user_permission_voice_mode',
+        args: { question: 'May I open Profile?' },
+        id: 'approval-3-1',
       });
     });
 
@@ -656,6 +810,22 @@ describe('VoiceService', () => {
       expect(callbacks.onTranscript).not.toHaveBeenCalled();
     });
 
+    it('ignores non-speech transcript marker chunks', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({ serverContent: { inputTranscription: { text: '<noise>' } } });
+      ws.simulateMessage({ serverContent: { outputTranscription: { text: '[inaudible]' } } });
+      ws.simulateMessage({ serverContent: { turnComplete: true } });
+
+      expect(callbacks.onTranscript).not.toHaveBeenCalled();
+    });
+
     it('strips Gemini control tokens from otherwise valid transcripts', async () => {
       const service = createService();
       const callbacks = createCallbacks();
@@ -680,6 +850,33 @@ describe('VoiceService', () => {
         'I can open settings. <ctrl46>',
         true,
         'model'
+      );
+    });
+
+    it('strips non-speech markers from otherwise valid transcripts', async () => {
+      const service = createService();
+      const callbacks = createCallbacks();
+
+      await service.connect(callbacks);
+      await new Promise(r => setTimeout(r, 10));
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateSetupComplete();
+
+      ws.simulateMessage({
+        serverContent: {
+          inputTranscription: { text: 'Open profile. <noise>' },
+        },
+      });
+
+      expect(callbacks.onTranscript).toHaveBeenCalledWith(
+        'Open profile.',
+        true,
+        'user'
+      );
+      expect(callbacks.onTranscript).not.toHaveBeenCalledWith(
+        'Open profile. <noise>',
+        true,
+        'user'
       );
     });
   });

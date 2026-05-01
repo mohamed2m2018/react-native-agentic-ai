@@ -44,6 +44,7 @@ describe('AIAgent voice tab approval behavior', () => {
     await switchToVoice(utils);
     await emitConnected();
     await markUserSpoken();
+    const audioInput = await waitForAudioInput();
 
     await emitApprovalToolCall();
 
@@ -51,6 +52,7 @@ describe('AIAgent voice tab approval behavior', () => {
     expect(utils.getByText('Allow')).toBeTruthy();
     expect(utils.getByText('Don’t Allow')).toBeTruthy();
     expect(utils.getByText(/permission/i)).toBeTruthy();
+    expect(audioInput.stop).toHaveBeenCalled();
   });
 
   it('registers the voice-only permission tool instead of ask_user', async () => {
@@ -72,6 +74,25 @@ describe('AIAgent voice tab approval behavior', () => {
 
     await emitApprovalToolCall();
 
+    expect(voice.sendFunctionResponse).not.toHaveBeenCalled();
+  });
+
+  it('speech during unresolved approval is locally held and not forwarded to Gemini', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    await markUserSpoken();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+
+    await emitApprovalToolCall('approval-hold');
+    await act(async () => {
+      audioInput.config.onAudioChunk('speech-during-approval');
+    });
+    await flushPromises();
+
+    expect(voice.sendAudio).not.toHaveBeenCalledWith('speech-during-approval');
+    expect(utils.getByText('Waiting for your approval...')).toBeTruthy();
     expect(voice.sendFunctionResponse).not.toHaveBeenCalled();
   });
 

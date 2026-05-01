@@ -108,6 +108,23 @@ describe('AIAgent voice tab lifecycle desired behavior', () => {
     await waitFor(() => expect(audioInput.start.mock.calls.length).toBeLessThanOrEqual(1));
   });
 
+  it('does not send screen polling context while realtime mic audio is streaming', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+
+    await emitConnected();
+    await waitFor(() => expect(audioInput.start).toHaveBeenCalledTimes(1));
+    await flushPromises();
+    voice.sendScreenContext.mockClear();
+
+    jest.advanceTimersByTime(5000);
+    await flushPromises();
+
+    expect(voice.sendScreenContext).not.toHaveBeenCalled();
+  });
+
   it('voice error stops mic and audio once without clearing history', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
@@ -120,6 +137,21 @@ describe('AIAgent voice tab lifecycle desired behavior', () => {
     expect(audioInput.stop).toHaveBeenCalledTimes(1);
     expect(audioOutput.stop).toHaveBeenCalledTimes(1);
     expect(utils.getByText('Home Screen')).toBeTruthy();
+  });
+
+  it('does not show a console error overlay for recoverable 1001 voice closes', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+
+    await emitVoiceError('Connection lost (code: 1001)');
+
+    expect(consoleError).not.toHaveBeenCalledWith(
+      expect.stringContaining('VoiceService error: Connection lost (code: 1001)')
+    );
+
+    consoleError.mockRestore();
   });
 
   it('desired: switching away from voice stops and cleans audio output once', async () => {

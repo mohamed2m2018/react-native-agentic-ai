@@ -2,6 +2,7 @@ import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import {
   audioInputInstances,
   audioOutputInstances,
+  emitAudioResponse,
   emitConnected,
   emitSetupComplete,
   emitTranscript,
@@ -81,6 +82,30 @@ describe('AIAgent voice tab current baseline', () => {
     expect(utils.getByText('I can open that.')).toBeTruthy();
   });
 
+  it('keeps voice transcripts when setup completes again during the same voice session', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+
+    await emitSetupComplete();
+    await emitTranscript('Open profile.', true, 'user');
+    await emitTranscript('I can open that.', true, 'model');
+    await emitSetupComplete();
+
+    expect(utils.getByText('Open profile.')).toBeTruthy();
+    expect(utils.getByText('I can open that.')).toBeTruthy();
+  });
+
+  it('keeps the overlay visible with model transcript while AI is speaking', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+
+    await emitAudioResponse();
+    expect(utils.getByText('Speaking...')).toBeTruthy();
+
+    await emitTranscript('I can open your order details.', true, 'model');
+    expect(utils.getAllByText('I can open your order details.').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('does not render Gemini control-token transcript bubbles', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
@@ -93,15 +118,37 @@ describe('AIAgent voice tab current baseline', () => {
     expect(utils.getByText('Opening settings.')).toBeTruthy();
   });
 
+  it('does not render non-speech transcript markers', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+
+    await emitTranscript('<noise>', true, 'user');
+    await emitTranscript('[inaudible]', true, 'model');
+    await emitTranscript('Open profile. <noise>', true, 'user');
+
+    expect(utils.queryByText('<noise>')).toBeNull();
+    expect(utils.queryByText('[inaudible]')).toBeNull();
+    expect(utils.getByText('Open profile.')).toBeTruthy();
+  });
+
   it('does not render Gemini tool/protocol text as chat bubbles', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
 
     await emitTranscript('ask_tool', true, 'model');
     await emitTranscript('ask_user_permission_voice_mode(question)', true, 'model');
+    await emitTranscript('done', true, 'model');
+    await emitTranscript('done({"success":true})', true, 'model');
+    await emitTranscript('Done.', true, 'model');
+    await emitTranscript('I am done checking that.', true, 'model');
+    await emitTranscript('done', true, 'user');
 
     expect(utils.queryByText('ask_tool')).toBeNull();
     expect(utils.queryByText('ask_user_permission_voice_mode(question)')).toBeNull();
+    expect(utils.queryByText('done({"success":true})')).toBeNull();
+    expect(utils.queryByText('Done.')).toBeNull();
+    expect(utils.getByText('I am done checking that.')).toBeTruthy();
+    expect(utils.getByText('done')).toBeTruthy();
   });
 
   it('switching away from voice disconnects and cleans up audio services', async () => {
