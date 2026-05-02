@@ -52,139 +52,6 @@ interface FetchConversationParams {
   deviceId?: string;
 }
 
-interface LocalConversationRecord extends ConversationSummary {
-  messages: MessagePayload[];
-}
-
-interface LocalConversationStore {
-  conversations: LocalConversationRecord[];
-}
-
-const LOCAL_CONVERSATION_PREFIX = 'local_ai_conv_';
-const LOCAL_STORE_PREFIX = '@mobileai:ai-conversations:v1:';
-
-let storageLoaded = false;
-let storage: any = null;
-
-function loadStorage(): any | null {
-  if (storageLoaded) return storage;
-  storageLoaded = true;
-
-  try {
-    const origError = console.error;
-    console.error = (...args: unknown[]) => {
-      const msg = args[0];
-      if (typeof msg === 'string' && msg.includes('AsyncStorage')) return;
-      origError.apply(console, args);
-    };
-    try {
-      const mod = require('@react-native-async-storage/async-storage');
-      const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
-      if (candidate && typeof candidate.getItem === 'function') {
-        storage = candidate;
-      }
-    } finally {
-      console.error = origError;
-    }
-  } catch {
-    storage = null;
-  }
-
-  return storage;
-}
-
-function identityKey(analyticsKey: string, userId?: string, deviceId?: string): string | null {
-  const identity = userId || deviceId;
-  if (!analyticsKey || !identity) return null;
-  return `${LOCAL_STORE_PREFIX}${analyticsKey}:${identity}`;
-}
-
-function createLocalConversationId(): string {
-  return `${LOCAL_CONVERSATION_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function isLocalConversationId(conversationId: string): boolean {
-  return conversationId.startsWith(LOCAL_CONVERSATION_PREFIX);
-}
-
-async function readLocalStore(
-  analyticsKey: string,
-  userId?: string,
-  deviceId?: string
-): Promise<LocalConversationStore> {
-  const AS = loadStorage();
-  const key = identityKey(analyticsKey, userId, deviceId);
-  if (!AS || !key) return { conversations: [] };
-
-  try {
-    const raw = await AS.getItem(key);
-    if (!raw) return { conversations: [] };
-    const parsed = JSON.parse(raw) as LocalConversationStore;
-    return { conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [] };
-  } catch {
-    return { conversations: [] };
-  }
-}
-
-async function writeLocalStore(
-  analyticsKey: string,
-  userId: string | undefined,
-  deviceId: string | undefined,
-  store: LocalConversationStore
-): Promise<void> {
-  const AS = loadStorage();
-  const key = identityKey(analyticsKey, userId, deviceId);
-  if (!AS || !key) return;
-
-  try {
-    await AS.setItem(key, JSON.stringify(store));
-  } catch {
-    // Local history is a best-effort mirror.
-  }
-}
-
-async function upsertLocalConversation({
-  analyticsKey,
-  userId,
-  deviceId,
-  conversationId,
-  messages,
-}: {
-  analyticsKey: string;
-  userId?: string;
-  deviceId?: string;
-  conversationId: string;
-  messages: AIMessage[];
-}): Promise<void> {
-  const payload = toPayload(messages);
-  if (!payload.length) return;
-
-  const store = await readLocalStore(analyticsKey, userId, deviceId);
-  const now = Date.now();
-  const firstUserMessage = payload.find((m) => m.role === 'user');
-  const lastMessage = payload[payload.length - 1];
-  const existing = store.conversations.find((c) => c.id === conversationId);
-  const mergedMessages = existing ? [...existing.messages, ...payload] : payload;
-
-  const nextRecord: LocalConversationRecord = {
-    id: conversationId,
-    title: existing?.title || (firstUserMessage?.previewText || firstUserMessage?.content || 'New conversation').slice(0, 80),
-    preview: (lastMessage?.previewText || lastMessage?.content || '').slice(0, 100),
-    previewRole: lastMessage?.role || 'assistant',
-    messageCount: mergedMessages.length,
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-    messages: mergedMessages,
-  };
-
-  const nextConversations = [
-    nextRecord,
-    ...store.conversations.filter((c) => c.id !== conversationId),
-  ].slice(0, 50);
-
-  await writeLocalStore(analyticsKey, userId, deviceId, { conversations: nextConversations });
-}
-
 // ─── Serialization ───────────────────────────────────────────────
 
 function toPayload(msgs: AIMessage[]): MessagePayload[] {
@@ -231,39 +98,15 @@ export async function startConversation({
 
     if (!res.ok) {
       logger.warn('ConversationService', `startConversation failed: ${res.status}`);
-      const conversationId = createLocalConversationId();
-      await upsertLocalConversation({
-        analyticsKey,
-        userId,
-        deviceId,
-        conversationId,
-        messages,
-      });
-      return conversationId;
+      return null;
     }
 
     const data = await res.json();
     logger.info('ConversationService', `Started conversation: ${data.conversationId}`);
-    const conversationId = data.conversationId as string;
-    await upsertLocalConversation({
-      analyticsKey,
-      userId,
-      deviceId,
-      conversationId,
-      messages,
-    });
-    return conversationId;
+    return data.conversationId as string;
   } catch (err) {
     logger.warn('ConversationService', `startConversation error: ${err}`);
-    const conversationId = createLocalConversationId();
-    await upsertLocalConversation({
-      analyticsKey,
-      userId,
-      deviceId,
-      conversationId,
-      messages,
-    });
-    return conversationId;
+    return null;
   }
 }
 
@@ -274,24 +117,12 @@ export async function startConversation({
 export async function appendMessages({
   conversationId,
   analyticsKey,
-  userId,
-  deviceId,
   messages,
 }: AppendMessagesParams): Promise<boolean> {
   if (!analyticsKey || !conversationId) return false;
 
   const payload = toPayload(messages);
   if (!payload.length) return false;
-
-  await upsertLocalConversation({
-    analyticsKey,
-    userId,
-    deviceId,
-    conversationId,
-    messages,
-  });
-
-  if (isLocalConversationId(conversationId)) return true;
 
   try {
     const res = await fetch(ENDPOINTS.conversations, {
@@ -324,9 +155,6 @@ export async function fetchConversations({
   if (!analyticsKey) return [];
   if (!userId && !deviceId) return [];
 
-  const localStore = await readLocalStore(analyticsKey, userId, deviceId);
-  const localSummaries: ConversationSummary[] = localStore.conversations.map(({ messages: _messages, ...summary }) => summary);
-
   try {
     const params = new URLSearchParams({ analyticsKey, limit: String(limit) });
     if (userId) params.set('userId', userId);
@@ -339,18 +167,10 @@ export async function fetchConversations({
     }
 
     const data = await res.json();
-    const remoteSummaries = (data.conversations as ConversationSummary[]) ?? [];
-    const remoteIds = new Set(remoteSummaries.map((c) => c.id));
-
-    return [
-      ...remoteSummaries,
-      ...localSummaries.filter((c) => !remoteIds.has(c.id)),
-    ]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, limit);
+    return ((data.conversations as ConversationSummary[]) ?? []).slice(0, limit);
   } catch (err) {
     logger.warn('ConversationService', `fetchConversations error: ${err}`);
-    return localSummaries.slice(0, limit);
+    return [];
   }
 }
 
@@ -361,26 +181,8 @@ export async function fetchConversations({
 export async function fetchConversation({
   conversationId,
   analyticsKey,
-  userId,
-  deviceId,
 }: FetchConversationParams): Promise<AIMessage[] | null> {
   if (!analyticsKey || !conversationId) return null;
-
-  if (isLocalConversationId(conversationId)) {
-    const store = await readLocalStore(analyticsKey, userId, deviceId);
-    const localConversation = store.conversations.find((c) => c.id === conversationId);
-    if (!localConversation) return null;
-
-    return localConversation.messages.map((m, index) =>
-      createAIMessage({
-        id: `${conversationId}-${index}`,
-        role: m.role as 'user' | 'assistant',
-        content: normalizeRichContent(m.content),
-        previewText: m.previewText || m.content,
-        timestamp: m.timestamp,
-      })
-    );
-  }
 
   try {
     const params = new URLSearchParams({ analyticsKey });
@@ -405,19 +207,6 @@ export async function fetchConversation({
     return msgs;
   } catch (err) {
     logger.warn('ConversationService', `fetchConversation error: ${err}`);
-    const store = await readLocalStore(analyticsKey, userId, deviceId);
-    const localConversation = store.conversations.find((c) => c.id === conversationId);
-    if (localConversation) {
-      return localConversation.messages.map((m, index) =>
-        createAIMessage({
-          id: `${conversationId}-${index}`,
-          role: m.role as 'user' | 'assistant',
-          content: normalizeRichContent(m.content),
-          previewText: m.previewText || m.content,
-          timestamp: m.timestamp,
-        })
-      );
-    }
     return null;
   }
 }

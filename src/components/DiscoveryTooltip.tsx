@@ -2,7 +2,7 @@
  * DiscoveryTooltip — One-time tooltip shown above the FAB on first use.
  *
  * Tells users the AI can navigate the app and do things for them.
- * Shows once, then persists dismissal via AsyncStorage.
+ * Shows once per app session.
  * Bilingual: EN/AR.
  */
 

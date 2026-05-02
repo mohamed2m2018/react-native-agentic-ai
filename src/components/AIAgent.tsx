@@ -211,30 +211,8 @@ function estimateVoiceOutputDurationMs(base64Audio: string): number {
 
 // ─── Context ───────────────────────────────────────────────────
 
-// ─── AsyncStorage Helper (same pattern as TicketStore) ─────────
-
-/** Try to load AsyncStorage for tooltip persistence. Optional peer dep. */
-function getTooltipStorage(): any | null {
-  try {
-    const origError = console.error;
-    console.error = (...args: unknown[]) => {
-      const msg = args[0];
-      if (typeof msg === 'string' && msg.includes('AsyncStorage')) return;
-      origError.apply(console, args);
-    };
-    try {
-      const mod = require('@react-native-async-storage/async-storage');
-      const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
-      if (candidate && typeof candidate.getItem === 'function')
-        return candidate;
-      return null;
-    } finally {
-      console.error = origError;
-    }
-  } catch {
-    return null;
-  }
-}
+let discoveryTooltipSeenInSession = false;
+let onboardingCompletedInSession = false;
 
 function sanitizeWireframeScreenshot(value: string | null | undefined): string | null {
   if (!value || typeof value !== 'string') return null;
@@ -563,7 +541,7 @@ interface AIAgentProps {
   /**
    * Show a one-time discovery tooltip above the chat FAB.
    * Tells new users the AI can navigate and interact with the app.
-   * Default: true (shows once, then remembered via AsyncStorage)
+   * Default: true (shows once per app session)
    */
   showDiscoveryTooltip?: boolean;
   /**
@@ -1018,19 +996,7 @@ export function AIAgent({
   useEffect(() => {
     if (!onboarding?.enabled) return;
     if (onboarding.firstLaunchOnly !== false) {
-      void (async () => {
-        try {
-          const AS = getTooltipStorage();
-          if (!AS) {
-            setIsOnboardingActive(true);
-            return;
-          }
-          const completed = await AS.getItem('@mobileai_onboarding_completed');
-          if (!completed) setIsOnboardingActive(true);
-        } catch {
-          setIsOnboardingActive(true);
-        }
-      })();
+      if (!onboardingCompletedInSession) setIsOnboardingActive(true);
     } else {
       setIsOnboardingActive(true);
     }
@@ -1040,15 +1006,8 @@ export function AIAgent({
     if (!onboarding?.steps) return;
     if (currentOnboardingIndex >= onboarding.steps.length - 1) {
       setIsOnboardingActive(false);
+      onboardingCompletedInSession = true;
       onboarding.onComplete?.();
-      void (async () => {
-        try {
-          const AS = getTooltipStorage();
-          await AS?.setItem('@mobileai_onboarding_completed', 'true');
-        } catch {
-          /* graceful */
-        }
-      })();
     } else {
       setCurrentOnboardingIndex((prev) => prev + 1);
     }
@@ -1064,31 +1023,12 @@ export function AIAgent({
 
   useEffect(() => {
     if (!showDiscoveryTooltipProp) return;
-    void (async () => {
-      try {
-        const AS = getTooltipStorage();
-        if (!AS) {
-          setTooltipVisible(true);
-          return;
-        }
-        const seen = await AS.getItem('@mobileai_tooltip_seen');
-        if (!seen) setTooltipVisible(true);
-      } catch {
-        setTooltipVisible(true);
-      }
-    })();
+    if (!discoveryTooltipSeenInSession) setTooltipVisible(true);
   }, [showDiscoveryTooltipProp]);
 
   const handleTooltipDismiss = useCallback(() => {
+    discoveryTooltipSeenInSession = true;
     setTooltipVisible(false);
-    void (async () => {
-      try {
-        const AS = getTooltipStorage();
-        await AS?.setItem('@mobileai_tooltip_seen', 'true');
-      } catch {
-        /* graceful */
-      }
-    })();
   }, []);
 
   useEffect(() => {

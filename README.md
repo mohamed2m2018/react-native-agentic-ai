@@ -148,8 +148,6 @@ AI:   "I can see your order history, but billing disputes need a human agent."
 ```
 </details>
 
----
-
 ## ⚙️ Why Not Intercom or Zendesk?
 
 | | Intercom Fin | Zendesk AI | **This SDK** |
@@ -307,6 +305,28 @@ npx expo run:android
 
 For React Native CLI apps, run the normal native install/build step after installing the package, such as `cd ios && pod install`.
 
+### AI Installation Skill
+
+This package includes an AI-readable installation skill for coding agents and IDE assistants. It gives an AI assistant the exact workflow for adding `@mobileai/react-native` to Expo or React Native apps, including screen mapping, `<AIAgent>` wiring, optional voice dependencies, and common native-install fixes.
+
+Skill location:
+
+```text
+skills/install-mobileai-react-native/SKILL.md
+```
+
+After installing the npm package, the same skill is available at:
+
+```text
+node_modules/@mobileai/react-native/skills/install-mobileai-react-native/SKILL.md
+```
+
+Point your AI coding assistant at that folder and ask:
+
+```text
+Use the install-mobileai-react-native skill to install @mobileai/react-native in this app.
+```
+
 ### Screenshot Capture
 
 <details>
@@ -353,17 +373,16 @@ Then rebuild: `npx expo prebuild && npx expo run:android` (or `run:ios`)
 </details>
 
 <details>
-<summary><b>💬 Human Support &amp; Ticket Persistence</b> — persist tickets and discovery tooltip state across sessions</summary>
+<summary><b>🔐 Optional Consent Persistence</b> — remember AI consent across app restarts</summary>
+
+By default, AI consent is kept only for the current app session. If your app sets
+`consent={{ persist: true }}` and wants the consent decision remembered after restart, install AsyncStorage:
 
 ```bash
-npx expo install @react-native-async-storage/async-storage
+npm install @react-native-async-storage/async-storage
 ```
 
-**Optional** but recommended when using:
-- **Human escalation support** — tickets survive app restarts
-- **Discovery tooltip** — remembers if the user has already seen it
-
-Without it, both features gracefully degrade: tickets are only visible during the current session, and the tooltip shows every launch instead of once.
+This dependency is only used for consent persistence. Tickets, discovery tooltip state, telemetry, device identity, and conversation history do not require AsyncStorage.
 
 </details>
 
