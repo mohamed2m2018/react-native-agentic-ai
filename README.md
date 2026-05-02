@@ -4,6 +4,8 @@
 
 MobileAI is the SDK and cloud dashboard behind it. The SDK runs inside your app; MobileAI Cloud handles projects, analytics, hosted proxy configuration, and support escalation.
 
+**Dashboard:** [Open MobileAI Cloud](https://mobileai.cloud/dashboard) to create a project, then copy your publishable key from [Setup & API Keys](https://mobileai.cloud/dashboard/api-keys).
+
 ```bash
 npm install @mobileai/react-native
 ```
