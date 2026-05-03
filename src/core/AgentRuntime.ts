@@ -10,7 +10,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
+import { buildSystemPrompt, buildKnowledgeOnlyPrompt, buildCompanionPrompt } from './systemPrompt';
 import {
   buildVerificationAction,
   createVerificationSnapshot,
@@ -275,15 +275,26 @@ export class AgentRuntime {
     }
 
     // Register tools based on mode
-    if (config.enableUIControl === false) {
+    if (config.interactionMode === 'companion') {
+      this.registerCompanionTools();
+    } else if (config.enableUIControl === false) {
       this.registerKnowledgeOnlyTools();
     } else {
       this.registerBuiltInTools();
     }
 
-    // Apply customTools
+    // Apply customTools. Companion mode allows non-UI tools (support handoff,
+    // reporting, data/API tools) while blocking tools that directly control UI.
     if (config.customTools) {
       for (const [name, tool] of Object.entries(config.customTools)) {
+        if (
+          config.interactionMode === 'companion' &&
+          !this.isCompanionAllowedCustomTool(name, tool)
+        ) {
+          logger.info('AgentRuntime', `Skipped companion custom tool: ${name}`);
+          continue;
+        }
+
         if (tool === null) {
           this.tools.delete(name);
           logger.info('AgentRuntime', `Removed tool: ${name}`);
@@ -293,6 +304,17 @@ export class AgentRuntime {
         }
       }
     }
+  }
+
+  private isCompanionAllowedCustomTool(
+    name: string,
+    tool: ToolDefinition | null
+  ): boolean {
+    const effectiveName = tool?.name || name;
+    return (
+      !AgentRuntime.UI_CONTROL_TOOLS.has(name) &&
+      !AgentRuntime.UI_CONTROL_TOOLS.has(effectiveName)
+    );
   }
 
   private getVerifier(): OutcomeVerifier | null {
@@ -735,6 +757,126 @@ export class AgentRuntime {
     });
   }
 
+  /**
+   * Register screen-aware guidance tools only.
+   * Companion mode reads the live UI in the full agent loop, but cannot
+   * perform app actions or invoke registered app-code actions.
+   */
+  private registerCompanionTools(): void {
+    this.tools.set('done', {
+      name: 'done',
+      description: 'Complete the task with a user-facing answer or step-by-step guidance.',
+      parameters: {
+        text: { type: 'string', description: 'Response message or guidance to the user', required: false },
+        reply: {
+          type: 'string',
+          description: 'Optional JSON string representing an array of rich reply nodes for chat rendering.',
+          required: false,
+        },
+        previewText: {
+          type: 'string',
+          description: 'Plain text preview used for history, notifications, and transcript previews.',
+          required: false,
+        },
+        message: { type: 'string', description: 'Alternative to text parameter', required: false },
+        success: { type: 'boolean', description: 'Whether the request was answered successfully', required: true },
+      },
+      execute: async (args) => {
+        let cleanText = args.previewText || args.text || args.message || '';
+        const structuredCandidate =
+          typeof args.reply === 'string'
+            ? args.reply
+            : typeof args.text === 'string'
+              ? args.text
+              : typeof args.message === 'string'
+                ? args.message
+                : '';
+        if (!args.previewText && typeof structuredCandidate === 'string') {
+          try {
+            const parsed = JSON.parse(structuredCandidate);
+            cleanText = richContentToPlainText(
+              normalizeRichContent(parsed, cleanText),
+              cleanText
+            );
+          } catch {
+            // Fall through to normal text cleaning when the payload is not JSON.
+          }
+        }
+        if (typeof cleanText === 'string') {
+          cleanText = cleanText.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
+        }
+        return cleanText;
+      },
+    });
+
+    this.tools.set('ask_user', {
+      name: 'ask_user',
+      description: 'Ask the user a clarifying question. Companion mode never requests permission to act because it cannot perform app actions.',
+      parameters: {
+        question: { type: 'string', description: 'The question to ask the user', required: true },
+      },
+      execute: async (args) => {
+        let cleanQuestion = args.question || '';
+        if (typeof cleanQuestion === 'string') {
+          cleanQuestion = cleanQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
+        }
+
+        logger.info('AgentRuntime', `❓ companion ask_user emitted: "${cleanQuestion}"`);
+        if (this.config.onAskUser) {
+          this.config.onStatusUpdate?.('Waiting for your answer...');
+          const answer = await this.config.onAskUser({
+            question: cleanQuestion,
+            kind: 'freeform',
+          });
+          return `User answered: ${answer}`;
+        }
+
+        logger.warn('AgentRuntime', '⚠️ ask_user has no onAskUser callback; returning legacy fallback');
+        return `❓ ${cleanQuestion}`;
+      },
+    });
+
+    if (this.knowledgeService) {
+      this.tools.set('query_knowledge', {
+        name: 'query_knowledge',
+        description:
+          'Search the app knowledge base for business information '
+          + '(policies, FAQs, product details, delivery areas, allergens, etc). '
+          + 'Use when the user asks a domain question and the answer is NOT visible on screen.',
+        parameters: {
+          question: {
+            type: 'string',
+            description: 'The question or topic to search for',
+            required: true,
+          },
+        },
+        execute: async (args) => {
+          const screenName = this.getNavigationSnapshot().currentScreenName;
+          return this.knowledgeService!.retrieve(args.question, screenName);
+        },
+      });
+    }
+
+    this.tools.set('query_data', {
+      name: 'query_data',
+      description:
+        'Query an app-registered data source for structured async data such as products, recommendations, inventory, live pricing, or order status.',
+      parameters: {
+        source: {
+          type: 'string',
+          description: 'The registered data source name to query',
+          required: true,
+        },
+        query: {
+          type: 'string',
+          description: 'What data you need from that source',
+          required: true,
+        },
+      },
+      execute: async (args) => this.executeQueryData(args),
+    });
+  }
+
   private getPlatformAdapter(): PlatformAdapter {
     if (!this.config.platformAdapter) {
       throw new Error(
@@ -755,6 +897,7 @@ export class AgentRuntime {
   }
 
   private isUIEnabled(): boolean {
+    if (this.config.interactionMode === 'companion') return true;
     if (this.uiControlOverride !== undefined) return this.uiControlOverride;
     return this.config.enableUIControl !== false; // defaults to true
   }
@@ -791,6 +934,52 @@ export class AgentRuntime {
       default:
         return `Running ${toolName}...`;
     }
+  }
+
+  private isCompanionInternalPlanText(value: unknown): boolean {
+    if (this.config.interactionMode !== 'companion' || typeof value !== 'string') {
+      return false;
+    }
+
+    const text = value.trim().toLowerCase();
+    if (!text) return false;
+
+    const startsAsThirdPersonUser = /^the user\b/.test(text);
+    const internalIntent =
+      /\bi need to\b/.test(text) ||
+      /\bi should\b/.test(text) ||
+      /\bthis will allow me\b/.test(text) ||
+      /\bgather more information\b/.test(text) ||
+      /\bguide them\b/.test(text) ||
+      /\backnowledge their\b/.test(text);
+
+    return internalIntent || (startsAsThirdPersonUser && /\bi (need|should|will)\b/.test(text));
+  }
+
+  private hasEscalatedToHuman(): boolean {
+    return this.history.some(
+      (step) =>
+        step.action.name === 'escalate_to_human' &&
+        typeof step.action.output === 'string' &&
+        step.action.output.startsWith('ESCALATED:')
+    );
+  }
+
+  private isCompanionUnbackedEscalationText(value: unknown): boolean {
+    if (this.config.interactionMode !== 'companion' || typeof value !== 'string') {
+      return false;
+    }
+
+    const text = value.trim().toLowerCase();
+    if (!text || this.hasEscalatedToHuman()) return false;
+
+    return (
+      /\bi('m| am) escalating\b/.test(text) ||
+      /\bi('ve| have) escalated\b/.test(text) ||
+      /\bi('m| am) connecting you to (a|our) human\b/.test(text) ||
+      /\brequest (has been|was) sent to (a|our|the) support team\b/.test(text) ||
+      /\bhuman agent will reply\b/.test(text)
+    );
   }
 
   // ─── Screen Context for Voice Mode ──────────────────────
@@ -885,6 +1074,14 @@ ${snapshot.elementsText}
     const allowedActionNames = this.config.allowedActionNames
       ? new Set(this.config.allowedActionNames)
       : null;
+
+    // Add registered actions as tools only when the mode allows app actions.
+    if (
+      this.config.interactionMode === 'companion' ||
+      this.config.enableUIControl === false
+    ) {
+      return allTools;
+    }
 
     // Add registered actions as tools
     for (const action of actionRegistry.getAll()) {
@@ -1179,6 +1376,24 @@ ${snapshot.elementsText}
   }
 
   // ─── Copilot Confirmation ─────────────────────────────────────
+
+  private static readonly UI_CONTROL_TOOLS = new Set([
+    'tap',
+    'type',
+    'navigate',
+    'scroll',
+    'wait',
+    'long_press',
+    'adjust_slider',
+    'select_picker',
+    'set_date',
+    'dismiss_keyboard',
+    'guide_user',
+    'simplify_zone',
+    'render_block',
+    'inject_card',
+    'restore_zone',
+  ]);
 
   /** Write tools that can mutate state — only these are checked for aiConfirm */
   private static readonly WRITE_TOOLS = new Set([
@@ -1752,8 +1967,11 @@ ${snapshot.elementsText}
         // 6. Send to AI provider
         this.config.onStatusUpdate?.('Thinking...');
         const hasKnowledge = !!this.knowledgeService;
+        const isCompanion = this.config.interactionMode === 'companion';
         const isCopilot = this.config.interactionMode !== 'autopilot';
-        const systemPrompt = buildSystemPrompt('en', hasKnowledge, isCopilot, this.config.supportStyle);
+        const systemPrompt = isCompanion
+          ? buildCompanionPrompt('en', hasKnowledge)
+          : buildSystemPrompt('en', hasKnowledge, isCopilot, this.config.supportStyle);
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
@@ -1880,7 +2098,9 @@ ${snapshot.elementsText}
         // Dynamic status update based on tool being executed + Reasoning
         const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
         // Prefer the human-readable plan over the raw tool status if available to avoid double statuses
-        const statusDisplay = reasoning.plan || statusLabel;
+        const statusDisplay = this.config.interactionMode === 'companion'
+          ? statusLabel
+          : reasoning.plan || statusLabel;
         this.config.onStatusUpdate?.(statusDisplay);
 
         const preActionSnapshot = this.createCurrentVerificationSnapshot(
@@ -2005,6 +2225,24 @@ ${snapshot.elementsText}
             steps: this.history,
             tokenUsage: sessionUsage,
           };
+          if (this.isCompanionInternalPlanText(result.message)) {
+            this.emitTrace('companion_internal_plan_rejected', {
+              message: result.message,
+            }, step);
+            this.observations.push(
+              'The last done() output was internal planning text. Rewrite it as a direct, helpful message to the user. Address the user as "you"; do not say "the user", "I need to", or describe your plan.'
+            );
+            continue;
+          }
+          if (this.isCompanionUnbackedEscalationText(result.message)) {
+            this.emitTrace('companion_unbacked_escalation_rejected', {
+              message: result.message,
+            }, step);
+            this.observations.push(
+              'You claimed a human handoff happened, but no escalate_to_human tool was executed. If the user explicitly wants a human and escalate_to_human is available, call it now. Otherwise explain that you can guide them to the visible support path.'
+            );
+            continue;
+          }
           logger.info('AgentRuntime', `Task completed: ${result.message}`);
           this.emitTrace('task_completed', {
             success: result.success,

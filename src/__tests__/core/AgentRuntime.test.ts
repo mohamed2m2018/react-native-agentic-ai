@@ -21,6 +21,7 @@ jest.mock('../../core/FiberTreeWalker', () => ({
 // Mock systemPrompt
 jest.mock('../../core/systemPrompt', () => ({
   buildSystemPrompt: jest.fn().mockReturnValue('Mock system prompt'),
+  buildCompanionPrompt: jest.fn().mockReturnValue('Mock companion prompt'),
   buildVoiceSystemPrompt: jest.fn().mockReturnValue('Mock voice prompt'),
 }));
 
@@ -1059,6 +1060,210 @@ describe('AgentRuntime', () => {
       expect(tools.has('navigate')).toBe(false);
       expect(tools.has('scroll')).toBe(false);
     });
+  });
+
+  // ── Companion Mode ────────────────────────────────────────────
+
+  describe('companion mode', () => {
+    it('registers screen-aware guidance tools without UI-control tools or useAction app actions', () => {
+      actionRegistry.register({
+        name: 'checkout',
+        description: 'Place the order',
+        parameters: {},
+        handler: jest.fn(),
+      });
+
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+        knowledgeBase: [
+          { id: '1', title: 'Test', content: 'Test content', tags: ['test'] },
+        ],
+        customTools: {
+          report_issue: {
+            name: 'report_issue',
+            description: 'Report a support issue without touching the UI',
+            parameters: {},
+            execute: jest.fn(),
+          },
+        },
+      });
+
+      const toolNames = runtime.getTools().map((tool) => tool.name);
+      expect(toolNames).toEqual(
+        expect.arrayContaining(['done', 'ask_user', 'query_knowledge', 'query_data'])
+      );
+      expect(toolNames).toContain('report_issue');
+      expect(toolNames).not.toEqual(
+        expect.arrayContaining([
+          'tap',
+          'type',
+          'navigate',
+          'scroll',
+          'checkout',
+        ])
+      );
+    });
+
+    it('allows non-UI custom tools and blocks UI-control custom tools in companion mode', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+        customTools: {
+          escalate_to_human: {
+            name: 'escalate_to_human',
+            description: 'Hand off to a human support agent',
+            parameters: {
+              reason: {
+                type: 'string',
+                description: 'Why the handoff is needed',
+                required: true,
+              },
+            },
+            execute: jest.fn(async () => 'ESCALATED: A human agent will reply here shortly.'),
+          },
+          report_issue: {
+            name: 'report_issue',
+            description: 'Report a support issue without touching the UI',
+            parameters: {},
+            execute: jest.fn(),
+          },
+          custom_tap_alias: {
+            name: 'tap',
+            description: 'Should be blocked because it controls the UI',
+            parameters: {},
+            execute: jest.fn(),
+          },
+          navigate: {
+            name: 'custom_navigation_override',
+            description: 'Should be blocked because the registered key controls the UI',
+            parameters: {},
+            execute: jest.fn(),
+          },
+        },
+      });
+
+      const toolNames = runtime.getTools().map((tool) => tool.name);
+      expect(toolNames).toContain('escalate_to_human');
+      expect(toolNames).toContain('report_issue');
+      expect(toolNames).not.toContain('tap');
+      expect(toolNames).not.toContain('custom_navigation_override');
+    });
+
+    it('uses the full screen-aware loop while preventing app actions', async () => {
+      const provider = new CapturingProvider([
+        createToolResponse('done', {
+          text: 'Tap Open Details to continue.',
+          success: true,
+        }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+      });
+
+      const result = await runtime.execute('How do I continue?');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Tap Open Details to continue.');
+      expect(provider.userMessages[0]).toContain('Open Details');
+      expect(provider.userMessages[0]).toContain('<screen_state>');
+    });
+
+    it('retries when done returns internal planning text instead of user guidance', async () => {
+      const internalPlanResponse = createToolResponse('done', {
+        success: true,
+      });
+      internalPlanResponse.reasoning.plan =
+        'The user is reporting a late order. I need to acknowledge their concern and guide them to Orders.';
+
+      const provider = new MockProvider([
+        internalPlanResponse,
+        createToolResponse('done', {
+          text: 'Sorry your order is late. Tap Orders at the bottom, open your latest order, and check the ETA or tracking details.',
+          success: true,
+        }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+        maxSteps: 3,
+      });
+
+      const result = await runtime.execute('My latest order is late');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe(
+        'Sorry your order is late. Tap Orders at the bottom, open your latest order, and check the ETA or tracking details.'
+      );
+      expect(result.steps).toHaveLength(2);
+    });
+
+    it('does not surface companion reasoning plans as status text', async () => {
+      const statuses: string[] = [];
+      const response = createToolResponse('done', {
+        text: 'Tap Orders at the bottom to find your latest order.',
+        success: true,
+      });
+      response.reasoning.plan =
+        'The user is reporting a late order. I need to guide them to Orders.';
+      const provider = new MockProvider([response]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+        onStatusUpdate: (status) => statuses.push(status),
+      });
+
+      await runtime.execute('My latest order is late');
+
+      expect(statuses).toContain('Wrapping up...');
+      expect(statuses).not.toContain(
+        'The user is reporting a late order. I need to guide them to Orders.'
+      );
+    });
+
+    it('retries when companion claims escalation without running the handoff tool', async () => {
+      const provider = new MockProvider([
+        createToolResponse('done', {
+          text: "I'm escalating your request to a human agent right away.",
+          success: true,
+        }),
+        createToolResponse('escalate_to_human', {
+          reason: 'User explicitly requested a human support agent',
+        }),
+        createToolResponse('done', {
+          text: 'Your request has been sent to our support team. A human agent will reply here shortly.',
+          success: true,
+        }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'companion',
+        maxSteps: 4,
+        customTools: {
+          escalate_to_human: {
+            name: 'escalate_to_human',
+            description: 'Hand off to a human support agent',
+            parameters: {
+              reason: {
+                type: 'string',
+                description: 'Why the handoff is needed',
+                required: true,
+              },
+            },
+            execute: jest.fn(async () => 'ESCALATED: A human agent will reply here shortly.'),
+          },
+        },
+      });
+
+      const result = await runtime.execute('I want a human to check this');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe(
+        'Your request has been sent to our support team. A human agent will reply here shortly.'
+      );
+      expect(result.steps.map((step) => step.action.name)).toEqual([
+        'done',
+        'escalate_to_human',
+        'done',
+      ]);
+    }, 10000);
   });
 
   // ── Public API ──────────────────────────────────────────────
