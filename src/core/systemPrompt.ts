@@ -34,6 +34,8 @@ Only elements with [index] are interactive. Use the index to tap or type into th
 Pure text elements without [] are NOT interactive — they are informational content you can read.
 </screen_state>`;
 
+const STALE_TARGET_RULE = `- STALE TARGET RECOVERY: If any UI action result contains \`STALE_TARGET\`, the screen changed before the action could safely execute. Do not retry the same index from memory. Re-read the current screen state and choose the target again from the latest indexes.`;
+
 /**
  * Custom (app-registered) actions block — used by text and voice agents.
  */
@@ -382,7 +384,7 @@ export function buildSystemPrompt(
   language: string,
   hasKnowledge = false,
   isCopilot = true,
-  supportStyle: SupportStyle = 'warm-concise',
+  supportStyle: SupportStyle = 'warm-concise'
 ): string {
   const isArabic = language === 'ar';
 
@@ -447,6 +449,8 @@ System messages may appear as <sys>...</sys> between steps.
 
 ${SCREEN_STATE_GUIDE}
 
+${STALE_TARGET_RULE}
+
 <tools>
 Available tools:
 - tap(index): Tap an interactive element by its index. Works universally on buttons, radios, switches, and custom components. For switches, this toggles their state.
@@ -455,11 +459,12 @@ Available tools:
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
 - done(text, success): Text-only compatibility form for completing the task.
 - done(reply, previewText, success): Rich reply form. Use reply as a JSON string array of nodes when you want chat to render structured UI.
-- ask_user(question, request_app_action, grants_workflow_approval): Ask the user for clarification, answer a direct question, request explicit app access, or collect missing low-risk workflow data.${hasKnowledge
+- ask_user(question, request_app_action, grants_workflow_approval): Ask the user for clarification, answer a direct question, request explicit app access, or collect missing low-risk workflow data.${
+    hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen. Do NOT use for UI actions.`
       : ''
-    }
+  }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
 </tools>
 
@@ -577,11 +582,12 @@ The ask_user action should ONLY be used when:
 
 <capability>
 - It is ok to just provide information without performing any actions.
-- User can ask questions about what's on screen — answer them directly via done().${hasKnowledge
+- User can ask questions about what's on screen — answer them directly via done().${
+    hasKnowledge
       ? `
 - You have access to a knowledge base with domain-specific info. Use query_knowledge for questions about the business that aren't visible on screen.`
       : ''
-    }
+  }
 ${SHARED_CAPABILITY}
 </capability>
 
@@ -644,7 +650,7 @@ export function buildVoiceSystemPrompt(
   language: string,
   userInstructions?: string,
   hasKnowledge = false,
-  supportStyle: SupportStyle = 'warm-concise',
+  supportStyle: SupportStyle = 'warm-concise'
 ): string {
   const isArabic = language === 'ar';
 
@@ -668,17 +674,20 @@ You always have access to the current screen context — it shows you exactly wh
 
 ${SCREEN_STATE_GUIDE}
 
+${STALE_TARGET_RULE}
+
 <tools>
 Available tools:
 - tap(index): Tap an interactive element by its index. Works universally on buttons, radios, switches, and custom components. For switches, this toggles their state.
 - type(index, text): Type text into a text-input element by its index. ONLY works on text-input elements.
 - scroll(direction, amount, containerIndex): Scroll the current screen to reveal more content (e.g. lazy-loaded lists). direction: 'down' or 'up'. amount: 'page' (default), 'toEnd', or 'toStart'. containerIndex: optional 0-based index if the screen has multiple scrollable areas (default: 0). Use when you need to see items below/above the current viewport.
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
-- done(text, success): Text-only compatibility form.${hasKnowledge
+- done(text, success): Text-only compatibility form.${
+    hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen.`
       : ''
-    }
+  }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
 - ask_user_permission_voice_mode(question): Voice mode only. Ask the user for explicit permission before app actions. This shows Allow and Don’t Allow buttons and waits for a tap.
 
@@ -744,11 +753,12 @@ ${TOOL_USAGE_CONTRACT}
 ${buildSupportStylePrompt(supportStyle)}
 
 <capability>
-- You can see the current screen context — use it to answer questions directly.${hasKnowledge
+- You can see the current screen context — use it to answer questions directly.${
+    hasKnowledge
       ? `
 - You have access to a knowledge base with domain-specific info. Use query_knowledge for questions about the business that aren't visible on screen.`
       : ''
-    }
+  }
 - You may also have app-registered live data sources available through query_data. Use them for structured async data such as products, recommendations, pricing, inventory, or status.
 - It is ok to just provide information without performing any actions.
 ${SHARED_CAPABILITY}
@@ -808,20 +818,22 @@ Elements are listed with their type and label. Read them to understand the scree
 <tools>
 Available tools:
 - done(text, success): Text-only compatibility form.
-- done(reply, previewText, success): Preferred rich reply form when a structured chat answer is more helpful.${hasKnowledge
+- done(reply, previewText, success): Preferred rich reply form when a structured chat answer is more helpful.${
+    hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen.`
       : ''
-    }
+  }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
 </tools>
 
 <rules>
-- Answer the user's question based on what is visible on screen.${hasKnowledge
+- Answer the user's question based on what is visible on screen.${
+    hasKnowledge
       ? `
 - If the answer is NOT visible on screen, use query_knowledge to search the knowledge base before saying you don't have that information.`
       : ''
-    }
+  }
 - If the app exposes a relevant data source, prefer query_data for live structured data such as recommendations, pricing, inventory, or status.
 - Always call done() with your answer. Keep responses concise and helpful.
 - You CANNOT perform any UI actions (no tapping, typing, or navigating). If the user asks you to perform an action, explain that you can only answer questions and suggest they do the action themselves.

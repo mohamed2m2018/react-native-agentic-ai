@@ -4,6 +4,7 @@
     "example-react-navigation",
     "example-expo-router",
     "example-shopify-clone",
+    "example-flight-agent",
     "lib",
     "src/cli",
     "src/__cli_tmp__.tsx",
