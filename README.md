@@ -614,14 +614,99 @@ For sensitive controls, add `aiConfirm={true}`. This adds a code-level confirmat
 
 > 💡 **Dev tip**: In `__DEV__` mode, the SDK logs a reminder to add `aiConfirm` to critical elements after each copilot task.
 
+### Semantic Action Safety
+
+For generic controls like "Continue", "Submit", or icon-only buttons, copilot mode includes SDK-owned default semantic guardrails. The acting AI proposes an action, a separate default guard classifier maps it to an app-agnostic scope and capability, and runtime code synchronously enforces `allow`, `ask`, or `block` before executing a UI tool.
+
+The default guard uses the same provider family as the acting model:
+
+- `provider="gemini"` -> `gemini-2.5-flash-lite`
+- `provider="openai"` -> `gpt-5.4-nano`
+
+Low-risk workflow actions are not re-confirmed on every tap. Once the user approves a workflow, routine in-scope navigation, reading, scrolling, filling, and selecting can continue. When risk increases, such as payment, final order placement, account security, external send/post, sensitive data, or destructive actions, the SDK requires fresh action-specific approval. If the user already approved that exact action, the semantic gate reuses that approval instead of asking twice.
+
+```tsx
+<AIAgent
+  actionSafety={{
+    enabled: true,
+    classifier: 'default',
+    guardModel: 'auto',
+    classifierTimeoutMs: 300,
+    minConfidenceToAllow: 0.75,
+    unknownActionDecision: 'ask',
+    approvalReuse: 'risk-boundary',
+    userOverride: { allowAskDecision: true },
+  }}
+>
+  <App />
+</AIAgent>
+```
+
+If a runtime decision is `block`, the attempted tool is not executed. The blocked result is returned to the acting AI as `SAFETY_BLOCKED`, so the agent can stop retrying, explain the limitation, and offer a safe alternative.
+
+You can still provide your own classifier to replace or extend the default:
+
+```tsx
+<AIAgent
+  actionSafety={{
+    classifier: {
+      classifyScreen: async (input) => ({
+        screenSignature: input.screenSignature,
+        decisions: {},
+      }),
+      classifyAction: async () => ({
+        decision: 'ask',
+        scope: 'shopping_preparation',
+        capability: 'order.commit',
+        risk: 'high',
+        confidence: 0.9,
+        reason: 'This may place an order.',
+        userMessage: 'This may place the order. Do you want me to continue?',
+        requiresFreshApproval: true,
+      }),
+    },
+  }}
+/>
+```
+
+Developers can also override the final decision before enforcement. Use this only for app-specific policy, because it can downgrade a `block` to `ask` or `allow`:
+
+```tsx
+<AIAgent
+  actionSafety={{
+    overrideDecision: (decision) => {
+      if (
+        decision.decision === 'block' &&
+        decision.targetElement?.label === 'Export Demo Data'
+      ) {
+        return {
+          ...decision,
+          decision: 'ask',
+          reason: 'Exporting demo data is allowed after user confirmation.',
+          userMessage: 'This exports demo data. Do you want me to continue?',
+        };
+      }
+
+      return decision;
+    },
+  }}
+/>
+```
+
+Set `classifier: false` only when you intentionally want to disable semantic classification. Workflow approval, `aiConfirm`, `aiIgnore`, and disabled tools still apply.
+
+If classification is missing, slow, invalid, or below the confidence threshold, the SDK fails safe by asking instead of silently acting.
+
 ### Safety Model
 
 | Layer | Mechanism | Developer effort |
 |:---|:---|:---|
 | **Approval gate** | User approves before app actions | Built in |
+| **Semantic action safety** | Runtime enforces default or custom classifier `allow` / `ask` / `block` decisions for generic UI tools | Built in, custom optional |
 | **`aiConfirm` prop** | Code blocks sensitive elements until confirmed | Add prop to critical controls |
 | **`aiIgnore` prop** | Hide controls from the assistant entirely | Add prop to excluded controls |
 | **Stale-target protection** | Re-checks targets before tapping after screen changes | Built in |
+| **UI stabilization** | Waits for snapshot stability after UI tools without fixed sleeps | Built in |
 | **Content masking** | Sanitize screen content before it reaches the LLM | Configure `transformScreenContent` |
 | **Traceability** | Records actions and conversation context | Built in / dashboard-backed |
 | **Structured data** | Use `useData` when direct state lookup is better than UI navigation | Optional |
@@ -954,6 +1039,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `maxTokenBudget` | `number` | — | Max total tokens before auto-stopping the agent loop. |
 | `maxCostUSD` | `number` | — | Max estimated cost (USD) before auto-stopping. |
 | `stepDelay` | `number` | — | Delay between agent steps in ms. |
+| `toolStabilization` | `{ enabled?, maxMs?, stableFrames? }` | `{ enabled: true, maxMs: 1000, stableFrames: 2 }` | Wait for UI snapshot/navigation stability after UI tools instead of using a fixed sleep. Non-UI tools skip stabilization. |
+| `actionSafety` | `{ enabled?, classifier?, guardModel?, classifierTimeoutMs?, minConfidenceToAllow?, unknownActionDecision?, approvalReuse?, userOverride?, overrideDecision?, onDecision? }` | Copilot: default guard enabled | Built-in semantic guardrails for generic UI actions. The SDK default classifier can pre-classify visible elements and the runtime enforces allow/ask/block before execution. Use `overrideDecision` for app-specific policy overrides, or `classifier: false` to disable only semantic classification. |
 | `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only (faster, fewer tokens, no screen-aware loop). Prefer `interactionMode="companion"` when you want screen-aware guidance without app control. |
 | `enableVoice` | `boolean` | `false` | Show voice mode tab. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |

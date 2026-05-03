@@ -254,6 +254,140 @@ export interface AskUserRequest {
   kind?: 'freeform' | 'approval';
 }
 
+export type ToolEffect =
+  | 'read'
+  | 'navigate'
+  | 'fill'
+  | 'select'
+  | 'commit'
+  | 'payment'
+  | 'destructive'
+  | 'support'
+  | 'unknown';
+
+export type ActionSafetyDecisionKind = 'allow' | 'ask' | 'block';
+export type ActionSafetyCapability =
+  | 'screen.read'
+  | 'ui.navigate'
+  | 'ui.scroll'
+  | 'ui.fill'
+  | 'ui.select'
+  | 'ui.dismiss'
+  | 'state.modify'
+  | 'content.send'
+  | 'external.open'
+  | 'support.escalate'
+  | 'payment.commit'
+  | 'order.commit'
+  | 'account.security'
+  | 'privacy.sensitive'
+  | 'destructive'
+  | 'unknown';
+
+export type ActionSafetyScope =
+  | 'read_or_lookup'
+  | 'support_investigation'
+  | 'form_assistance'
+  | 'shopping_preparation'
+  | 'account_management'
+  | 'communication_preparation'
+  | 'unknown_task';
+
+export type ActionSafetyRisk = 'low' | 'medium' | 'high' | 'critical';
+export type ActionSafetyClassifierSetting = ActionSafetyClassifier | 'default' | false;
+
+export interface ActionSafetyDecision {
+  decision: ActionSafetyDecisionKind;
+  /** Optional confidence from a guard classifier. Defaults to 1 for deterministic decisions. */
+  confidence?: number;
+  reason: string;
+  /** Optional user-facing message shown when decision is "ask" or "block". */
+  userMessage?: string;
+  /** App-agnostic capability classification used by default scope guardrails. */
+  capability?: ActionSafetyCapability;
+  /** Inferred task scope used for approval reuse and audit traces. */
+  scope?: ActionSafetyScope;
+  /** Risk level used by the runtime to decide whether approval can be reused. */
+  risk?: ActionSafetyRisk;
+  /** When true, workflow approval cannot be reused for this action. */
+  requiresFreshApproval?: boolean;
+}
+
+export interface ScreenSafetyInput {
+  userRequest: string;
+  screen: ScreenSnapshot;
+  screenContent: string;
+  screenSignature: string;
+  mode: InteractionMode;
+  history: AgentStep[];
+}
+
+export interface ActionSafetyInput {
+  userRequest: string;
+  toolName: string;
+  args: Record<string, any>;
+  targetElement?: InteractiveElement;
+  screen: ScreenSnapshot | null;
+  screenContent?: string;
+  screenSignature?: string;
+  mode: InteractionMode;
+  history: AgentStep[];
+  toolEffect?: ToolEffect;
+}
+
+export interface ScreenSafetyMap {
+  screenSignature: string;
+  decisions: Record<string, ActionSafetyDecision>;
+}
+
+export interface ActionSafetyClassifier {
+  classifyScreen(input: ScreenSafetyInput): Promise<ScreenSafetyMap>;
+  classifyAction(input: ActionSafetyInput): Promise<ActionSafetyDecision>;
+}
+
+export interface ActionSafetyConfig {
+  /** Default: true in copilot. Autopilot enables it only when explicitly configured. */
+  enabled?: boolean;
+  classifier?: ActionSafetyClassifierSetting;
+  /** Default: 'auto'. Used by the SDK default classifier. */
+  guardModel?: 'auto' | string;
+  /** Default: 300ms. Used for screen preclassification and fallback action classification. */
+  classifierTimeoutMs?: number;
+  /** Default: 0.75. Below this, "allow" becomes "ask". */
+  minConfidenceToAllow?: number;
+  /** Default: 'ask'. Used when a generic UI action cannot be classified safely. */
+  unknownActionDecision?: 'ask' | 'block';
+  /** Default: 'risk-boundary'. Controls whether approvals can be reused. */
+  approvalReuse?: 'risk-boundary' | 'workflow' | 'none';
+  /** User override behavior for runtime "ask" decisions. */
+	  userOverride?: {
+	    /** Default: true. */
+	    allowAskDecision?: boolean;
+	  };
+	  /** Optional app-level override for the final runtime decision before enforcement. */
+	  overrideDecision?: (decision: ActionSafetyDecision & {
+	    toolName?: string;
+	    args?: Record<string, any>;
+	    source: 'deterministic' | 'cache' | 'classifier' | 'timeout' | 'disabled';
+	    targetElement?: InteractiveElement;
+	  }) => ActionSafetyDecision | void | null;
+	  onDecision?: (decision: ActionSafetyDecision & {
+	    toolName?: string;
+	    args?: Record<string, any>;
+    source: 'deterministic' | 'cache' | 'classifier' | 'timeout' | 'disabled';
+    targetElement?: InteractiveElement;
+  }) => void;
+}
+
+export interface ToolStabilizationConfig {
+  /** Default: true. */
+  enabled?: boolean;
+  /** Default: 1000ms. Timeout fallback, not the normal path. */
+  maxMs?: number;
+  /** Default: 2 animation frames with the same snapshot signature. */
+  stableFrames?: number;
+}
+
 export interface AgentConfig {
   /**
    * Which LLM provider to use for text mode.
@@ -400,6 +534,18 @@ export interface AgentConfig {
   /** Delay between steps in ms. */
   stepDelay?: number;
 
+  /**
+   * Stabilize the UI after tool actions without a fixed post-tool sleep.
+   * Enabled by default for UI-affecting tools.
+   */
+  toolStabilization?: ToolStabilizationConfig;
+
+  /**
+   * Optional semantic action safety classifier. The runtime remains the final
+   * authority and only uses classifier output to allow, ask, or block.
+   */
+  actionSafety?: ActionSafetyConfig;
+
   // ─── Screen Map ───────────────────────────────────────────────────────────
 
   /**
@@ -538,6 +684,8 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, ToolParam>;
+  /** Optional semantic effect used by runtime guardrails. */
+  effect?: ToolEffect;
   execute: (args: Record<string, any>) => Promise<string>;
 }
 
@@ -565,6 +713,8 @@ export interface ActionDefinition {
   name: string;
   description: string;
   parameters: Record<string, string | ActionParameterDef>;
+  /** Optional semantic effect used by runtime guardrails. */
+  effect?: ToolEffect;
   handler: (args: Record<string, any>) => any;
 }
 

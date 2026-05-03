@@ -43,6 +43,17 @@ export default function SettingsScreen() {
         </Link>
         {/* 🐛 BUG: Help Center link was accidentally removed during cleanup */}
       </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Danger Zone</Text>
+        <Pressable
+          style={[styles.row, styles.dangerRow]}
+          onPress={() => console.log('[DashBite Settings] Delete account pressed')}
+        >
+          <Text style={styles.dangerText}>Delete Account</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -57,5 +68,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(150,150,150,0.3)',
   },
   rowText: { fontSize: 16 },
+  dangerRow: { borderBottomColor: 'rgba(220,38,38,0.28)' },
+  dangerText: { fontSize: 16, color: '#DC2626', fontWeight: '700' },
   chevron: { fontSize: 22, color: '#6c757d' },
 });
