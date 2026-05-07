@@ -4,7 +4,10 @@ A React Native SDK for adding an in-app AI assistant that can read your app UI, 
 
 [![npm version](https://img.shields.io/npm/v/@mobileai/react-native.svg)](https://www.npmjs.com/package/@mobileai/react-native)
 [![React Native](https://img.shields.io/badge/react--native-0.83.x-blue.svg)](https://reactnative.dev/)
-[![License](https://img.shields.io/badge/license-see%20LICENSE-lightgrey.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-EULA-lightgrey.svg)](./LICENSE)
+[![Security](https://img.shields.io/badge/security-policy-blue.svg)](./SECURITY.md)
+[![Roadmap](https://img.shields.io/badge/roadmap-public-orange.svg)](./ROADMAP.md)
+[![Changelog](https://img.shields.io/badge/changelog-keep--a--changelog-blueviolet.svg)](./CHANGELOG.md)
 
 ![MobileAI demo](./assets/demo.gif)
 
@@ -19,6 +22,9 @@ A React Native SDK for adding an in-app AI assistant that can read your app UI, 
 - [More docs](#more-docs)
 - [Requirements](#requirements)
 - [Troubleshooting](#troubleshooting)
+- [Security](./SECURITY.md)
+- [Roadmap](./ROADMAP.md)
+- [Changelog](./CHANGELOG.md)
 - [License](#license)
 
 ## What The SDK Does

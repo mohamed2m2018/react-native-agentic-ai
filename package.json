@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.9.66",
+  "version": "0.9.67",
   "description": "Add an in-app AI support agent to React Native apps that understands UI, navigates screens, fills forms, and escalates to humans.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -23,6 +23,9 @@
     "lib",
     "docs",
     "skills",
+    "CHANGELOG.md",
+    "ROADMAP.md",
+    "SECURITY.md",
     "src/specs",
     "bin",
     "generate-map.js",
