@@ -183,6 +183,7 @@ export class AgentRuntime {
   private staleMapWarned = false;
   private currentScreenContent = '';
   private currentScreenSignature = '';
+  private pendingScreenshot: string | undefined = undefined;
   private actionSafetyCache = new Map<string, ActionSafetyDecision>();
   private screenSafetyPromises = new Map<string, Promise<void>>();
   private defaultActionSafetyClassifier: ActionSafetyClassifier | null = null;
@@ -760,16 +761,19 @@ export class AgentRuntime {
       },
     });
 
-    // capture_screenshot — on-demand visual capture (for image/video content questions)
+    // capture_screenshot — on-demand visual capture (for image/video content questions).
+    // Stashes the screenshot so the NEXT model turn receives it as visual context.
+    // No screenshot is sent to the LLM unless this tool is called.
     this.tools.set('capture_screenshot', {
       name: 'capture_screenshot',
       description:
-        'Capture the SDK root component as an image. Use when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone.',
+        'Capture the SDK root component as an image and attach it to your next reasoning turn. Use only when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone. The screenshot is consumed by the very next turn and then cleared.',
       parameters: {},
       execute: async () => {
         const screenshot = await this.getPlatformAdapter().captureScreenshot();
         if (screenshot) {
-          return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
+          this.pendingScreenshot = screenshot;
+          return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). It will be attached to your next reasoning turn for visual analysis.`;
         }
         return '❌ Screenshot capture failed. react-native-view-shot is required and must be installed in your app.';
       },
@@ -2526,6 +2530,7 @@ ${snapshot.elementsText}
     this.observations = [];
     this.lastScreenName = '';
     this.pendingCriticalVerification = null;
+    this.pendingScreenshot = undefined;
     this.outcomeVerifier = null;
     this.verifierProvider = null;
     this.actionSafetyCache.clear();
@@ -2705,8 +2710,11 @@ ${snapshot.elementsText}
         // 3. Handle observations
         this.handleObservations(step, maxSteps, screenName);
 
-        // 4. Capture screenshot for Gemini vision (optional)
-        const screenshot = await this.getPlatformAdapter().captureScreenshot();
+        // 4. Use screenshot only if the LLM explicitly requested one via the
+        //    capture_screenshot tool on the previous turn. Cleared after use so
+        //    the next turn defaults back to text-only context.
+        const screenshot = this.pendingScreenshot;
+        this.pendingScreenshot = undefined;
 
         await this.updateCriticalVerification(
           screenName,
