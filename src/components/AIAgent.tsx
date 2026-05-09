@@ -601,7 +601,7 @@ export function AIAgent({
   toolStabilization,
   navRef,
 
-  maxSteps = 25,
+  maxSteps = 40,
   showChatBar = true,
   children,
   onResult,

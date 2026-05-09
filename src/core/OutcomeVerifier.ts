@@ -46,298 +46,80 @@ export interface PendingVerification {
 }
 
 const COMMIT_ACTION_PATTERN = /\b(save|submit|confirm|apply|pay|place|update|continue|finish|send|checkout|complete|verify|review|publish|post|delete|cancel)\b/i;
-const SUCCESS_SIGNAL_PATTERNS = [
-  /\b(success|successful|saved|updated|submitted|completed|done|confirmed|applied|verified)\b/i,
-  /\bthank you\b/i,
-  /\border confirmed\b/i,
-  /\bchanges saved\b/i,
-];
-const ERROR_SIGNAL_PATTERNS = [
-  /\berror\b/i,
-  /\bfailed\b/i,
-  /\binvalid\b/i,
-  /\brequired\b/i,
-  /\bincorrect\b/i,
-  /\btry again\b/i,
-  /\bcould not\b/i,
-  /\bunable to\b/i,
-  /\bverification\b.{0,30}\b(error|failed|invalid|required)\b/i,
-  /\bcode\b.{0,30}\b(error|failed|invalid|required)\b/i,
-];
-const UNCONTROLLABLE_ERROR_PATTERNS = [
-  /\bnetwork\b/i,
-  /\bserver\b/i,
-  /\bservice unavailable\b/i,
-  /\btemporarily unavailable\b/i,
-  /\btimeout\b/i,
-  /\btry later\b/i,
-  /\bconnection\b/i,
-];
 
-const INPUT_FIELD_TYPES = new Set<InteractiveElement['type']>([
-  'text-input',
-  'picker',
-  'date-picker',
-  'radio',
-  'switch',
-  'slider',
-]);
-
-const FIELD_MESSAGE_PATTERNS = [
-  /^(.+?)\s+(?:is|are)\s+(?:required|invalid|missing)\b/i,
-  /^please\s+(?:enter|provide|select)\s+(.+?)\b/i,
-  /^(.+?)\s+cannot\s+be\s+empty\b/i,
-];
-
-const IGNORED_EMPTY_FIELD_PATTERNS = [
-  /\btype your address\b/i,
-  /\bstreet name\b/i,
-  /\blandmark\b/i,
-  /^\+\d+$/,
-  /\bcontact information\b/i,
-];
-
-function normalizeText(text: string): string {
-  return text.replace(/\[[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
+function normalizeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeFieldName(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function normalizeStatus(value: unknown): VerificationStatus | undefined {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'success' || normalized === 'error' || normalized === 'uncertain') {
+    return normalized;
+  }
+  return undefined;
 }
 
-function cleanScreenLine(line: string): string {
-  return line
-    .replace(/\[[^\]]+\]/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\/>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function normalizeFailureKind(value: unknown): VerificationFailureKind | undefined {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === 'controllable' || normalized === 'uncontrollable') {
+    return normalized;
+  }
+  return undefined;
 }
 
-function getVisibleFieldCandidates(elements: InteractiveElement[]): string[] {
-  const seen = new Set<string>();
-  const labels: string[] = [];
+function inferVerificationFromText(text: string): VerificationResult | null {
+  const normalized = text.toLowerCase();
+  if (!normalized) return null;
 
-  for (const element of elements) {
-    if (!INPUT_FIELD_TYPES.has(element.type)) continue;
-    const label = element.label.trim();
-    if (!label) continue;
-    const normalized = normalizeFieldName(label);
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    labels.push(label);
+  const hasSuccessCue = /\b(succeeded|successful|success|completed|created|submitted|confirmed|requested|processed)\b/.test(normalized);
+  const hasFailureCue = /\b(failed|failure|error|invalid|required|missing|blocked|unable|cannot|can't)\b/.test(normalized);
+
+  if (hasFailureCue && !hasSuccessCue) {
+    return {
+      status: 'error',
+      failureKind: 'controllable',
+      evidence: text,
+      source: 'llm',
+    };
   }
 
-  return labels;
-}
-
-function extractValidationMessages(screenContent: string): string[] {
-  const seen = new Set<string>();
-  const messages: string[] = [];
-
-  for (const rawLine of screenContent.split('\n')) {
-    const line = cleanScreenLine(rawLine);
-    if (!line) continue;
-    if (!ERROR_SIGNAL_PATTERNS.some((pattern) => pattern.test(line))) continue;
-
-    const normalized = normalizeFieldName(line);
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    messages.push(line);
-  }
-
-  return messages;
-}
-
-function matchFieldCandidate(fieldText: string, candidates: string[]): string | null {
-  const normalizedField = normalizeFieldName(fieldText);
-  if (!normalizedField) return null;
-
-  let bestMatch: string | null = null;
-  let bestScore = -1;
-
-  for (const candidate of candidates) {
-    const normalizedCandidate = normalizeFieldName(candidate);
-    if (!normalizedCandidate) continue;
-
-    let score = -1;
-    if (normalizedCandidate === normalizedField) {
-      score = 4;
-    } else if (normalizedCandidate.includes(normalizedField)) {
-      score = 3;
-    } else if (normalizedField.includes(normalizedCandidate)) {
-      score = 2;
-    } else {
-      const fieldTokens = new Set(normalizedField.split(' '));
-      const candidateTokens = normalizedCandidate.split(' ');
-      const overlap = candidateTokens.filter((token) => fieldTokens.has(token)).length;
-      if (overlap > 0) {
-        score = overlap;
-      }
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = candidate;
-    }
-  }
-
-  return bestScore > 0 ? bestMatch : null;
-}
-
-function extractFieldPhrase(message: string): string | null {
-  for (const pattern of FIELD_MESSAGE_PATTERNS) {
-    const match = message.match(pattern);
-    const value = match?.[1]?.trim();
-    if (value) return value;
+  if (hasSuccessCue && !hasFailureCue) {
+    return {
+      status: 'success',
+      failureKind: 'controllable',
+      evidence: text,
+      source: 'llm',
+    };
   }
 
   return null;
 }
 
-function findElementLineIndexes(screenContent: string): Map<number, number> {
-  const lines = screenContent.split('\n');
-  const indexes = new Map<number, number>();
-
-  lines.forEach((line, index) => {
-    const match = line.match(/\[(\d+)\]</);
-    if (!match) return;
-    indexes.set(Number(match[1]), index);
-  });
-
-  return indexes;
-}
-
-function isEmptyInputLine(line: string, element: InteractiveElement): boolean {
-  if (element.type === 'text-input') {
-    return /value=(["'])\1/.test(line);
+function parseStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const items = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+    return items.length > 0 ? items : undefined;
   }
 
-  return false;
-}
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
 
-function isRequiredCue(line: string): boolean {
-  if (!line) return false;
-  if (line === '*') return true;
-  if (/\brequired\b/i.test(line)) return true;
-  return /\*/.test(line);
-}
-
-function shouldIgnoreEmptyField(label: string): boolean {
-  const trimmed = label.trim();
-  if (!trimmed) return true;
-  if (!/[a-z]/i.test(trimmed)) return true;
-  return IGNORED_EMPTY_FIELD_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
-
-function hasNearbyRequiredCue(lines: string[], lineIndex: number): boolean {
-  for (let offset = -8; offset <= 2; offset += 1) {
-    if (offset === 0) continue;
-    const candidate = cleanScreenLine(lines[lineIndex + offset] || '');
-    if (!candidate) continue;
-    if (candidate.startsWith('[image')) continue;
-    if (isRequiredCue(candidate)) return true;
-  }
-
-  return false;
-}
-
-function inferVisibleEmptyRequiredFields(
-  screenContent: string,
-  elements: InteractiveElement[],
-): string[] {
-  const lines = screenContent.split('\n');
-  const lineIndexes = findElementLineIndexes(screenContent);
-  const missingFields: string[] = [];
-  const seen = new Set<string>();
-
-  const addField = (label: string) => {
-    const normalized = normalizeFieldName(label);
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    missingFields.push(label.trim());
-  };
-
-  for (const element of elements) {
-    if (!INPUT_FIELD_TYPES.has(element.type)) continue;
-    const label = element.label.trim();
-    if (shouldIgnoreEmptyField(label)) continue;
-
-    const lineIndex = lineIndexes.get(element.index);
-    if (lineIndex === undefined) continue;
-
-    const rawLine = lines[lineIndex] || '';
-    const cleanedLine = cleanScreenLine(rawLine);
-    if (!isEmptyInputLine(rawLine, element)) continue;
-
-    const ownRequired = isRequiredCue(cleanedLine);
-    const nearbyRequired = hasNearbyRequiredCue(lines, lineIndex);
-    if (!ownRequired && !nearbyRequired) continue;
-
-    addField(label);
-  }
-
-  return missingFields;
-}
-
-function inferMissingFields(
-  screenContent: string,
-  validationMessages: string[],
-  fieldCandidates: string[],
-  elements: InteractiveElement[],
-): string[] {
-  const missingFields: string[] = [];
-  const seen = new Set<string>();
-  const lines = screenContent.split('\n');
-
-  const addField = (field: string | null) => {
-    if (!field) return;
-    const normalized = normalizeFieldName(field);
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    missingFields.push(field);
-  };
-
-  if (validationMessages.length > 0 && fieldCandidates.length > 0) {
-    for (const message of validationMessages) {
-      const directField = extractFieldPhrase(message);
-      addField(matchFieldCandidate(directField || '', fieldCandidates));
-
-      if (directField) continue;
-
-      const messageIndex = lines.findIndex((line) => cleanScreenLine(line) === message);
-      if (messageIndex === -1) continue;
-
-      for (let offset = 1; offset <= 8; offset += 1) {
-        const candidateLine = lines[messageIndex - offset];
-        if (!candidateLine) continue;
-        addField(matchFieldCandidate(cleanScreenLine(candidateLine), fieldCandidates));
-        if (missingFields.length > 0) break;
-      }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      const items = parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+      return items.length > 0 ? items : undefined;
     }
+  } catch {
+    // Fall back to a simple delimiter split for providers that do not emit JSON.
   }
 
-  for (const emptyField of inferVisibleEmptyRequiredFields(screenContent, elements)) {
-    addField(emptyField);
-  }
-
-  return missingFields;
-}
-
-function elementStillPresent(elements: InteractiveElement[], target?: InteractiveElement): boolean {
-  if (!target) return false;
-  return elements.some((element) => (
-    element.index === target.index
-      || (
-        element.type === target.type
-        && element.label.trim().length > 0
-        && element.label.trim() === target.label.trim()
-      )
-  ));
+  const items = trimmed
+    .split(/\n|;/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
 }
 
 export function createVerificationSnapshot(
@@ -378,74 +160,12 @@ export function isCriticalVerificationAction(action: VerificationAction): boolea
   return COMMIT_ACTION_PATTERN.test(label);
 }
 
-function deterministicVerify(context: VerificationContext): VerificationResult {
-  const normalizedPost = normalizeText(context.postAction.screenContent);
-  const validationMessages = extractValidationMessages(context.postAction.screenContent);
-  const missingFields = inferMissingFields(
-    context.postAction.screenContent,
-    validationMessages,
-    getVisibleFieldCandidates(context.postAction.elements),
-    context.postAction.elements,
-  );
-
-  if (ERROR_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalizedPost))) {
-    const failureKind = UNCONTROLLABLE_ERROR_PATTERNS.some((pattern) => pattern.test(normalizedPost))
-      ? 'uncontrollable'
-      : 'controllable';
-    return {
-      status: 'error',
-      failureKind,
-      evidence: 'Visible validation or error feedback appeared after the action.',
-      source: 'deterministic',
-      missingFields,
-      validationMessages,
-    };
-  }
-
-  if (context.postAction.screenName !== context.preAction.screenName) {
-    return {
-      status: 'success',
-      failureKind: 'controllable',
-      evidence: `The app navigated from "${context.preAction.screenName}" to "${context.postAction.screenName}".`,
-      source: 'deterministic',
-      missingFields,
-      validationMessages,
-    };
-  }
-
-  if (SUCCESS_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalizedPost))) {
-    return {
-      status: 'success',
-      failureKind: 'controllable',
-      evidence: 'The current screen shows explicit success or completion language.',
-      source: 'deterministic',
-      missingFields,
-      validationMessages,
-    };
-  }
-
-  if (
-    context.action.targetElement
-    && elementStillPresent(context.preAction.elements, context.action.targetElement)
-    && !elementStillPresent(context.postAction.elements, context.action.targetElement)
-  ) {
-    return {
-      status: 'success',
-      failureKind: 'controllable',
-      evidence: 'The commit control is no longer present on the current screen.',
-      source: 'deterministic',
-      missingFields,
-      validationMessages,
-    };
-  }
-
+function createUnverifiedResult(): VerificationResult {
   return {
     status: 'uncertain',
     failureKind: 'controllable',
-    evidence: 'The current UI does not yet prove either success or failure.',
+    evidence: 'The verifier model did not return a usable outcome judgment.',
     source: 'deterministic',
-    missingFields,
-    validationMessages,
   };
 }
 
@@ -460,6 +180,8 @@ async function llmVerify(
       status: { type: 'string', description: 'success, error, or uncertain', required: true, enum: ['success', 'error', 'uncertain'] },
       failureKind: { type: 'string', description: 'controllable or uncontrollable', required: true, enum: ['controllable', 'uncontrollable'] },
       evidence: { type: 'string', description: 'Brief explanation grounded in the current UI evidence', required: true },
+      missingFields: { type: 'string', description: 'Optional JSON array of visible missing fields the user or agent can fill before retrying', required: false },
+      validationMessages: { type: 'string', description: 'Optional JSON array of visible validation or error messages from the post-action UI', required: false },
     },
     execute: async () => 'reported',
   };
@@ -468,9 +190,11 @@ async function llmVerify(
     'You are an outcome verifier for a mobile app agent.',
     'Your job is to decide whether the last critical UI action actually succeeded.',
     'The current UI is the source of truth. Ignore the actor model’s prior claims when they conflict with the UI.',
+    'Compare the pre-action and post-action UI. Treat static warnings, historical issue text, and informational copy that existed before the action as context, not new failure evidence.',
     'Return success only when the current UI clearly proves completion.',
     'Return error when the UI shows validation, verification, submission, or other failure feedback.',
     'Return uncertain when the UI does not yet prove either success or error.',
+    'When returning error, include visible validationMessages and missingFields when the UI makes them clear.',
   ].join(' ');
 
   const userPrompt = [
@@ -493,18 +217,20 @@ async function llmVerify(
     return null;
   }
 
-  const status = toolCall.args.status as VerificationStatus | undefined;
-  const failureKind = toolCall.args.failureKind as VerificationFailureKind | undefined;
-  const evidence = typeof toolCall.args.evidence === 'string' ? toolCall.args.evidence : '';
-  const missingFields = Array.isArray(toolCall.args.missingFields)
-    ? toolCall.args.missingFields.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    : undefined;
-  const validationMessages = Array.isArray(toolCall.args.validationMessages)
-    ? toolCall.args.validationMessages.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    : undefined;
+  const status = normalizeStatus(toolCall.args.status);
+  const failureKind = normalizeFailureKind(toolCall.args.failureKind ?? toolCall.args.failure_kind);
+  const evidence = normalizeString(toolCall.args.evidence);
+  const missingFields = parseStringArray(toolCall.args.missingFields ?? toolCall.args.missing_fields);
+  const validationMessages = parseStringArray(toolCall.args.validationMessages ?? toolCall.args.validation_messages);
 
   if (!status || !failureKind || !evidence) {
-    return null;
+    return inferVerificationFromText(
+      [
+        normalizeString(response.reasoning?.plan),
+        normalizeString(response.text),
+        evidence,
+      ].filter(Boolean).join(' ')
+    );
   }
 
   return {
@@ -536,12 +262,6 @@ export class OutcomeVerifier {
   }
 
   public async verify(context: VerificationContext): Promise<VerificationResult> {
-    const stageA = deterministicVerify(context);
-    if (stageA.status !== 'uncertain') {
-      return stageA;
-    }
-
-    const stageB = await llmVerify(this.provider, context);
-    return stageB ?? stageA;
+    return (await llmVerify(this.provider, context)) ?? createUnverifiedResult();
   }
 }

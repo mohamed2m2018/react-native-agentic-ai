@@ -80,7 +80,7 @@ const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I 
 
 class MockProvider implements AIProvider {
   private responses: ProviderResult[] = [];
-  private callCount = 0;
+  public callCount = 0;
 
   constructor(responses: ProviderResult[]) {
     this.responses = responses;
@@ -90,6 +90,31 @@ class MockProvider implements AIProvider {
     const response = this.responses[this.callCount] || this.responses[this.responses.length - 1]!;
     this.callCount++;
     return response;
+  }
+}
+
+class ControlledProvider implements AIProvider {
+  public callCount = 0;
+  private resolveStarted!: () => void;
+  private resolveRelease!: () => void;
+  public readonly started = new Promise<void>((resolve) => {
+    this.resolveStarted = resolve;
+  });
+  private readonly released = new Promise<void>((resolve) => {
+    this.resolveRelease = resolve;
+  });
+
+  constructor(private readonly response: ProviderResult) {}
+
+  release(): void {
+    this.resolveRelease();
+  }
+
+  async generateContent(): Promise<ProviderResult> {
+    this.callCount++;
+    this.resolveStarted();
+    await this.released;
+    return this.response;
   }
 }
 
@@ -554,6 +579,97 @@ describe('AgentRuntime', () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain('cancelled');
+    }, 10000);
+
+    it('honors cancellation after an in-flight verifier request finishes', async () => {
+      const onPress = jest.fn();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Should not complete', success: true }),
+      ]);
+      const verifierProvider = new ControlledProvider(
+        createToolResponse('report_verification', {
+          status: 'uncertain',
+          failureKind: 'controllable',
+          evidence: 'The UI still has no clear success evidence.',
+        }),
+      );
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Save Changes />\n',
+        interactives: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', fiberNode: {}, props: { onPress } }],
+      });
+
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'SettingsForm',
+        availableScreens: ['SettingsForm'],
+        elementsText: 'Screen: SettingsForm\n[0]<pressable>Save Changes />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Save Changes', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+      });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+        },
+      });
+      const resultPromise = runtime.execute('Save the settings');
+
+      await verifierProvider.started;
+      runtime.cancel();
+      verifierProvider.release();
+      const result = await resultPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('cancelled');
+      expect(provider.callCount).toBe(1);
+      expect(verifierProvider.callCount).toBe(1);
+    }, 10000);
+
+    it('releases done blocking after verifier follow-up cap is reached', async () => {
+      const onPress = jest.fn();
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'uncertain',
+          failureKind: 'controllable',
+          evidence: 'The verifier response is still inconclusive.',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Cancellation review created.', success: true }),
+      ]);
+
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<pressable>Submit cancellation review />\n',
+        interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit cancellation review', fiberNode: {}, props: { onPress } }],
+      });
+
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'SubscriptionCancellation',
+        availableScreens: ['SubscriptionCancellation'],
+        elementsText: 'Screen: SubscriptionCancellation\nCurrent state: Cancellation requested\nCancellation review created.\n[0]<pressable>Submit cancellation review />\n',
+        elements: [{ index: 0, type: 'pressable' as const, label: 'Submit cancellation review', requiresConfirmation: false, fiberNode: {}, props: { onPress } }],
+      });
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          maxFollowupSteps: 1,
+        },
+      });
+      const result = await runtime.execute('Cancel the subscription');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Cancellation review created.');
+      expect(verifierProvider.callCount).toBe(1);
+      expect(provider.callCount).toBe(2);
     }, 10000);
 
     it('rejects when already running', async () => {

@@ -60,7 +60,7 @@ import { createProvider } from '../providers/ProviderFactory';
 import { formatActionToolResult } from '../utils/actionResult';
 import { normalizeRichContent, richContentToPlainText } from './richContent';
 
-const DEFAULT_MAX_STEPS = 25;
+const DEFAULT_MAX_STEPS = 40;
 const DEFAULT_STABILIZATION_MAX_MS = 1000;
 const DEFAULT_STABILIZATION_STABLE_FRAMES = 2;
 const DEFAULT_ACTION_SAFETY_TIMEOUT_MS = 300;
@@ -548,6 +548,14 @@ export class AgentRuntime {
     }
 
     const maxFollowupSteps = verifier.getMaxFollowupSteps();
+    if (this.pendingCriticalVerification.followupSteps >= maxFollowupSteps) {
+      this.observations.push(
+        `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" remained unverified after ${this.pendingCriticalVerification.followupSteps} follow-up checks. ${result.evidence} Stop re-checking this action. Use the current visible UI evidence to either call done(success=true) if the goal is visibly complete, or done(success=false) with a clear explanation if it is not.`
+      );
+      this.pendingCriticalVerification = null;
+      return;
+    }
+
     const ageNote = this.pendingCriticalVerification.followupSteps >= maxFollowupSteps
       ? ` This critical action is still unverified after ${this.pendingCriticalVerification.followupSteps} follow-up checks.`
       : '';
@@ -585,6 +593,27 @@ export class AgentRuntime {
 
   private shouldBlockSuccessCompletion(): boolean {
     return this.pendingCriticalVerification !== null;
+  }
+
+  private async finishCancelledTask(
+    step: number,
+    sessionUsage: TokenUsage,
+  ): Promise<ExecutionResult | null> {
+    if (!this.isCancelRequested) {
+      return null;
+    }
+
+    logger.info('AgentRuntime', `Task cancelled by user at step ${step + 1}`);
+    this.emitTrace('task_cancelled', { reason: 'user_cancelled' }, step);
+    this.pendingCriticalVerification = null;
+    const cancelResult: ExecutionResult = {
+      success: false,
+      message: 'Task was cancelled.',
+      steps: this.history,
+      tokenUsage: sessionUsage,
+    };
+    await this.config.onAfterTask?.(cancelResult);
+    return cancelResult;
   }
 
   // ─── Tool Registration ─────────────────────────────────────
@@ -2430,7 +2459,7 @@ ${snapshot.elementsText}
     prompt += '<agent_history>\n';
 
     // History summarization: when steps > 8, compress middle steps
-    // to bound prompt growth for long tasks (approaching 25-step limit).
+    // to bound prompt growth for long tasks (approaching the step limit).
     // Keep first 2 (initial context) + last 4 (recent context) as full detail.
     const SUMMARIZE_THRESHOLD = 8;
     const KEEP_HEAD = 2;
@@ -2655,18 +2684,8 @@ ${snapshot.elementsText}
       // ─── Full agent loop (UI control enabled) ─────────────────────
       for (let step = 0; step < maxSteps; step++) {
         // ── Cancel check ──
-        if (this.isCancelRequested) {
-          logger.info('AgentRuntime', `Task cancelled by user at step ${step + 1}`);
-          this.emitTrace('task_cancelled', { reason: 'user_cancelled' }, step);
-          const cancelResult: ExecutionResult = {
-            success: false,
-            message: 'Task was cancelled.',
-            steps: this.history,
-            tokenUsage: sessionUsage,
-          };
-          await this.config.onAfterTask?.(cancelResult);
-          return cancelResult;
-        }
+        const cancelResult = await this.finishCancelledTask(step, sessionUsage);
+        if (cancelResult) return cancelResult;
         logger.info('AgentRuntime', `===== Step ${step + 1}/${maxSteps} =====`);
         this.emitTrace('step_started', {
           maxSteps,
@@ -2679,6 +2698,8 @@ ${snapshot.elementsText}
 
         // Lifecycle: onBeforeStep
         await this.config.onBeforeStep?.(step);
+        const afterBeforeStepCancelResult = await this.finishCancelledTask(step, sessionUsage);
+        if (afterBeforeStepCancelResult) return afterBeforeStepCancelResult;
 
         // 1. Walk Fiber tree with security config and dehydrate screen
         const screen = this.getPlatformAdapter().getScreenSnapshot();
@@ -2715,6 +2736,8 @@ ${snapshot.elementsText}
           screenshot,
           step,
         );
+        const afterVerificationCancelResult = await this.finishCancelledTask(step, sessionUsage);
+        if (afterVerificationCancelResult) return afterVerificationCancelResult;
 
         // 5. Assemble structured user prompt after verification updates so
         // any new observations are included in the very next model turn.
@@ -2752,6 +2775,8 @@ ${snapshot.elementsText}
           this.history,
           screenshot,
         );
+        const afterProviderCancelResult = await this.finishCancelledTask(step, sessionUsage);
+        if (afterProviderCancelResult) return afterProviderCancelResult;
         this.emitTrace('provider_response', {
           text: response.text,
           toolCalls: response.toolCalls,
@@ -2891,6 +2916,8 @@ ${snapshot.elementsText}
           }, step);
           output = `❌ Unknown tool: ${toolCall.name}`;
         }
+        const afterToolCancelResult = await this.finishCancelledTask(step, sessionUsage);
+        if (afterToolCancelResult) return afterToolCancelResult;
 
         logger.info('AgentRuntime', `Result: ${output}`);
         this.emitTrace('tool_result', {

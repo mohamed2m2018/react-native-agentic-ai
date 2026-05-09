@@ -1260,10 +1260,11 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     const isWhitelisted = matchesRefList(node, config?.interactiveWhitelist);
     const elementType = getElementType(node);
     const ownInteractionSignature = getInteractionSignature(elementType, props);
+    const elementIsDisabled = isDisabled(node);
     let shouldInclude = false;
     if (hasWhitelist) {
       shouldInclude = isWhitelisted;
-    } else if (elementType && !isDisabled(node)) {
+    } else if (elementType && !elementIsDisabled) {
       if (!isInsideInteractive) {
         shouldInclude = true;
       } else {
@@ -1452,6 +1453,33 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       const elementOutput = `${indent}[${currentIndex}]<${resolvedType}${attrStr}>${textContent} />${childrenText.trim() ? '\n' + childrenText : ''}\n`;
       currentIndex++;
       return elementOutput;
+    }
+
+    // ── Disabled Marker ───────────────────────────────────────
+    // Surface gated interactives (disabled buttons, read-only inputs) so the
+    // LLM knows the control exists but cannot be tapped yet. Without this the
+    // node is silently filtered and the agent hallucinates blockers. Marker
+    // has no [index] — agent is expected to find the gating sibling control
+    // (Switch off, empty TextInput, unselected chip) and set it first, after
+    // which the element becomes indexed on the next screen read. Children
+    // still get traversed so independent inner interactives are not lost.
+    if (
+      elementType &&
+      elementIsDisabled &&
+      !isInsideInteractive &&
+      !shouldInclude
+    ) {
+      const resolvedType = elementType || 'pressable';
+      const derivedProps = buildDerivedElementProps(node, resolvedType, props);
+      const label = chooseBestRuntimeLabel([
+        { text: derivedProps.accessibilityLabel, source: 'accessibility' },
+        { text: extractDeepTextContent(node), source: 'deep-text' },
+        {
+          text: derivedProps.testID || derivedProps.nativeID,
+          source: 'test-id',
+        },
+      ]);
+      return `${indent}[disabled]<${resolvedType}>${label || ''} />${childrenText.trim() ? '\n' + childrenText : ''}\n`;
     }
 
     // Non-interactive structural nodes — collapse view chains to reduce noise

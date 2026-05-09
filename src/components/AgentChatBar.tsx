@@ -1125,6 +1125,21 @@ export function AgentChatBar({
     '| lastResult:', lastResult ? lastResult.message.substring(0, 60) : 'null',
     '| isExpanded:', isExpanded);
 
+  const hasCollapsedStatus =
+    (isThinking || isActing || !!statusText?.trim() || (mode === 'voice' && isAISpeaking)) &&
+    !pendingApprovalQuestion &&
+    !isAndroidNativeWindow;
+  const showCollapsedUnread =
+    !hasCollapsedStatus &&
+    localUnread > 0 &&
+    (chatMessages.length > 0 || visibleVoiceTranscripts.length > 0) &&
+    !isAndroidNativeWindow;
+  const showCollapsedDiscovery =
+    !hasCollapsedStatus &&
+    !showCollapsedUnread &&
+    showDiscoveryTooltip &&
+    !isAndroidNativeWindow;
+
   // ─── FAB (Compressed) ──────────────────────────────────────
 
   if (!isExpanded) {
@@ -1156,7 +1171,7 @@ export function AgentChatBar({
           )}
         </Pressable>
         {/* Discovery tooltip — shows above FAB on first use */}
-        {showDiscoveryTooltip && !isAndroidNativeWindow && (
+        {showCollapsedDiscovery && (
           <DiscoveryTooltip
             language={language}
             primaryColor={theme?.primaryColor}
@@ -1166,7 +1181,7 @@ export function AgentChatBar({
           />
         )}
         {/* Unread popup bubble with message preview */}
-        {localUnread > 0 && (chatMessages.length > 0 || visibleVoiceTranscripts.length > 0) && !isAndroidNativeWindow && (
+        {showCollapsedUnread && (
           <Pressable
             style={[
               styles.unreadPopup,
@@ -1203,7 +1218,7 @@ export function AgentChatBar({
         )}
 
         {/* Thinking / voice speech status bubble */}
-        {(isThinking || isActing || !!statusText?.trim() || (mode === 'voice' && isAISpeaking)) && !pendingApprovalQuestion && !isAndroidNativeWindow && (
+        {hasCollapsedStatus && (
           <Pressable
             style={[
               styles.statusPopup,
