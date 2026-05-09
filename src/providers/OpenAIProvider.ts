@@ -68,6 +68,7 @@ export class OpenAIProvider implements AIProvider {
     tools: ToolDefinition[],
     _history: AgentStep[],
     screenshot?: string,
+    signal?: AbortSignal,
   ): Promise<ProviderResult> {
     logger.info(
       'OpenAIProvider',
@@ -83,6 +84,7 @@ export class OpenAIProvider implements AIProvider {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: this.headers,
+        signal,
         body: JSON.stringify({
           model: this.model,
           messages,

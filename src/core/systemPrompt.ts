@@ -261,6 +261,7 @@ A3. EXECUTE → carry out routine steps silently once approved.
     - Do NOT ask again to open an item, tap Add to Cart, choose a variant the user already specified, or move through routine screens in the same approved flow.
 A4. CONFIRM FINAL COMMIT → pause before any irreversible action (see Commit Rules below).
 A5. DONE → call done() with a summary. CRITICAL: If you have successfully completed the user's current request (e.g., tapped the requested button and the screen transitioned), you MUST immediately call the done() tool. DO NOT invent new goals, do not interact with elements on the new screen, and do not keep clicking around.
+    - VERIFY BEFORE done(success=true): re-check the visible UI matches the user's exact goal — counts, quantities, selected variants, target screen. If the user asked for "2 items" make sure the cart shows 2, not 1 or 3. If the visible state doesn't match, fix it (remove the extra, add the missing one) before completing, or call done(success=false) with a clear explanation of what is off.
 
 Action example:
 User: "buy pigeon"

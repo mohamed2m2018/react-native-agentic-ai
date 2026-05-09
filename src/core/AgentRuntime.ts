@@ -115,6 +115,22 @@ async function runAfterInteractions(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
+function waitForTimeout(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(cleanupAndResolve, ms);
+
+    function cleanupAndResolve() {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', cleanupAndResolve);
+      resolve();
+    }
+
+    signal?.addEventListener('abort', cleanupAndResolve, { once: true });
+  });
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -180,6 +196,8 @@ export class AgentRuntime {
   private verifierProvider: AIProvider | null = null;
   private outcomeVerifier: OutcomeVerifier | null = null;
   private pendingCriticalVerification: PendingVerification | null = null;
+  private preTaskSnapshot: VerificationSnapshot | null = null;
+  private goalVerifyAttempts = 0;
   private staleMapWarned = false;
   private currentScreenContent = '';
   private currentScreenSignature = '';
@@ -188,6 +206,7 @@ export class AgentRuntime {
   private defaultActionSafetyClassifier: ActionSafetyClassifier | null = null;
   private actionSafetyApprovedBoundaries = new Set<string>();
   private lastExplicitActionApproval: ExplicitActionApproval | null = null;
+  private taskAbortController: AbortController | null = null;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -501,12 +520,15 @@ export class AgentRuntime {
     );
 
     this.pendingCriticalVerification.followupSteps += 1;
-    const result = await verifier.verify({
-      goal: this.pendingCriticalVerification.goal,
-      action: this.pendingCriticalVerification.action,
-      preAction: this.pendingCriticalVerification.preAction,
-      postAction,
-    });
+    const result = await verifier.verify(
+      {
+        goal: this.pendingCriticalVerification.goal,
+        action: this.pendingCriticalVerification.action,
+        preAction: this.pendingCriticalVerification.preAction,
+        postAction,
+      },
+      this.taskAbortController?.signal,
+    );
 
     this.emitTrace('critical_action_verified', {
       action: this.pendingCriticalVerification.action.toolName,
@@ -562,6 +584,106 @@ export class AgentRuntime {
     this.observations.push(
       `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" is still unverified. ${result.evidence}${ageNote} Before calling done(success=true), keep checking for success or error evidence on the current screen.`
     );
+  }
+
+  private isTaskCompletionVerifyEnabled(): boolean {
+    if (this.config.verifier?.enabled === false) return false;
+    return this.config.verifier?.verifyTaskCompletion === true;
+  }
+
+  private getMaxGoalChecks(): number {
+    return this.config.verifier?.maxGoalChecks ?? 2;
+  }
+
+  /**
+   * Goal-completion verifier. Fires on done(success=true) and compares the
+   * task-start snapshot, the user's goal, and the final UI. Returns true when
+   * the verifier confirms the goal is satisfied (or we have given up after
+   * maxGoalChecks attempts) and the runtime should let done() complete.
+   * Returns false when done() must be blocked: an observation has been pushed
+   * and the loop should continue so the agent can recover.
+   */
+  private async runGoalCompletionCheck(
+    doneArgs: Record<string, any>,
+    screenName: string,
+    screenContent: string,
+    elements: InteractiveElement[],
+    screenshot: string | undefined,
+    stepIndex: number,
+  ): Promise<boolean> {
+    if (!this.isTaskCompletionVerifyEnabled()) return true;
+    const verifier = this.getVerifier();
+    if (!verifier) return true;
+    if (!this.preTaskSnapshot) return true;
+    if (!this.currentUserGoal) return true;
+
+    const maxGoalChecks = this.getMaxGoalChecks();
+    if (this.goalVerifyAttempts >= maxGoalChecks) {
+      this.emitTrace('task_completion_unverified_giveup', {
+        attempts: this.goalVerifyAttempts,
+        maxGoalChecks,
+      }, stepIndex);
+      return true;
+    }
+
+    const postAction = this.createCurrentVerificationSnapshot(
+      screenName,
+      screenContent,
+      elements,
+      screenshot,
+    );
+    const action = buildVerificationAction(
+      'done',
+      doneArgs,
+      elements,
+      'Complete task',
+    );
+
+    const result = await verifier.verify(
+      {
+        goal: this.currentUserGoal,
+        action,
+        preAction: this.preTaskSnapshot,
+        postAction,
+      },
+      this.taskAbortController?.signal,
+    );
+
+    this.emitTrace('task_completion_verified', {
+      status: result.status,
+      failureKind: result.failureKind,
+      evidence: result.evidence,
+      missingFields: result.missingFields,
+      validationMessages: result.validationMessages,
+      source: result.source,
+      attempts: this.goalVerifyAttempts + 1,
+    }, stepIndex);
+
+    if (result.status === 'success') {
+      return true;
+    }
+
+    this.goalVerifyAttempts += 1;
+    const validationDetails = result.validationMessages?.length
+      ? ` Visible validation messages: ${result.validationMessages.join(' | ')}.`
+      : '';
+    const goalText = this.currentUserGoal.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const guidance = result.status === 'error'
+      ? 'Re-check the screen and either fix the gap (extra/missing items, wrong selection, miscount) or call done(success=false) with a clear explanation.'
+      : 'The goal could not be confirmed from the current UI. Re-check the visible state before completing — verify counts, quantities, and selections match the goal.';
+
+    this.observations.push(
+      `Goal verifier: you called done(success=true) but the final UI does not clearly satisfy the user's goal "${goalText}". ${result.evidence}${validationDetails} ${guidance}`
+    );
+
+    this.emitTrace('task_completion_blocked', {
+      goal: goalText,
+      status: result.status,
+      attempts: this.goalVerifyAttempts,
+      maxGoalChecks,
+    }, stepIndex);
+
+    return false;
   }
 
   private maybeStartCriticalVerification(
@@ -719,7 +841,7 @@ export class AgentRuntime {
       },
       execute: async (args) => {
         const seconds = Math.min(Number(args.seconds) || 2, 5);
-        await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+        await waitForTimeout(seconds * 1000, this.taskAbortController?.signal);
         return `⏳ Waited ${seconds} seconds for the screen to update.`;
       },
     });
@@ -1630,6 +1752,9 @@ export class AgentRuntime {
     let reason: 'unchanged_stable' | 'changed_stable' | 'async_error' | 'timeout' = 'timeout';
 
     while (Date.now() - started < maxMs) {
+      if (this.isCancelRequested) {
+        break;
+      }
       await runAfterInteractions();
       await nextFrame();
 
@@ -2550,11 +2675,15 @@ ${snapshot.elementsText}
 
     this.isRunning = true;
     this.isCancelRequested = false;
+    const taskAbortController = new AbortController();
+    this.taskAbortController = taskAbortController;
     this.history = [];
     this.currentTraceId = generateTraceId();
     this.observations = [];
     this.lastScreenName = '';
     this.pendingCriticalVerification = null;
+    this.preTaskSnapshot = null;
+    this.goalVerifyAttempts = 0;
     this.outcomeVerifier = null;
     this.verifierProvider = null;
     this.actionSafetyCache.clear();
@@ -2621,8 +2750,10 @@ ${snapshot.elementsText}
         const userPrompt = `Current screen: ${screenName}\n\nUser: ${contextualMessage}`;
 
         const response = await this.provider.generateContent(
-          systemPrompt, userPrompt, tools, [], undefined,
+          systemPrompt, userPrompt, tools, [], undefined, taskAbortController.signal,
         );
+        const knowledgeCancelResult = await this.finishCancelledTask(0, sessionUsage);
+        if (knowledgeCancelResult) return knowledgeCancelResult;
 
         // Track token usage
         if (response.tokenUsage) {
@@ -2646,8 +2777,10 @@ ${snapshot.elementsText}
                 // Knowledge retrieved — need a second call with the results
                 const followUp = `Knowledge result:\n${result}\n\nUser question: ${contextualMessage}\n\nAnswer the user based on this knowledge. Call done() with your answer.`;
                 const followUpResponse = await this.provider.generateContent(
-                  systemPrompt, followUp, tools, [], undefined,
+                  systemPrompt, followUp, tools, [], undefined, taskAbortController.signal,
                 );
+                const followUpCancelResult = await this.finishCancelledTask(0, sessionUsage);
+                if (followUpCancelResult) return followUpCancelResult;
                 if (followUpResponse.tokenUsage) {
                   sessionUsage.promptTokens += followUpResponse.tokenUsage.promptTokens;
                   sessionUsage.completionTokens += followUpResponse.tokenUsage.completionTokens;
@@ -2729,6 +2862,17 @@ ${snapshot.elementsText}
         // 4. Capture screenshot for Gemini vision (optional)
         const screenshot = await this.getPlatformAdapter().captureScreenshot();
 
+        // Capture the very first screen snapshot of the task so the
+        // goal-completion verifier can compare task-start vs final UI on done().
+        if (!this.preTaskSnapshot) {
+          this.preTaskSnapshot = this.createCurrentVerificationSnapshot(
+            screenName,
+            screenContent,
+            screen.elements,
+            screenshot,
+          );
+        }
+
         await this.updateCriticalVerification(
           screenName,
           screenContent,
@@ -2774,6 +2918,7 @@ ${snapshot.elementsText}
           tools,
           this.history,
           screenshot,
+          taskAbortController.signal,
         );
         const afterProviderCancelResult = await this.finishCancelledTask(step, sessionUsage);
         if (afterProviderCancelResult) return afterProviderCancelResult;
@@ -2984,6 +3129,21 @@ ${snapshot.elementsText}
             }, step);
             continue;
           }
+          if (toolCall.args.success !== false) {
+            const goalOk = await this.runGoalCompletionCheck(
+              toolCall.args,
+              screenName,
+              screenContent,
+              screen.elements,
+              screenshot,
+              step,
+            );
+            const afterGoalVerifyCancel = await this.finishCancelledTask(step, sessionUsage);
+            if (afterGoalVerifyCancel) return afterGoalVerifyCancel;
+            if (!goalOk) {
+              continue;
+            }
+          }
           const fallbackReplySource =
             toolCall.args.reply || toolCall.args.text || toolCall.args.message || output || reasoning.plan || '';
           let reply = normalizeRichContent(
@@ -3070,7 +3230,7 @@ ${snapshot.elementsText}
         }
 
         // Step delay
-        await new Promise(resolve => setTimeout(resolve, stepDelay));
+        await waitForTimeout(stepDelay, taskAbortController.signal);
       }
 
       // Max steps reached
@@ -3096,6 +3256,9 @@ ${snapshot.elementsText}
       await this.config.onAfterTask?.(result);
       return result;
     } catch (error: any) {
+      const cancelResult = await this.finishCancelledTask(this.history.length, sessionUsage);
+      if (cancelResult) return cancelResult;
+
       logger.error('AgentRuntime', 'Execution error:', error);
       this.emitTrace('task_failed_error', {
         error: error?.message ?? String(error),
@@ -3111,6 +3274,9 @@ ${snapshot.elementsText}
       return result;
     } finally {
       this.isRunning = false;
+      if (this.taskAbortController === taskAbortController) {
+        this.taskAbortController = null;
+      }
       this.currentTraceId = null;
       if (this.config.interceptNativeAlerts) {
         uninstallAlertInterceptor();
@@ -3138,6 +3304,7 @@ ${snapshot.elementsText}
   cancel(): void {
     if (this.isRunning) {
       this.isCancelRequested = true;
+      this.taskAbortController?.abort();
       logger.info('AgentRuntime', 'Cancel requested — will stop after current step completes');
     }
   }
