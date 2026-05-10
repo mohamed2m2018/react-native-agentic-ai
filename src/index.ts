@@ -47,6 +47,12 @@ export { AudioInputService } from './services/AudioInputService';
 export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
 export { createMobileAIKnowledgeRetriever } from './services/MobileAIKnowledgeRetriever';
+export { startOutboundAiCall } from './services/OutboundCallService';
+export type {
+  OutboundCallConfig,
+  OutboundCallRequest,
+  StartOutboundCallResult,
+} from './services/OutboundCallService';
 
 // ─── Analytics ───────────────────────────────────────────────
 export { MobileAI } from './services/telemetry';

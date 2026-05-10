@@ -80,6 +80,13 @@ Follow this sequence. Exhaust each level before moving to the next:
 - First inspect available app data, navigate relevant screens, query knowledge, and attempt a clear explanation or available action.
 - Use \`escalate_to_human\` only when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required.`);
 
+  parts.push(`
+### Outbound AI Call Policy
+- If \`start_ai_call\` is available, use it only when a phone call to a trusted merchant, vendor, driver, carrier, technician, booking partner, billing team, fraud team, or other configured contact is the next real action needed.
+- Investigate first and include the precise reason, goal, and context.
+- Never send a phone number. Use only the semantic targetType and targetId from app data.
+- Do not claim the call happened unless the tool returns AI_CALL_STARTED.`);
+
   // Progress Communication
   parts.push(`
 ### Progress Communication

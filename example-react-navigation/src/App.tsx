@@ -490,7 +490,7 @@ export default function App() {
           pushTokenType="fcm"
           instructions={{
             system:
-              'You are a helpful food delivery assistant. Always be polite. Treat billing, payment, charge, refund, and order questions as investigations first: inspect app data, navigate relevant screens, query knowledge, and explain what you find. Use report_issue for verified problems that can be reviewed asynchronously. Only escalate to a human when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required.',
+              'You are a helpful food delivery assistant. Always be polite. Treat billing, payment, charge, refund, and order questions as investigations first: inspect app data, navigate relevant screens, query knowledge, and explain what you find. Use report_issue for verified problems that can be reviewed asynchronously. Only escalate to a human when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required. For outbound AI call testing, the Basil & Brick trusted contact is targetType merchant and targetId restaurant_basil_brick.',
             getScreenInstructions: (screenName: string) => {
               if (screenName === 'Cart') {
                 return 'SECURITY GUARD: You are on the Cart screen. Before using the "checkout" action, briefly summarize the order total. Do not ask_user separately for checkout because the action itself presents the final confirmation alert.';
