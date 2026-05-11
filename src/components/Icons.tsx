@@ -361,3 +361,44 @@ export function NewChatIcon({ size = 18, color = '#fff' }: { size?: number; colo
     </View>
   );
 }
+
+export function ImageIcon({ size = 18, color = '#fff' }: { size?: number; color?: string }) {
+  const stroke = Math.max(1.5, size * 0.1);
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Frame */}
+      <View style={{
+        width: size * 0.85,
+        height: size * 0.7,
+        borderRadius: size * 0.12,
+        borderWidth: stroke,
+        borderColor: color,
+      }} />
+      {/* Mountain / triangle */}
+      <View style={{
+        position: 'absolute',
+        bottom: size * 0.2,
+        left: size * 0.18,
+        width: 0,
+        height: 0,
+        borderLeftWidth: size * 0.22,
+        borderLeftColor: 'transparent',
+        borderRightWidth: size * 0.22,
+        borderRightColor: 'transparent',
+        borderBottomWidth: size * 0.24,
+        borderBottomColor: color,
+        transform: [{ rotate: '180deg' }],
+      }} />
+      {/* Sun dot */}
+      <View style={{
+        position: 'absolute',
+        top: size * 0.22,
+        right: size * 0.2,
+        width: size * 0.15,
+        height: size * 0.15,
+        borderRadius: size * 0.08,
+        backgroundColor: color,
+      }} />
+    </View>
+  );
+}

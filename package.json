@@ -138,6 +138,7 @@
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": "*",
+    "expo-image-picker": "*",
     "expo-speech-recognition": "*",
     "react": "*",
     "react-native": ">=0.83.0 <0.84.0",
@@ -152,6 +153,9 @@
       "optional": true
     },
     "react-native-screens": {
+      "optional": true
+    },
+    "expo-image-picker": {
       "optional": true
     },
     "expo-speech-recognition": {

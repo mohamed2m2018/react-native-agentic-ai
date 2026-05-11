@@ -7,6 +7,7 @@ import {
   type OutboundCallEvent,
   type OutboundCallTerminal,
 } from '../support/OutboundCallWatcher';
+export { getOutboundCallStatus } from './outboundCallStatus';
 
 export type { OutboundCallEvent, OutboundCallTerminal };
 

@@ -102,6 +102,23 @@ export class EscalationSocket {
     return true; // optimistic — message is queued
   }
 
+  sendImage(base64: string, mimeType: string): boolean {
+    const payload = JSON.stringify({ type: 'user_image', base64, mimeType });
+    if (this.ws?.readyState === 1) {
+      this.ws.send(payload);
+      return true;
+    }
+    if (this.wsUrl) {
+      this.messageQueue.push(payload);
+      const state = this.ws?.readyState;
+      if (state === undefined || state === 3) {
+        this.openConnection();
+      }
+      return true;
+    }
+    return false;
+  }
+
   sendTypingStatus(isTyping: boolean): boolean {
     if (this.ws?.readyState === 1) {
       this.ws.send(JSON.stringify({ type: isTyping ? 'typing_start' : 'typing_stop' }));

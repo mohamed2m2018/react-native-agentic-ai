@@ -1,5 +1,6 @@
 import { ENDPOINTS } from '../config/endpoints';
 import { logger } from '../utils/logger';
+import { getOutboundCallStatus } from '../services/outboundCallStatus';
 
 const LOG_TAG = 'OutboundCallWatcher';
 
@@ -15,7 +16,9 @@ export type OutboundCallEvent =
       transcript?: Array<Record<string, unknown>>;
       billedCostUsd?: number;
       failureReason?: string;
-    };
+      failureCode?: string;
+    }
+  | { type: 'retry_scheduled'; nextAttemptAt: string; attemptNumber: number };
 
 export type OutboundCallTerminal = {
   status: 'completed' | 'failed';
@@ -23,6 +26,7 @@ export type OutboundCallTerminal = {
   outcome?: Record<string, unknown>;
   transcript: Array<{ role: string; text: string; at?: string }>;
   failureReason?: string;
+  failureCode?: string;
   billedCostUsd?: number;
 };
 
@@ -46,6 +50,8 @@ export type OutboundCallWatcherOptions = {
 
 export class OutboundCallWatcher {
   private readonly callId: string;
+  private readonly analyticsKey: string;
+  private readonly proxyUrl?: string;
   private readonly url: string;
   private readonly timeoutMs: number;
   private readonly onEvent?: (event: OutboundCallEvent) => void;
@@ -60,6 +66,8 @@ export class OutboundCallWatcher {
 
   constructor(opts: OutboundCallWatcherOptions) {
     this.callId = opts.callId;
+    this.analyticsKey = opts.analyticsKey;
+    this.proxyUrl = opts.proxyUrl;
     const base = resolveWsBase(opts.proxyUrl);
     const key = encodeURIComponent(opts.analyticsKey);
     this.url = `${base}/ws/outbound-calls/${encodeURIComponent(opts.callId)}/events?key=${key}`;
@@ -95,12 +103,7 @@ export class OutboundCallWatcher {
     };
     this.socket.onclose = () => {
       if (!this.resolved) {
-        this.resolveOnce({
-          status: this.latestStatus === 'completed' ? 'completed' : 'failed',
-          transcript: this.collectedTranscript,
-          failureReason:
-            this.latestStatus === 'completed' ? undefined : 'socket_closed_before_terminal',
-        });
+        this.pollAndResolve();
       }
     };
 
@@ -145,6 +148,9 @@ export class OutboundCallWatcher {
       this.latestStatus = event.status;
       return;
     }
+    if (event.type === 'retry_scheduled') {
+      return;
+    }
     if (event.type === 'completed') {
       this.latestStatus = event.status;
       const transcript =
@@ -161,10 +167,34 @@ export class OutboundCallWatcher {
         outcome: event.outcome,
         transcript,
         failureReason: event.failureReason,
+        failureCode: event.failureCode,
         billedCostUsd: event.billedCostUsd,
       });
       this.close();
     }
+  }
+
+  private async pollAndResolve() {
+    try {
+      const polled = await getOutboundCallStatus({
+        callId: this.callId,
+        analyticsKey: this.analyticsKey,
+        proxyUrl: this.proxyUrl,
+      });
+      if (polled) {
+        this.resolveOnce(polled);
+        return;
+      }
+    } catch {
+      // poll failed, fall through to default
+    }
+    this.resolveOnce({
+      status: this.latestStatus === 'completed' ? 'completed' : 'failed',
+      transcript: this.collectedTranscript,
+      failureReason:
+        this.latestStatus === 'completed' ? undefined : 'socket_closed_before_terminal',
+      failureCode: 'connection_lost',
+    });
   }
 
   private resolveOnce(terminal: OutboundCallTerminal) {

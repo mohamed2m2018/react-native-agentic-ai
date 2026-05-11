@@ -34,4 +34,32 @@ describe('RichContentRenderer', () => {
       { text: '**Orders at the bottom.' },
     ]);
   });
+
+  it('renders image-only message content with a stable image size', () => {
+    const { getByLabelText } = render(
+      <RichContentRenderer
+        content={[
+          {
+            type: 'image',
+            uri: 'data:image/png;base64,abc123',
+            base64: 'abc123',
+            mimeType: 'image/png',
+          },
+        ]}
+        surface="chat"
+        isUser
+      />
+    );
+
+    const image = getByLabelText('User uploaded image');
+    expect(image.props.source).toEqual({
+      uri: 'data:image/png;base64,abc123',
+    });
+    expect(image.props.style).toEqual(
+      expect.objectContaining({
+        width: 220,
+        aspectRatio: 4 / 3,
+      })
+    );
+  });
 });
