@@ -82,8 +82,9 @@ import { EscalationSocket } from '../support/EscalationSocket';
 import { EscalationEventSource } from '../support/EscalationEventSource';
 import { ReportedIssueEventSource } from '../support/ReportedIssueEventSource';
 import { SupportChatModal } from '../support/SupportChatModal';
+import { QuickActionsSheet } from '../support/QuickActionsSheet';
 import { ENDPOINTS } from '../config/endpoints';
-import type { ReportedIssue } from '../support/types';
+import type { ReportedIssue, SupportModeConfig } from '../support/types';
 import * as ConversationService from '../services/ConversationService';
 import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
 import {
@@ -516,6 +517,13 @@ interface AIAgentProps {
   // ── Support Configuration ────────────
 
   /**
+   * Full support mode configuration — greeting, quick actions, escalation, CSAT.
+   * When quickActions.enabled is true, a self-service help screen appears before
+   * the AI chat, allowing users to browse categorized Q&A at zero LLM cost.
+   */
+  supportMode?: SupportModeConfig;
+
+  /**
    * Identity of the logged-in user.
    * If provided, this enforces "one ticket per user" and shows the user profile
    * in the Dashboard (name, email, plan, etc.).
@@ -650,6 +658,7 @@ export function AIAgent({
   analyticsProxyUrl,
   analyticsProxyHeaders,
   proactiveHelp,
+  supportMode,
   userContext,
   pushToken,
   pushTokenType,
@@ -706,6 +715,7 @@ export function AIAgent({
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [supportMessages, setSupportMessages] = useState<AIMessage[]>([]);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [remoteConfiguredActions, setRemoteConfiguredActions] = useState<
     RemoteConfiguredAction[]
   >([]);
@@ -4570,6 +4580,11 @@ export function AIAgent({
                   consentConfig.onDecline?.();
                   logger.info('AIAgent', '❌ AI consent declined by user');
                 }}
+                onQuickActionsPress={
+                  supportMode?.quickActions?.enabled
+                    ? () => setShowQuickActions(true)
+                    : undefined
+                }
               />
             ) : (
               <ProactiveHint
@@ -4691,6 +4706,11 @@ export function AIAgent({
                     consentConfig.onDecline?.();
                     logger.info('AIAgent', '❌ AI consent declined by user');
                   }}
+                  onQuickActionsPress={
+                    supportMode?.quickActions?.enabled
+                      ? () => setShowQuickActions(true)
+                      : undefined
+                  }
                 />
               </ProactiveHint>
             )}
@@ -4703,6 +4723,34 @@ export function AIAgent({
           statusText={overlayStatusText}
           onCancel={handleCancel}
         />
+
+        {/* Quick Actions self-service sheet */}
+        {supportMode?.quickActions?.enabled && (
+          <QuickActionsSheet
+            visible={showQuickActions}
+            config={supportMode.quickActions}
+            currentScreen={getResolvedScreenName()}
+            onClose={() => setShowQuickActions(false)}
+            onChatWithAI={(context) => {
+              setShowQuickActions(false);
+              if (context?.topicId) {
+                const topic = supportMode.quickActions!.topics.find(
+                  (t) => t.id === context.topicId
+                );
+                const prefill = topic
+                  ? `I was browsing help topic "${topic.label}"${
+                      context.articleQuestion
+                        ? ` — specifically "${context.articleQuestion}"`
+                        : ''
+                    }. I need more help.`
+                  : undefined;
+                if (prefill) {
+                  handleSend(prefill);
+                }
+              }
+            }}
+          />
+        )}
 
         {Platform.OS !== 'android' && (
           <>

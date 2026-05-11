@@ -15,6 +15,9 @@ export type {
   ReportedIssue,
   ReportedIssueCustomerStatus,
   ReportedIssueStatusUpdate,
+  QuickActionsConfig,
+  HelpTopic,
+  HelpArticle,
 } from './types';
 export type { SupportStyle } from './supportStyle';
 
@@ -31,3 +34,5 @@ export { EscalationEventSource } from './EscalationEventSource';
 
 // UI Components
 export { CSATSurvey } from './CSATSurvey';
+export { QuickActionsSheet } from './QuickActionsSheet';
+export { HelpArticleView } from './HelpArticleView';

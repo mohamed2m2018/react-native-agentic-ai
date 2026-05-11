@@ -121,6 +121,8 @@ export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
 // EscalationSocket and provider='mobileai' require api.mobileai.dev
 export {
   CSATSurvey,
+  QuickActionsSheet,
+  HelpArticleView,
   buildSupportPrompt,
   createEscalateTool,
   EscalationSocket,
@@ -139,5 +141,8 @@ export type {
   ReportedIssue,
   ReportedIssueCustomerStatus,
   ReportedIssueStatusUpdate,
+  QuickActionsConfig,
+  HelpTopic,
+  HelpArticle,
 } from './support';
 export type { SupportStyle } from './support';

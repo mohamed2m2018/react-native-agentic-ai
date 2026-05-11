@@ -133,6 +133,8 @@ interface AgentChatBarProps {
   consentConfig?: AIConsentConfig;
   onConsentApprove?: () => void | Promise<void>;
   onConsentDecline?: () => void;
+  /** When set, FAB tap opens quick actions sheet instead of expanding chat */
+  onQuickActionsPress?: () => void;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -638,6 +640,7 @@ export function AgentChatBar({
   consentConfig,
   onConsentApprove,
   onConsentDecline,
+  onQuickActionsPress,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [pendingImages, setPendingImages] = useState<Array<UserImage & { uri: string }>>([]);
@@ -1259,7 +1262,11 @@ export function AgentChatBar({
             onTooltipDismiss?.();
             setLocalUnread(0);
             autoCollapsedForThinkingRef.current = false;
-            setIsExpanded(true);
+            if (onQuickActionsPress) {
+              onQuickActionsPress();
+            } else {
+              setIsExpanded(true);
+            }
           }}
           accessibilityLabel={displayUnread > 0 ? `Open AI Agent Chat - ${displayUnread} unread messages` : 'Open AI Agent Chat'}
         >
