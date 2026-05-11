@@ -1498,11 +1498,12 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (isImageNode) {
       const context = getNearestCustomComponentName(node);
       const alt = props.alt || props.accessibilityLabel || '';
-      // Emit the full URI so Gemini can use vision to analyze the image
-      const src =
+      const rawSrc =
         typeof props.source === 'object' && props.source?.uri
           ? props.source.uri
           : '';
+      // Strip base64 data URIs — they bloat the text prompt by megabytes
+      const src = rawSrc.startsWith('data:') ? '[inline-image]' : rawSrc;
       const attrs = [
         context ? `in="${context}"` : '',
         alt ? `alt="${alt}"` : '',

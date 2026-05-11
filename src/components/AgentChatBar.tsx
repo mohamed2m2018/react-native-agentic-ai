@@ -19,7 +19,8 @@ import {
   useWindowDimensions,
   Linking,
 } from 'react-native';
-import type { ExecutionResult, AgentMode, ChatBarTheme, AIMessage, ConversationSummary, AIProviderName } from '../core/types';
+import type { ExecutionResult, AgentMode, ChatBarTheme, AIMessage, ConversationSummary, AIProviderName, UserImage } from '../core/types';
+import { Image } from 'react-native';
 import {
   MicIcon,
   SpeakerIcon,
@@ -30,6 +31,7 @@ import {
   HistoryIcon,
   NewChatIcon,
   CloseIcon,
+  ImageIcon,
 } from './Icons';
 import type { SupportTicket } from '../support/types';
 import { logger } from '../utils/logger';
@@ -47,7 +49,7 @@ type VoiceTranscript = {
 // ─── Props ─────────────────────────────────────────────────────
 
 interface AgentChatBarProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, images?: UserImage[]) => void;
   onCancel?: () => void;
   isThinking: boolean;
   isActing?: boolean;
@@ -245,10 +247,16 @@ function AudioControlButton({
  */
 let SpeechModule: any = null;
 try {
-  // Static require — Metro needs a literal string for bundling.
   SpeechModule = require('expo-speech-recognition');
 } catch {
   // Not installed — dictation button won't appear
+}
+
+let ImagePickerModule: any = null;
+try {
+  ImagePickerModule = require('expo-image-picker');
+} catch {
+  // Not installed — image picker button won't appear
 }
 
 function DictationButton({
@@ -330,6 +338,51 @@ function DictationButton({
 
 // ─── Text Input Row ────────────────────────────────────────────
 
+function ImagePickerButton({
+  onImagePicked,
+  disabled,
+}: {
+  onImagePicked: (image: UserImage & { uri: string }) => void;
+  disabled: boolean;
+}) {
+  if (!ImagePickerModule) return null;
+
+  const pickImage = async () => {
+    try {
+      const result = await ImagePickerModule.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        base64: true,
+        quality: 0.3,
+        allowsMultipleSelection: false,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      if (!asset.base64) return;
+      onImagePicked({
+        uri: asset.uri,
+        base64: asset.base64,
+        mimeType: asset.mimeType || 'image/jpeg',
+      });
+    } catch {
+      // Permission denied or picker error
+    }
+  };
+
+  return (
+    <Pressable
+      style={[styles.imagePickerButton, disabled && styles.sendButtonDisabled]}
+      onPress={pickImage}
+      disabled={disabled}
+      accessibilityLabel="Attach image"
+      hitSlop={8}
+    >
+      <ImageIcon size={18} color="#fff" />
+    </Pressable>
+  );
+}
+
 function TextInputRow({
   text,
   setText,
@@ -339,6 +392,9 @@ function TextInputRow({
   isArabic,
   theme,
   compact = false,
+  pendingImages,
+  onImagePicked,
+  onRemoveImage,
 }: {
   text: string;
   setText: (t: string) => void;
@@ -348,64 +404,101 @@ function TextInputRow({
   isArabic: boolean;
   theme?: ChatBarTheme;
   compact?: boolean;
+  pendingImages: Array<UserImage & { uri: string }>;
+  onImagePicked: (image: UserImage & { uri: string }) => void;
+  onRemoveImage: (index: number) => void;
 }) {
   const inputRef = useRef<any>(null);
 
+  const handleImagePicked = (image: UserImage & { uri: string }) => {
+    onImagePicked(image);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus?.();
+    });
+  };
+
   const handleSendWithClear = () => {
     onSend();
-    // Imperatively clear the native TextInput — controlled `value=''` can be
-    // ignored by the iOS native layer when editable flips to false in the same
-    // render batch.
     inputRef.current?.clear();
   };
 
   const handlePrimaryAction = () => {
-    if (isThinking) {
+    if (isThinking && !pendingImages.length) {
       onCancel?.();
       return;
     }
-    if (!text.trim()) return;
+    if (!text.trim() && pendingImages.length === 0) return;
     handleSendWithClear();
   };
 
+  const canSend = isThinking || text.trim().length > 0 || pendingImages.length > 0;
+
   return (
-    <View style={styles.inputRow}>
-      <TextInput
-        ref={inputRef}
-        style={[
-          styles.input,
-          compact && styles.inputCompact,
-          isArabic && styles.inputRTL,
-          theme?.inputBackgroundColor ? { backgroundColor: theme.inputBackgroundColor } : undefined,
-          theme?.textColor ? { color: theme.textColor } : undefined,
-        ]}
-        placeholder={isArabic ? 'اكتب طلبك...' : 'Ask AI...'}
-        placeholderTextColor={theme?.textColor ? `${theme.textColor}66` : '#999'}
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={handleSendWithClear}
-        returnKeyType="default"
-        blurOnSubmit={false}
-        editable={!isThinking}
-        multiline={true}
-      />
-      <DictationButton
-        language={isArabic ? 'ar' : 'en'}
-        onTranscript={(t: string) => setText(t)}
-        disabled={isThinking}
-      />
-      <Pressable
-        style={[
-          styles.sendButton,
-          isThinking && styles.sendButtonDisabled,
-          theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
-        ]}
-        onPress={handlePrimaryAction}
-        disabled={!isThinking && !text.trim()}
-        accessibilityLabel={isThinking ? 'Stop AI Agent request' : 'Send request to AI Agent'}
-      >
-        {isThinking ? <StopIcon size={18} color={theme?.textColor || '#fff'} /> : <SendArrowIcon size={18} color={theme?.textColor || '#fff'} />}
-      </Pressable>
+    <View>
+      {pendingImages.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.imagePreviewRow}
+        >
+          {pendingImages.map((img, index) => (
+            <View key={`pending-img-${index}`} style={styles.imagePreviewThumb}>
+              <Image
+                source={{ uri: img.uri }}
+                style={styles.imagePreviewImage}
+                resizeMode="cover"
+              />
+              <Pressable
+                style={styles.imagePreviewRemove}
+                onPress={() => onRemoveImage(index)}
+                hitSlop={6}
+                accessibilityLabel="Remove image"
+              >
+                <CloseIcon size={10} color="#fff" />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+      <View style={styles.inputRow}>
+        <ImagePickerButton onImagePicked={handleImagePicked} disabled={isThinking} />
+        <TextInput
+          ref={inputRef}
+          style={[
+            styles.input,
+            compact && styles.inputCompact,
+            isArabic && styles.inputRTL,
+            theme?.inputBackgroundColor ? { backgroundColor: theme.inputBackgroundColor } : undefined,
+            theme?.textColor ? { color: theme.textColor } : undefined,
+          ]}
+          placeholder={isArabic ? 'اكتب طلبك...' : 'Ask AI...'}
+          placeholderTextColor={theme?.textColor ? `${theme.textColor}66` : '#999'}
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={handleSendWithClear}
+          returnKeyType="default"
+          blurOnSubmit={false}
+          editable={!isThinking}
+          multiline={true}
+        />
+        <DictationButton
+          language={isArabic ? 'ar' : 'en'}
+          onTranscript={(t: string) => setText(t)}
+          disabled={isThinking}
+        />
+        <Pressable
+          style={[
+            styles.sendButton,
+            !canSend && styles.sendButtonDisabled,
+            theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
+          ]}
+          onPress={handlePrimaryAction}
+          disabled={!canSend}
+          accessibilityLabel={isThinking ? 'Stop AI Agent request' : 'Send request to AI Agent'}
+        >
+          {isThinking ? <StopIcon size={18} color={theme?.textColor || '#fff'} /> : <SendArrowIcon size={18} color={theme?.textColor || '#fff'} />}
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -547,6 +640,7 @@ export function AgentChatBar({
   onConsentDecline,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
+  const [pendingImages, setPendingImages] = useState<Array<UserImage & { uri: string }>>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [localUnread, setLocalUnread] = useState(0);
   const [fabX, setFabX] = useState(10);
@@ -609,9 +703,11 @@ export function AgentChatBar({
               ? 240
               : consentVisible
                 ? 320
-              : pendingApprovalQuestion
-                ? 220
-                : 164;
+                : pendingApprovalQuestion
+                  ? 220
+                  : pendingImages.length > 0
+                    ? 220
+                  : 164;
 
       const maxExpandedHeight = getExpandedMaxHeight();
       const naturalHeight = measuredPanelHeight > 0 ? measuredPanelHeight : minExpandedHeight;
@@ -619,7 +715,7 @@ export function AgentChatBar({
 
       return Math.max(effectiveMinHeight, Math.min(naturalHeight, maxExpandedHeight));
     },
-    [consentVisible, getExpandedMaxHeight, mode, pendingApprovalQuestion, showHistory]
+    [consentVisible, getExpandedMaxHeight, mode, pendingApprovalQuestion, pendingImages.length, showHistory]
   );
 
   const getWindowSize = useCallback((
@@ -858,6 +954,7 @@ export function AgentChatBar({
   const expandedContentMinHeight = getExpandedWindowHeight(0);
   const hasKeyboardDockContent =
     chatMessages.length > 0 ||
+    pendingImages.length > 0 ||
     isThinking ||
     Boolean(pendingApprovalQuestion) ||
     consentVisible;
@@ -1111,10 +1208,15 @@ export function AgentChatBar({
   const jsDragHandlers = isAndroidNativeWindow ? undefined : panResponder.panHandlers;
 
   const handleSend = () => {
-    if (text.trim() && !isThinking) {
-      onSend(text.trim());
-      setText('');
-    }
+    const hasContent = text.trim() || pendingImages.length > 0;
+    if (!hasContent) return;
+    if (isThinking && !pendingImages.length) return;
+    const images = pendingImages.length > 0
+      ? pendingImages.map(({ base64, mimeType }) => ({ base64, mimeType }))
+      : undefined;
+    onSend(text.trim() || '[Image]', images);
+    setText('');
+    setPendingImages([]);
   };
 
   // ─── HEAVY DEBUG LOGGING ──────────────────────────────────────
@@ -1600,6 +1702,9 @@ export function AgentChatBar({
                   isArabic={isArabic}
                   theme={theme}
                   compact={keyboardDockHeight > 0}
+                  pendingImages={pendingImages}
+                  onImagePicked={(img) => setPendingImages((prev) => [...prev, img])}
+                  onRemoveImage={(idx) => setPendingImages((prev) => prev.filter((_, i) => i !== idx))}
                 />
               )}
             </>
@@ -2012,6 +2117,41 @@ const styles = StyleSheet.create({
   sendButtonText: {
     fontSize: 18,
   },
+  imagePickerButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  },
+  imagePreviewRow: {
+    flexDirection: 'row' as const,
+    marginBottom: 8,
+    maxHeight: 56,
+  },
+  imagePreviewThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    marginRight: 6,
+    overflow: 'hidden' as const,
+  },
+  imagePreviewImage: {
+    width: 48,
+    height: 48,
+  },
+  imagePreviewRemove: {
+    position: 'absolute' as const,
+    top: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
   dictationButton: {
     width: 44,
     height: 44,
@@ -2022,7 +2162,6 @@ const styles = StyleSheet.create({
   },
   dictationButtonActive: {
     backgroundColor: 'rgba(255, 59, 48, 0.3)',
-
   },
   ticketList: {
     maxHeight: 260,

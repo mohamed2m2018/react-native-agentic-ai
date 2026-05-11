@@ -95,9 +95,11 @@ import type { OutboundCallConfig } from '../services/OutboundCallService';
 import { formatActionToolResult } from '../utils/actionResult';
 import {
   createAIMessage,
+  createImageNode,
   normalizeExecutionResult,
   normalizeRichContent,
 } from '../core/richContent';
+import type { UserImage } from '../core/types';
 import { RichUIProvider } from './rich-content/RichUIContext';
 import type { BlockActionHandler } from '../core/ActionBridge';
 import { ActionBridgeProvider } from '../core/ActionBridge';
@@ -673,10 +675,12 @@ export function AIAgent({
   const [showConsentDialog, setShowConsentDialog] = useState(false);
   const pendingConsentSendRef = useRef<{
     message: string;
+    images?: UserImage[];
     options?: { onResult?: (result: ExecutionResult) => void };
   } | null>(null);
   const pendingFollowUpAfterApprovalRef = useRef<{
     message: string;
+    images?: UserImage[];
     options?: { onResult?: (result: ExecutionResult) => void };
   } | null>(null);
 
@@ -1742,6 +1746,7 @@ export function AIAgent({
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.previewText })),
       userContext: (userContext as Record<string, unknown> | undefined) ?? {},
+      onStatusUpdate: setStatusText,
     });
   }, [analyticsKey, customTools, getResolvedScreenName, messages, outboundCalls, userContext]);
 
@@ -3667,9 +3672,25 @@ export function AIAgent({
   const handleSend = useCallback(
     async (
       message: string,
-      options?: { onResult?: (result: ExecutionResult) => void }
+      imagesOrOptions?: UserImage[] | { onResult?: (result: ExecutionResult) => void },
+      maybeOptions?: { onResult?: (result: ExecutionResult) => void },
     ) => {
-      if (!message.trim() || isThinking) return;
+      const images = Array.isArray(imagesOrOptions) ? imagesOrOptions : undefined;
+      const options = Array.isArray(imagesOrOptions) ? maybeOptions : imagesOrOptions;
+      if (!message.trim() && (!images || images.length === 0)) return;
+
+      // When the user sends images while the agent is mid-task (e.g. initial
+      // greeting), cancel the running execution so we can start a fresh one
+      // that includes the images as inlineData.
+      if (isThinking && images?.length) {
+        logger.info('AIAgent', 'User sent images while agent thinking — cancelling current task to start fresh with images');
+        const targetRuntime = activeRuntimeRef.current ?? runtime;
+        await targetRuntime.cancelAndWait();
+        setIsThinking(false);
+        setStatusText('');
+      } else if (isThinking) {
+        return;
+      }
 
       // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
       // If consent is required but not yet granted, show the consent dialog
@@ -3680,6 +3701,7 @@ export function AIAgent({
       if (consentGateActive && !isHumanAgentChat) {
         pendingConsentSendRef.current = {
           message: message.trim(),
+          images,
           options,
         };
         setShowConsentDialog(true);
@@ -3704,14 +3726,26 @@ export function AIAgent({
           return;
         }
 
+        if (images?.length) {
+          for (const img of images) {
+            supportSocket.sendImage(img.base64, img.mimeType);
+          }
+        }
         if (supportSocket.sendText(message)) {
+          const contentNodes: import('../core/types').AIRichNode[] = [];
+          if (images?.length) {
+            for (const img of images) {
+              contentNodes.push(createImageNode(`data:${img.mimeType};base64,${img.base64}`, img.mimeType, img.base64, `img-${Date.now()}-${Math.random()}`));
+            }
+          }
+          contentNodes.push({ type: 'text', content: message.trim(), id: `text-${Date.now()}` });
           setSupportMessages((prev) => [
             ...prev,
             createAIMessage({
               id: `user-${Date.now()}`,
               role: 'user',
-              content: message.trim(),
-              previewText: message.trim(),
+              content: contentNodes,
+              previewText: message.trim() || '[Image]',
               timestamp: Date.now(),
             }),
           ]);
@@ -3732,20 +3766,30 @@ export function AIAgent({
         return;
       }
 
-      // Append user message to AI thread
+      // Append user message to AI thread (with image nodes if present)
+      const userContentNodes: import('../core/types').AIRichNode[] = [];
+      if (images?.length) {
+        for (const img of images) {
+          userContentNodes.push(createImageNode(`data:${img.mimeType};base64,${img.base64}`, img.mimeType, img.base64, `img-${Date.now()}-${Math.random()}`));
+        }
+      }
+      userContentNodes.push({ type: 'text', content: message.trim(), id: `text-${Date.now()}` });
       setMessages((prev) => [
         ...prev,
         createAIMessage({
           id: Date.now().toString() + Math.random(),
           role: 'user',
-          content: message.trim(),
-          previewText: message.trim(),
+          content: userContentNodes,
+          previewText: message.trim() || '[Image]',
           timestamp: Date.now(),
         }),
       ]);
 
-      // If there's a pending ask_user, resolve it instead of starting a new execution
-      if (askUserResolverRef.current) {
+      // If there's a pending ask_user, resolve it instead of starting a new execution.
+      // EXCEPTION: when the user attaches images, skip the resolver and start a fresh
+      // execution so the images reach the provider as inlineData (the resolver only
+      // passes plain text back to the running agent loop).
+      if (askUserResolverRef.current && !images?.length) {
         if (pendingAskUserKindRef.current === 'approval') {
           const resolver = askUserResolverRef.current;
           askUserResolverRef.current = null;
@@ -3785,6 +3829,20 @@ export function AIAgent({
         });
         resolver(message);
         return;
+      }
+      // When images are present during a pending ask_user, resolve the
+      // promise (unblocking the execution loop), cancel+wait for it to
+      // finish, then fall through to start a fresh execution with images.
+      if (askUserResolverRef.current && images?.length) {
+        logger.info('AIAgent', 'Bypassing ask_user resolver — user attached images, starting fresh execution');
+        const resolver = askUserResolverRef.current;
+        askUserResolverRef.current = null;
+        pendingAskUserKindRef.current = null;
+        pendingAppApprovalRef.current = false;
+        setPendingApprovalQuestion(null);
+        resolver('__CANCELLED__');
+        const targetRuntime = activeRuntimeRef.current ?? runtime;
+        await targetRuntime.cancelAndWait();
       }
 
       // Guard: if we're mid-approval flow (waiting for button tap) but no resolver exists yet
@@ -3839,7 +3897,8 @@ export function AIAgent({
           messages.map((entry) => ({
             role: entry.role,
             content: entry.previewText,
-          }))
+          })),
+          images,
         );
         let normalizedResult = normalizeExecutionResult(result);
 
@@ -4009,7 +4068,7 @@ export function AIAgent({
     if (!pending) return;
 
     pendingConsentSendRef.current = null;
-    void handleSend(pending.message, pending.options);
+    void handleSend(pending.message, pending.images, pending.options);
   }, [consentGateActive, handleSend]);
 
   useEffect(() => {
@@ -4018,7 +4077,7 @@ export function AIAgent({
     if (!pending) return;
 
     pendingFollowUpAfterApprovalRef.current = null;
-    void handleSend(pending.message, pending.options);
+    void handleSend(pending.message, pending.images, pending.options);
   }, [isThinking, handleSend]);
 
   // ─── Context value (for useAI bridge) ─────────────────────────

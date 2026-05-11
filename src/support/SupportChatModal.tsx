@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
+  Image,
   Modal,
   View,
   Text,
@@ -17,9 +18,9 @@ import {
   StatusBar,
   Keyboard,
 } from 'react-native';
-import type { AIMessage } from '../core/types';
+import type { AIMessage, UserImage } from '../core/types';
 import { createAIMessage } from '../core/richContent';
-import { CloseIcon, SendArrowIcon, LoadingDots } from '../components/Icons';
+import { CloseIcon, SendArrowIcon, LoadingDots, ImageIcon } from '../components/Icons';
 import { RichContentRenderer } from '../components/rich-content/RichContentRenderer';
 
 // ─── Props ─────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ import { RichContentRenderer } from '../components/rich-content/RichContentRende
 interface SupportChatModalProps {
   visible: boolean;
   messages: AIMessage[];
-  onSend: (message: string) => void;
+  onSend: (message: string, images?: UserImage[]) => void;
   onClose: () => void;
   isAgentTyping?: boolean;
   isThinking?: boolean;
@@ -77,6 +78,13 @@ function AgentAvatar() {
 
 // ─── Main Component ────────────────────────────────────────────
 
+let ImagePickerModule: any = null;
+try {
+  ImagePickerModule = require('expo-image-picker');
+} catch {
+  // Not installed
+}
+
 const CLOSED_STATUSES = ['closed', 'resolved'];
 
 export function SupportChatModal({
@@ -91,6 +99,7 @@ export function SupportChatModal({
 }: SupportChatModalProps) {
   const isClosed = !!ticketStatus && CLOSED_STATUSES.includes(ticketStatus);
   const [text, setText] = useState('');
+  const [pendingImages, setPendingImages] = useState<Array<UserImage & { uri: string }>>([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const seededIntroMessageRef = useRef<AIMessage>(
     createAIMessage({
@@ -103,6 +112,8 @@ export function SupportChatModal({
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scrollRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inputRef = useRef<any>(null);
   const renderedMessages = messages.length > 0 ? messages : [seededIntroMessageRef.current];
 
   // Scroll to bottom when new messages arrive or typing indicator changes
@@ -135,10 +146,38 @@ export function SupportChatModal({
     };
   }, []);
 
+  const pickImage = async () => {
+    if (!ImagePickerModule) return;
+    try {
+      const result = await ImagePickerModule.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        base64: true,
+        quality: 0.3,
+        maxWidth: 1024,
+        maxHeight: 1024,
+      });
+      if (result.canceled || !result.assets?.[0]?.base64) return;
+      const asset = result.assets[0];
+      setPendingImages((prev) => [...prev, {
+        uri: asset.uri,
+        base64: asset.base64!,
+        mimeType: asset.mimeType || 'image/jpeg',
+      }]);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus?.();
+      });
+    } catch { /* permission denied or picker error */ }
+  };
+
   const handleSend = () => {
-    if (!text.trim() || isThinking) return;
-    onSend(text.trim());
+    const hasContent = text.trim() || pendingImages.length > 0;
+    if (!hasContent || isThinking) return;
+    const images = pendingImages.length > 0
+      ? pendingImages.map(({ base64, mimeType }) => ({ base64, mimeType }))
+      : undefined;
+    onSend(text.trim() || '[Image]', images);
     setText('');
+    setPendingImages([]);
   };
 
   return (
@@ -245,24 +284,48 @@ export function SupportChatModal({
             </Text>
           </View>
         ) : (
-          <View style={s.inputRow}>
-            <TextInput
-              style={s.input}
-              placeholder="Type a message..."
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              value={text}
-              onChangeText={setText}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              editable={!isThinking}
-            />
-            <Pressable
-              style={[s.sendBtn, text.trim() && !isThinking ? s.sendBtnActive : s.sendBtnInactive]}
-              onPress={handleSend}
-              disabled={!text.trim() || isThinking}
-            >
-              <SendArrowIcon size={18} color={text.trim() && !isThinking ? '#fff' : 'rgba(255,255,255,0.3)'} />
-            </Pressable>
+          <View>
+            {pendingImages.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.imagePreviewRow}>
+                {pendingImages.map((img, idx) => (
+                  <View key={`img-${idx}`} style={s.imageThumb}>
+                    <Image source={{ uri: img.uri }} style={s.imageThumbImg} resizeMode="cover" />
+                    <Pressable
+                      style={s.imageThumbRemove}
+                      onPress={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx))}
+                      hitSlop={6}
+                    >
+                      <CloseIcon size={8} color="#fff" />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+            <View style={s.inputRow}>
+              {ImagePickerModule && (
+                <Pressable style={s.imagePickerBtn} onPress={pickImage} disabled={isThinking} hitSlop={8}>
+                  <ImageIcon size={18} color={isThinking ? 'rgba(255,255,255,0.3)' : '#fff'} />
+                </Pressable>
+              )}
+              <TextInput
+                ref={inputRef}
+                style={s.input}
+                placeholder="Type a message..."
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                value={text}
+                onChangeText={setText}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+                editable={!isThinking}
+              />
+              <Pressable
+                style={[s.sendBtn, (text.trim() || pendingImages.length > 0) && !isThinking ? s.sendBtnActive : s.sendBtnInactive]}
+                onPress={handleSend}
+                disabled={!text.trim() && pendingImages.length === 0 || isThinking}
+              >
+                <SendArrowIcon size={18} color={(text.trim() || pendingImages.length > 0) && !isThinking ? '#fff' : 'rgba(255,255,255,0.3)'} />
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -561,5 +624,41 @@ const s = StyleSheet.create({
   },
   sendBtnInactive: {
     backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  imagePickerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    maxHeight: 54,
+  },
+  imageThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    marginRight: 6,
+    overflow: 'hidden',
+  },
+  imageThumbImg: {
+    width: 44,
+    height: 44,
+  },
+  imageThumbRemove: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
