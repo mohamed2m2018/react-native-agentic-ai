@@ -45,11 +45,7 @@ export interface DehydratedScreen {
 
 export interface AgentStep {
   stepIndex: number;
-  reflection: {
-    evaluationPreviousGoal: string;
-    memory: string;
-    nextGoal: string;
-  };
+  reflection: AgentReasoning;
   action: {
     name: string;
     input: Record<string, any>;
@@ -206,14 +202,31 @@ export interface ActionDefinition {
 
 // ─── Provider Interface ──────────────────────────────────────
 
+/** Structured reasoning returned per step via the agent_step tool. */
+export interface AgentReasoning {
+  /** Assessment of whether the previous action succeeded or failed. */
+  previousGoalEval: string;
+  /** What to remember for future steps (progress, items found, etc). */
+  memory: string;
+  /** The immediate next goal and why. */
+  plan: string;
+}
+
+/** Result from the AI provider's generateContent call. */
+export interface ProviderResult {
+  /** Extracted action tool call (action_name + params). */
+  toolCalls: Array<{ name: string; args: Record<string, any> }>;
+  /** Structured reasoning from MacroTool (evaluation, memory, next_goal). */
+  reasoning: AgentReasoning;
+  /** Raw text response (if any). */
+  text?: string;
+}
+
 export interface AIProvider {
   generateContent(
     systemPrompt: string,
     userMessage: string,
     tools: ToolDefinition[],
     history: AgentStep[],
-  ): Promise<{
-    toolCalls: Array<{ name: string; args: Record<string, any> }>;
-    text?: string;
-  }>;
+  ): Promise<ProviderResult>;
 }
