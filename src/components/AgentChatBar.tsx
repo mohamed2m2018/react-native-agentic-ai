@@ -20,9 +20,10 @@ interface AgentChatBarProps {
   isThinking: boolean;
   lastResult: ExecutionResult | null;
   language: 'en' | 'ar';
+  onDismiss?: () => void;
 }
 
-export function AgentChatBar({ onSend, isThinking, lastResult, language }: AgentChatBarProps) {
+export function AgentChatBar({ onSend, isThinking, lastResult, language, onDismiss }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const isArabic = language === 'ar';
 
@@ -42,6 +43,11 @@ export function AgentChatBar({ onSend, isThinking, lastResult, language }: Agent
       {lastResult && (
         <View style={[styles.resultBubble, lastResult.success ? styles.resultSuccess : styles.resultError]}>
           <Text style={styles.resultText}>{lastResult.message}</Text>
+          {onDismiss && (
+            <Pressable style={styles.dismissButton} onPress={onDismiss} hitSlop={8}>
+              <Text style={styles.dismissText}>✕</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -89,6 +95,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   resultSuccess: {
     backgroundColor: 'rgba(40, 167, 69, 0.2)',
@@ -100,6 +108,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     lineHeight: 20,
+    flex: 1,
+  },
+  dismissButton: {
+    marginLeft: 8,
+    padding: 2,
+  },
+  dismissText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   inputRow: {
     flexDirection: 'row',

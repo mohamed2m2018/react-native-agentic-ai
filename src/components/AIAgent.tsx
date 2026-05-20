@@ -75,6 +75,14 @@ interface AIAgentProps {
   stepDelay?: number;
   /** WebSocket URL to companion MCP server bridge (e.g., ws://localhost:3101) */
   mcpServerUrl?: string;
+  /** Expo Router instance (from useRouter()) */
+  router?: {
+    push: (href: string) => void;
+    replace: (href: string) => void;
+    back: () => void;
+  };
+  /** Expo Router pathname (from usePathname()) */
+  pathname?: string;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -100,11 +108,16 @@ export function AIAgent({
   instructions,
   stepDelay,
   mcpServerUrl,
+  router,
+  pathname,
 }: AIAgentProps) {
   const rootViewRef = useRef<any>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
+
+  // Ref-based resolver for ask_user — stays alive across renders
+  const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
 
   // ─── Create Runtime ──────────────────────────────────────────
 
@@ -124,12 +137,25 @@ export function AIAgent({
     instructions,
     stepDelay,
     mcpServerUrl,
+    router,
+    pathname,
+    onStatusUpdate: setStatusText,
+    // Page-agent pattern: block the agent loop until user responds
+    onAskUser: (question: string) => {
+      return new Promise<string>((resolve) => {
+        askUserResolverRef.current = resolve;
+        // Show question in chat bar, allow user input
+        setLastResult({ success: true, message: `❓ ${question}`, steps: [] });
+        setIsThinking(false);
+        setStatusText('');
+      });
+    },
   }), [
     apiKey, model, language, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
-    mcpServerUrl,
+    mcpServerUrl, router, pathname,
   ]);
 
   const provider = useMemo(() => new GeminiProvider(apiKey, model), [apiKey, model]);
@@ -164,6 +190,19 @@ export function AIAgent({
     if (!message.trim()) return;
 
     logger.info('AIAgent', `User message: "${message}"`);
+
+    // If there's a pending ask_user, resolve it instead of starting a new execution
+    if (askUserResolverRef.current) {
+      const resolver = askUserResolverRef.current;
+      askUserResolverRef.current = null;
+      setIsThinking(true);
+      setStatusText('Processing your answer...');
+      setLastResult(null);
+      resolver(message);
+      return;
+    }
+
+    // Normal execution — new task
     setIsThinking(true);
     setStatusText('Thinking...');
     setLastResult(null);
@@ -209,6 +248,7 @@ export function AIAgent({
           isThinking={isThinking}
           lastResult={lastResult}
           language={language}
+          onDismiss={() => setLastResult(null)}
         />
       )}
     </AgentContext.Provider>

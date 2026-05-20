@@ -129,6 +129,40 @@ export interface AgentConfig {
   /** Delay between steps in ms (page-agent default: 400ms). */
   stepDelay?: number;
 
+  // ─── Status Updates ──────────────────────────────────────────────────────
+
+  /**
+   * Called with a human-readable status string at each step.
+   * Use this to show dynamic loading text (e.g., "Tapping 'Add'...").
+   */
+  onStatusUpdate?: (status: string) => void;
+
+  /**
+   * Callback for when agent needs user input (ask_user tool).
+   * Mirrors page-agent: the agent loop blocks until the user responds.
+   * If not set, ask_user tool will break the loop (legacy behavior).
+   * @example onAskUser: (q) => new Promise(resolve => showPrompt(q, resolve))
+   */
+  onAskUser?: (question: string) => Promise<string>;
+
+  // ─── Expo Router Support ─────────────────────────────────────────────────
+
+  /**
+   * Expo Router instance (from useRouter()).
+   * When provided, the navigate tool uses router.push('/path') instead of navRef.navigate().
+   */
+  router?: {
+    push: (href: string) => void;
+    replace: (href: string) => void;
+    back: () => void;
+  };
+
+  /**
+   * Current pathname from Expo Router (from usePathname()).
+   * Used to determine the current screen when using Expo Router.
+   */
+  pathname?: string;
+
   // ─── MCP Bridge Integration ──────────────────────────────────────────────
 
   /**
