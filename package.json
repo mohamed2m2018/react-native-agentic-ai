@@ -1,7 +1,7 @@
 {
   "name": "@mobileai/react-native",
   "version": "0.1.0",
-  "description": "Autonomous AI agent for React Native — reads your UI via Fiber tree, understands layout context, and interacts with your app. Zero wrappers.",
+  "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
   "types": "./lib/typescript/src/index.d.ts",
@@ -44,17 +44,17 @@
   },
   "keywords": [
     "react-native",
+    "expo",
     "ai",
-    "agent",
-    "agentic",
-    "gemini",
     "llm",
-    "autonomous",
-    "fiber-tree",
-    "page-agent",
-    "mcp",
-    "ios",
-    "android"
+    "agent",
+    "autonomous-agent",
+    "gemini",
+    "openai",
+    "artificial-intelligence",
+    "mobile-ai",
+    "ui-automation",
+    "react native ai agent"
   ],
   "repository": {
     "type": "git",

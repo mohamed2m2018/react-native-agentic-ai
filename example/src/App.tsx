@@ -16,6 +16,7 @@ import DishDetailScreen from './screens/DishDetailScreen';
 import SearchScreen from './screens/SearchScreen';
 import CartScreen from './screens/CartScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import SettingsScreen from './screens/SettingsScreen';
 
 // ─── Navigation Types ───────────────────────────────────────
 
@@ -124,6 +125,16 @@ function MainTabs() {
           ...HEADER_STYLE,
           headerShown: true,
           tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          title: 'Settings',
+          ...HEADER_STYLE,
+          headerShown: true,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" focused={focused} />,
         }}
       />
     </Tab.Navigator>

@@ -1,26 +1,63 @@
-import { useState, useMemo } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, FlatList } from 'react-native';
+import { useState, useMemo, useEffect } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import { useCart } from '../CartContext';
 import { ALL_MENU_ITEMS } from '../menuData';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-// SearchScreen is standalone (in tab), but we navigate to detail via parent
 type Props = NativeStackScreenProps<any>;
+
+const PAGE_SIZE = 10;
+const FAKE_NETWORK_DELAY = 800;
 
 export default function SearchScreen({ navigation }: Props) {
   const [query, setQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [page, setPage] = useState(1);
   const { addToCart } = useCart();
 
-  const results = useMemo(() => {
+  // Reset page and trigger loading when query changes
+  useEffect(() => {
+    if (!query.trim()) {
+      setIsLoading(false);
+      setPage(1);
+      return;
+    }
+
+    setIsLoading(true);
+    setPage(1);
+    
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, FAKE_NETWORK_DELAY);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Handle fake load more
+  const handleLoadMore = () => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setPage(p => p + 1);
+      setIsLoading(false);
+    }, FAKE_NETWORK_DELAY);
+  };
+
+  const allFilteredResults = useMemo(() => {
     if (!query.trim()) return [];
     const q = query.toLowerCase();
     return ALL_MENU_ITEMS.filter(
       item =>
         item.name.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
-        item.category.toLowerCase().includes(q),
+        item.category.toLowerCase().includes(q)
     );
   }, [query]);
+
+  const visibleResults = useMemo(() => {
+    return allFilteredResults.slice(0, page * PAGE_SIZE);
+  }, [allFilteredResults, page]);
+
+  const hasMore = visibleResults.length < allFilteredResults.length;
 
   return (
     <View style={styles.container}>
@@ -31,6 +68,7 @@ export default function SearchScreen({ navigation }: Props) {
         value={query}
         onChangeText={setQuery}
         autoFocus
+        accessibilityLabel="Search input"
       />
 
       {query.trim() === '' ? (
@@ -38,14 +76,20 @@ export default function SearchScreen({ navigation }: Props) {
           <Text style={styles.emptyEmoji}>🔍</Text>
           <Text style={styles.emptyText}>Search across all categories</Text>
         </View>
-      ) : results.length === 0 ? (
+      ) : isLoading && page === 1 ? (
+        <View style={styles.empty}>
+          <ActivityIndicator size="large" color="#1a1a2e" accessibilityLabel="Loading search results" />
+          <Text style={styles.loadingText}>Searching...</Text>
+        </View>
+      ) : visibleResults.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>No results for "{query}"</Text>
         </View>
       ) : (
         <FlatList
-          data={results}
+          data={visibleResults}
           keyExtractor={item => `${item.category}-${item.name}`}
+          contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <Pressable
               style={styles.card}
@@ -55,6 +99,7 @@ export default function SearchScreen({ navigation }: Props) {
                   params: { dish: item },
                 })
               }
+              accessibilityLabel={`View ${item.name}`}
             >
               <Text style={styles.cardEmoji}>{item.emoji || '🍽️'}</Text>
               <View style={styles.cardInfo}>
@@ -65,12 +110,28 @@ export default function SearchScreen({ navigation }: Props) {
               <Pressable
                 style={styles.addButton}
                 onPress={() => addToCart(item.name, item.price, 1)}
+                accessibilityLabel={`Add ${item.name} to cart`}
               >
                 <Text style={styles.addButtonText}>Add</Text>
               </Pressable>
             </Pressable>
           )}
-          contentContainerStyle={styles.list}
+          ListFooterComponent={() => (
+            hasMore ? (
+              <Pressable 
+                style={styles.loadMoreButton} 
+                onPress={handleLoadMore}
+                disabled={isLoading}
+                accessibilityLabel="Load more items"
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#1a1a2e" />
+                ) : (
+                  <Text style={styles.loadMoreText}>Load More</Text>
+                )}
+              </Pressable>
+            ) : null
+          )}
         />
       )}
     </View>
@@ -92,7 +153,8 @@ const styles = StyleSheet.create({
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
   emptyEmoji: { fontSize: 48 },
   emptyText: { fontSize: 16, color: '#6c757d' },
-  list: { padding: 16, gap: 12 },
+  loadingText: { fontSize: 14, color: '#6c757d', marginTop: 12 },
+  list: { padding: 16, gap: 12, paddingBottom: 40 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -117,4 +179,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   addButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  loadMoreButton: {
+    padding: 16,
+    marginVertical: 12,
+    backgroundColor: '#e9ecef',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+  },
+  loadMoreText: {
+    color: '#1a1a2e',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
