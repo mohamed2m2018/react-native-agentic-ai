@@ -1,40 +1,34 @@
 /**
- * GeminiProvider — Gemini API integration with structured action pattern.
+ * GeminiProvider — Gemini API integration via @google/genai SDK.
  *
- * Uses a single forced function call (`agent_step`) that bundles
- * structured reasoning (evaluation, memory, plan) alongside the action.
- * This replaces free-form text + separate tool calls for stability.
+ * Uses the official Google GenAI SDK for:
+ * - generateContent with structured function calling (agent_step)
+ * - inlineData for vision (base64 screenshots)
+ * - System instructions
+ *
+ * Implements the AIProvider interface so it can be swapped
+ * with OpenAIProvider, AnthropicProvider, etc.
  */
 
+import { GoogleGenAI, FunctionCallingConfigMode, Type } from '@google/genai';
 import { logger } from '../utils/logger';
-import type { AIProvider, ToolDefinition, AgentStep, ProviderResult, AgentReasoning } from '../core/types';
+import type { AIProvider, ToolDefinition, AgentStep, ProviderResult, AgentReasoning, TokenUsage } from '../core/types';
 
 // ─── Constants ─────────────────────────────────────────────────
 
 const AGENT_STEP_FN = 'agent_step';
 
-// Reasoning fields that are always present in the agent_step schema
+// Reasoning fields always present in the agent_step schema
 const REASONING_FIELDS = ['previous_goal_eval', 'memory', 'plan'] as const;
-
-// ─── Gemini API Types ──────────────────────────────────────────
-
-interface GeminiContent {
-  role: 'user' | 'model';
-  parts: Array<{
-    text?: string;
-    functionCall?: { name: string; args: any };
-    functionResponse?: { name: string; response: any };
-  }>;
-}
 
 // ─── Provider ──────────────────────────────────────────────────
 
 export class GeminiProvider implements AIProvider {
-  private apiKey: string;
+  private ai: GoogleGenAI;
   private model: string;
 
   constructor(apiKey: string, model: string = 'gemini-2.5-flash') {
-    this.apiKey = apiKey;
+    this.ai = new GoogleGenAI({ apiKey });
     this.model = model;
   }
 
@@ -43,59 +37,56 @@ export class GeminiProvider implements AIProvider {
     userMessage: string,
     tools: ToolDefinition[],
     history: AgentStep[],
+    screenshot?: string,
   ): Promise<ProviderResult> {
 
-    logger.info('GeminiProvider', `Sending request. Model: ${this.model}, Tools: ${tools.length}`);
+    logger.info('GeminiProvider', `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}`);
 
     // Build single agent_step function declaration
     const agentStepDeclaration = this.buildAgentStepDeclaration(tools);
 
-    // Build conversation history with proper function call/response pairs
-    const contents = this.buildContents(userMessage, history);
-
-    // Make API request
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-
-    const body: any = {
-      contents,
-      tools: [{ functionDeclarations: [agentStepDeclaration] }],
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      // Force the model to always call agent_step
-      tool_config: {
-        function_calling_config: {
-          mode: 'ANY',
-          allowed_function_names: [AGENT_STEP_FN],
-        },
-      },
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-      },
-    };
+    // Build contents (user message + optional screenshot)
+    const contents = this.buildContents(userMessage, history, screenshot);
 
     const startTime = Date.now();
 
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const response = await this.ai.models.generateContent({
+        model: this.model,
+        contents,
+        config: {
+          systemInstruction: systemPrompt,
+          tools: [{ functionDeclarations: [agentStepDeclaration] }],
+          toolConfig: {
+            functionCallingConfig: {
+              mode: FunctionCallingConfigMode.ANY,
+              allowedFunctionNames: [AGENT_STEP_FN],
+            },
+          },
+          temperature: 0.2,
+          maxOutputTokens: 2048,
+        },
       });
 
       const elapsed = Date.now() - startTime;
       logger.info('GeminiProvider', `Response received in ${elapsed}ms`);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('GeminiProvider', `API error ${response.status}: ${errorText}`);
-        throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+      // Extract token usage from SDK response
+      const tokenUsage = this.extractTokenUsage(response);
+      if (tokenUsage) {
+        logger.info('GeminiProvider', `Tokens: ${tokenUsage.promptTokens} in / ${tokenUsage.completionTokens} out / $${tokenUsage.estimatedCostUSD.toFixed(6)}`);
       }
 
-      const data = await response.json();
-
-      return this.parseAgentStepResponse(data, tools);
+      const result = this.parseAgentStepResponse(response, tools);
+      result.tokenUsage = tokenUsage;
+      return result;
     } catch (error: any) {
       logger.error('GeminiProvider', 'Request failed:', error.message);
+
+      // Preserve HTTP error format for backward compatibility with tests
+      if (error.status) {
+        throw new Error(`Gemini API error ${error.status}: ${error.message}`);
+      }
       throw error;
     }
   }
@@ -117,7 +108,6 @@ export class GeminiProvider implements AIProvider {
     const actionProperties: Record<string, any> = {};
     for (const tool of tools) {
       for (const [paramName, param] of Object.entries(tool.parameters)) {
-        // Skip if already added (shared field names like 'text', 'index')
         if (actionProperties[paramName]) continue;
         actionProperties[paramName] = {
           type: this.mapParamType(param.type),
@@ -139,28 +129,25 @@ export class GeminiProvider implements AIProvider {
       name: AGENT_STEP_FN,
       description: `Execute one agent step. Choose an action and provide reasoning.\n\nAvailable actions:\n${toolDescriptions}`,
       parameters: {
-        type: 'OBJECT',
+        type: Type.OBJECT,
         properties: {
-          // ── Reasoning fields ──
           previous_goal_eval: {
-            type: 'STRING',
+            type: Type.STRING,
             description: 'One-sentence assessment of your last action. State success, failure, or uncertain. Skip on first step.',
           },
           memory: {
-            type: 'STRING',
+            type: Type.STRING,
             description: 'Key facts to remember for future steps: progress made, items found, counters, field values already collected.',
           },
           plan: {
-            type: 'STRING',
+            type: Type.STRING,
             description: 'Your immediate next goal — what action you will take and why.',
           },
-          // ── Action selection ──
           action_name: {
-            type: 'STRING',
+            type: Type.STRING,
             description: 'Which action to execute.',
             enum: toolNames,
           },
-          // ── Action parameters (flat) ──
           ...actionProperties,
         },
         required: ['plan', 'action_name'],
@@ -170,43 +157,46 @@ export class GeminiProvider implements AIProvider {
 
   private mapParamType(type: string): string {
     switch (type) {
-      case 'number': return 'NUMBER';
-      case 'integer': return 'INTEGER';
-      case 'boolean': return 'BOOLEAN';
+      case 'number': return Type.NUMBER;
+      case 'integer': return Type.INTEGER;
+      case 'boolean': return Type.BOOLEAN;
       case 'string':
-      default: return 'STRING';
+      default: return Type.STRING;
     }
   }
 
   // ─── Build Contents ────────────────────────────────────────
 
   /**
-   * Builds Gemini conversation contents.
-   * 
-   * Each step is a STATELESS single-turn request (matching page-agent's approach):
-   * - System prompt has general instructions
-   * - User message contains full context: task, history, screen state
-   * - Model responds with agent_step function call
-   * 
-   * History is embedded as text in assembleUserPrompt (via <agent_history>),
-   * NOT as functionCall/functionResponse pairs. This avoids Gemini's
-   * conversation format requirements and thought_signature complexity.
+   * Builds contents for the generateContent call.
+   * Single-turn: user message + optional screenshot as inlineData.
    */
-  private buildContents(userMessage: string, _history: AgentStep[]): GeminiContent[] {
-    return [{
-      role: 'user',
-      parts: [{ text: userMessage }],
-    }];
+  private buildContents(userMessage: string, _history: AgentStep[], screenshot?: string): any[] {
+    const parts: any[] = [{ text: userMessage }];
+
+    // Append screenshot as inlineData for Gemini vision
+    if (screenshot) {
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: screenshot,
+        },
+      });
+    }
+
+    return [{ role: 'user', parts }];
   }
 
   // ─── Parse Response ────────────────────────────────────────
 
   /**
-   * Parses the Gemini response expecting a single agent_step function call.
-   * Extracts structured reasoning + action, and determines which tool to execute.
+   * Parses the SDK response expecting a single agent_step function call.
+   * Extracts structured reasoning + action.
    */
-  private parseAgentStepResponse(data: any, tools: ToolDefinition[]): ProviderResult {
-    if (!data.candidates || data.candidates.length === 0) {
+  private parseAgentStepResponse(response: any, tools: ToolDefinition[]): ProviderResult {
+    const candidates = response.candidates || [];
+
+    if (candidates.length === 0) {
       logger.warn('GeminiProvider', 'No candidates in response');
       return {
         toolCalls: [{ name: 'done', args: { text: 'No response generated.', success: false } }],
@@ -215,7 +205,7 @@ export class GeminiProvider implements AIProvider {
       };
     }
 
-    const candidate = data.candidates[0];
+    const candidate = candidates[0];
     const parts = candidate.content?.parts || [];
 
     // Find the function call part
@@ -251,11 +241,10 @@ export class GeminiProvider implements AIProvider {
       };
     }
 
-    // Build action args: everything except reasoning fields and action_name
+    // Build action args: extract only the params that belong to the matched tool
     const actionArgs: Record<string, any> = {};
     const reservedKeys = new Set([...REASONING_FIELDS, 'action_name']);
 
-    // Find the matching tool to know which params belong to it
     const matchedTool = tools.find(t => t.name === actionName);
     if (matchedTool) {
       for (const paramName of Object.keys(matchedTool.parameters)) {
@@ -264,7 +253,6 @@ export class GeminiProvider implements AIProvider {
         }
       }
     } else {
-      // Custom/registered tool — grab all non-reserved fields
       for (const [key, value] of Object.entries(args)) {
         if (!reservedKeys.has(key)) {
           actionArgs[key] = value;
@@ -279,5 +267,33 @@ export class GeminiProvider implements AIProvider {
       reasoning,
       text: textPart?.text,
     };
+  }
+
+  // ─── Token Usage Extraction ─────────────────────────────────
+
+  /**
+   * Extracts token usage from SDK response and calculates estimated cost.
+   *
+   * Pricing (Gemini 2.5 Flash):
+   * - Input:  $0.30 / 1M tokens
+   * - Output: $2.50 / 1M tokens
+   */
+  private extractTokenUsage(response: any): TokenUsage | undefined {
+    const meta = response?.usageMetadata;
+    if (!meta) return undefined;
+
+    const promptTokens = meta.promptTokenCount ?? 0;
+    const completionTokens = meta.candidatesTokenCount ?? 0;
+    const totalTokens = meta.totalTokenCount ?? (promptTokens + completionTokens);
+
+    // Cost estimation based on Gemini 2.5 Flash pricing
+    const INPUT_COST_PER_M = 0.30;
+    const OUTPUT_COST_PER_M = 2.50;
+
+    const estimatedCostUSD =
+      (promptTokens / 1_000_000) * INPUT_COST_PER_M +
+      (completionTokens / 1_000_000) * OUTPUT_COST_PER_M;
+
+    return { promptTokens, completionTokens, totalTokens, estimatedCostUSD };
   }
 }

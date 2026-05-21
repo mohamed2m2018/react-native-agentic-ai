@@ -21,6 +21,7 @@ import type {
   ExecutionResult,
   ToolDefinition,
   ActionDefinition,
+  TokenUsage,
 } from './types';
 
 const DEFAULT_MAX_STEPS = 10;
@@ -185,9 +186,14 @@ export class AgentRuntime {
         }
         try {
           const params = args.params ? (typeof args.params === 'string' ? JSON.parse(args.params) : args.params) : undefined;
-          this.navRef.navigate(args.screen, params);
+          // Case-insensitive screen name matching
+          const availableRoutes = this.getRouteNames();
+          const matchedScreen = availableRoutes.find(
+            r => r.toLowerCase() === args.screen.toLowerCase()
+          ) || args.screen;
+          this.navRef.navigate(matchedScreen, params);
           await new Promise(resolve => setTimeout(resolve, 500));
-          return `✅ Navigated to "${args.screen}"${params ? ` with params: ${JSON.stringify(params)}` : ''}`;
+          return `✅ Navigated to "${matchedScreen}"${params ? ` with params: ${JSON.stringify(params)}` : ''}`;
         } catch (error: any) {
           return `❌ Navigation error: ${error.message}. Available screens: ${this.getRouteNames().join(', ')}`;
         }
@@ -319,6 +325,99 @@ export class AgentRuntime {
     }
   }
 
+  // ─── Screenshot Capture (optional react-native-view-shot) ─────
+
+  /**
+   * Captures the current screen as a base64 JPEG for Gemini vision.
+   * Uses react-native-view-shot as an optional peer dependency.
+   * Returns null if the library is not installed (graceful fallback).
+   */
+  private async captureScreenshot(): Promise<string | undefined> {
+    try {
+      const viewShot = require('react-native-view-shot');
+      const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
+      if (!captureRef || !this.rootRef) return undefined;
+
+      const uri = await captureRef(this.rootRef, {
+        format: 'jpg',
+        quality: 0.4,
+        width: 720,
+        result: 'base64',
+      });
+
+      logger.info('AgentRuntime', `Screenshot captured (${Math.round((uri?.length || 0) / 1024)}KB base64)`);
+      return uri || undefined;
+    } catch (error: any) {
+      // Detect missing dependency vs runtime failure
+      if (error.message?.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND') {
+        logger.warn('AgentRuntime', 'Screenshot requires react-native-view-shot. Install with: npx expo install react-native-view-shot');
+      } else {
+        logger.debug('AgentRuntime', `Screenshot skipped: ${error.message}`);
+      }
+      return undefined;
+    }
+  }
+
+  // ─── Live Mode (continuous screen context streaming) ──────
+
+  private liveIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Start live mode: periodically push DOM + screenshot to VoiceService.
+   * This keeps the AI aware of what's on screen during a voice conversation.
+   *
+   * @param voiceService - Active VoiceService instance with an open connection
+   * @param intervalMs - How often to push screen context (default: 2000ms)
+   */
+  public startLiveMode(
+    voiceService: { sendScreenContext: (dom: string, screenshot?: string) => void; isConnected: boolean },
+    intervalMs = 2000
+  ): void {
+    this.stopLiveMode(); // Prevent duplicate intervals
+
+    logger.info('AgentRuntime', `Live mode started (interval: ${intervalMs}ms)`);
+
+    // Push immediately, then on interval
+    this.pushScreenContext(voiceService);
+
+    this.liveIntervalId = setInterval(() => {
+      if (!voiceService.isConnected) {
+        this.stopLiveMode();
+        return;
+      }
+      this.pushScreenContext(voiceService);
+    }, intervalMs);
+  }
+
+  /** Stop live mode screen context streaming. */
+  public stopLiveMode(): void {
+    if (this.liveIntervalId) {
+      clearInterval(this.liveIntervalId);
+      this.liveIntervalId = null;
+      logger.info('AgentRuntime', 'Live mode stopped');
+    }
+  }
+
+  /** Push current screen DOM + optional screenshot to voice service. */
+  private async pushScreenContext(
+    voiceService: { sendScreenContext: (dom: string, screenshot?: string) => void }
+  ): Promise<void> {
+    try {
+      const walkResult = walkFiberTree(this.rootRef, this.getWalkConfig());
+      const screenName = this.getCurrentScreenName();
+      const screen = dehydrateScreen(
+        screenName,
+        this.getRouteNames(),
+        walkResult.elementsText,
+        walkResult.interactives,
+      );
+      const screenshot = await this.captureScreenshot();
+      voiceService.sendScreenContext(screen.elementsText, screenshot);
+    } catch (error: any) {
+      logger.error('AgentRuntime', `Live context push failed: ${error.message}`);
+    }
+  }
+
   // ─── Build Tools Array for Provider ────────────────────────
 
   private buildToolsForProvider(): ToolDefinition[] {
@@ -347,6 +446,28 @@ export class AgentRuntime {
     }
 
     return allTools;
+  }
+
+  /** Public accessor for voice mode — returns all registered tool definitions. */
+  public getTools(): ToolDefinition[] {
+    return this.buildToolsForProvider();
+  }
+
+  /** Execute a tool by name (for voice mode tool calls from WebSocket). */
+  public async executeTool(name: string, args: Record<string, any>): Promise<string> {
+    const tool = this.tools.get(name) ||
+      this.buildToolsForProvider().find(t => t.name === name);
+    if (!tool) {
+      return `❌ Unknown tool: ${name}`;
+    }
+    try {
+      const result = await tool.execute(args);
+      logger.info('AgentRuntime', `Voice tool executed: ${name} → ${result}`);
+      return result;
+    } catch (error: any) {
+      logger.error('AgentRuntime', `Voice tool error: ${name} — ${error.message}`);
+      return `❌ Tool "${name}" failed: ${error.message}`;
+    }
   }
 
   // ─── Walk Config (passes security settings to FiberTreeWalker) ─
@@ -477,6 +598,14 @@ export class AgentRuntime {
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
     const stepDelay = this.config.stepDelay ?? 300;
 
+    // Token usage accumulator for the entire task
+    const sessionUsage: TokenUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      estimatedCostUSD: 0,
+    };
+
     // Inject conversational context if we are answering the AI's question
     let contextualMessage = userMessage;
     if (this.lastAskUserQuestion) {
@@ -523,6 +652,9 @@ export class AgentRuntime {
           step, maxSteps, contextualMessage, screenName, screenContent,
         );
 
+        // 4.5. Capture screenshot for Gemini vision (optional)
+        const screenshot = await this.captureScreenshot();
+
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Analyzing screen...');
         const systemPrompt = buildSystemPrompt(this.config.language || 'en');
@@ -535,7 +667,17 @@ export class AgentRuntime {
           contextMessage,
           tools,
           this.history,
+          screenshot,
         );
+
+        // Accumulate token usage
+        if (response.tokenUsage) {
+          sessionUsage.promptTokens += response.tokenUsage.promptTokens;
+          sessionUsage.completionTokens += response.tokenUsage.completionTokens;
+          sessionUsage.totalTokens += response.tokenUsage.totalTokens;
+          sessionUsage.estimatedCostUSD += response.tokenUsage.estimatedCostUSD;
+          this.config.onTokenUsage?.(response.tokenUsage);
+        }
 
         // 6. Process tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -544,6 +686,7 @@ export class AgentRuntime {
             success: true,
             message: response.text || 'Task completed.',
             steps: this.history,
+            tokenUsage: sessionUsage,
           };
           await this.config.onAfterTask?.(result);
           return result;
@@ -631,6 +774,7 @@ export class AgentRuntime {
         success: false,
         message: `Reached maximum steps (${maxSteps}) without completing the task.`,
         steps: this.history,
+        tokenUsage: sessionUsage,
       };
       await this.config.onAfterTask?.(result);
       return result;
@@ -640,6 +784,7 @@ export class AgentRuntime {
         success: false,
         message: `Error: ${error.message}`,
         steps: this.history,
+        tokenUsage: sessionUsage,
       };
       await this.config.onAfterTask?.(result);
       return result;

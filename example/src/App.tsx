@@ -155,8 +155,9 @@ function AuthFlow() {
 // ─── Root Navigation ────────────────────────────────────────
 
 function RootNavigator() {
-  const { isLoggedIn } = useAuth();
-  return isLoggedIn ? <MainTabs /> : <AuthFlow />;
+  // const { isLoggedIn } = useAuth();
+  // return isLoggedIn ? <MainTabs /> : <AuthFlow />;
+  return <MainTabs />;  // Skip login for voice testing
 }
 
 // ─── App ────────────────────────────────────────────────────
@@ -170,6 +171,9 @@ export default function App() {
         <AIAgent
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
           navRef={navRef}
+          enableVoice
+          enableLive
+          debug
           instructions={{
             system: 'You are a helpful food delivery assistant. Always be polite.',
             getScreenInstructions: (screenName) => {
@@ -187,6 +191,12 @@ export default function App() {
           }}
           onAfterTask={(result) => {
             console.log('[SECURITY] Task completed. Success:', result.success);
+            if (result.tokenUsage) {
+              console.log(`[COST] Total: ${result.tokenUsage.totalTokens} tokens, $${result.tokenUsage.estimatedCostUSD.toFixed(6)}`);
+            }
+          }}
+          onTokenUsage={(usage) => {
+            console.log(`[TOKENS] Step: ${usage.promptTokens} in / ${usage.completionTokens} out / $${usage.estimatedCostUSD.toFixed(6)}`);
           }}
         >
           <NavigationContainer ref={navRef}>

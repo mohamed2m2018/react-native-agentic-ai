@@ -11,12 +11,28 @@ export { AIAgent } from './components/AIAgent';
 // ─── Hooks ───────────────────────────────────────────────────
 export { useAction } from './hooks/useAction';
 
+// ─── Services ────────────────────────────────────────────────
+export { VoiceService } from './services/VoiceService';
+export { AudioInputService } from './services/AudioInputService';
+export { AudioOutputService } from './services/AudioOutputService';
+
+// ─── Utilities ───────────────────────────────────────────────
+export { logger } from './utils/logger';
+
 // ─── Types ───────────────────────────────────────────────────
 export type {
   AgentConfig,
+  AgentMode,
   ExecutionResult,
   InteractiveElement,
   DehydratedScreen,
   ToolDefinition,
   ActionDefinition,
+  TokenUsage,
 } from './core/types';
+
+export type {
+  VoiceServiceConfig,
+  VoiceServiceCallbacks,
+  VoiceStatus,
+} from './services/VoiceService';
