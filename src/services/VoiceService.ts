@@ -215,7 +215,7 @@ export class VoiceService {
     const setup: any = {
       model: `models/${model}`,
       generationConfig: {
-        responseModalities: ['AUDIO'],
+        responseModalities: ['AUDIO', 'TEXT'],
       },
     };
 

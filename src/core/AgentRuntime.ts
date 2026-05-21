@@ -411,8 +411,18 @@ export class AgentRuntime {
         walkResult.elementsText,
         walkResult.interactives,
       );
+
+      // Wrap in structured tags so the voice model understands the format
+      // This matches the <screen_format> section in the voice system prompt
+      const wrappedContext = `<screen_update>
+Current Screen: ${screenName}
+Available Screens: ${this.getRouteNames().join(', ')}
+
+${screen.elementsText}
+</screen_update>`;
+
       const screenshot = await this.captureScreenshot();
-      voiceService.sendScreenContext(screen.elementsText, screenshot);
+      voiceService.sendScreenContext(wrappedContext, screenshot);
     } catch (error: any) {
       logger.error('AgentRuntime', `Live context push failed: ${error.message}`);
     }
