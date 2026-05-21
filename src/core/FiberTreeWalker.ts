@@ -35,7 +35,23 @@ const PRESSABLE_TYPES = new Set([
 const TEXT_INPUT_TYPES = new Set(['TextInput', 'RCTSinglelineTextInputView', 'RCTMultilineTextInputView']);
 const SWITCH_TYPES = new Set(['Switch', 'RCTSwitch']);
 const TEXT_TYPES = new Set(['Text', 'RCTText']);
-// ScrollView/FlatList/SectionList detection can be added later for scroll tool
+
+// Media component types for Component-Context Media Inference
+const IMAGE_TYPES = new Set([
+  'Image', 'RCTImageView', 'ExpoImage', 'FastImage', 'CachedImage',
+]);
+const VIDEO_TYPES = new Set([
+  'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer',
+]);
+
+// Known RN internal component names to skip when walking up for context
+const RN_INTERNAL_NAMES = new Set([
+  'View', 'RCTView', 'Pressable', 'TouchableOpacity', 'TouchableHighlight',
+  'ScrollView', 'RCTScrollView', 'FlatList', 'SectionList',
+  'SafeAreaView', 'RNCSafeAreaView', 'KeyboardAvoidingView',
+  'Modal', 'StatusBar', 'Text', 'RCTText', 'AnimatedComponent',
+  'AnimatedComponentWrapper', 'Animated',
+]);
 
 // ─── State Extraction (mirrors page-agent DEFAULT_INCLUDE_ATTRIBUTES) ──
 
@@ -84,6 +100,25 @@ export function hasAnyEventHandler(props: any): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Walk UP the Fiber tree to find the nearest custom (user-defined) component name.
+ * Skips known React Native internal component names.
+ * This provides semantic context for media elements (e.g., an Image inside "ProfileHeader").
+ */
+function getNearestCustomComponentName(fiber: any, maxDepth: number = 8): string | null {
+  let current = fiber?.return;
+  let depth = 0;
+  while (current && depth < maxDepth) {
+    const name = getComponentName(current);
+    if (name && !RN_INTERNAL_NAMES.has(name) && !PRESSABLE_TYPES.has(name)) {
+      return name;
+    }
+    current = current.return;
+    depth++;
+  }
+  return null;
 }
 
 // ─── Fiber Node Helpers ────────────────────────────────────────
@@ -376,28 +411,53 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       return elementOutput;
     }
 
-    // Non-interactive structural nodes
+    // Non-interactive structural nodes — collapse view chains to reduce noise
+    // Only emit text content; structural <view> wrappers are transparent
     const typeStr = node.type && typeof node.type === 'string' ? node.type : 
                    (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
 
     if (typeStr === 'RCTText' || typeStr === 'Text') {
       const textContent = extractRawText(props.children);
       if (textContent && textContent.trim() !== '') {
-        return `${indent}<text>${textContent.trim()}</text>\n`;
+        return `${indent}${textContent.trim()}\n`;
       }
     }
 
-    if (childrenText.trim() !== '') {
-      return `${indent}<view>\n${childrenText}${indent}</view>\n`;
+    // ── Media Detection: Component-Context Media Inference ──
+    const componentName = getComponentName(node);
+    if (componentName && IMAGE_TYPES.has(componentName)) {
+      const context = getNearestCustomComponentName(node);
+      const alt = props.alt || props.accessibilityLabel || '';
+      const src = typeof props.source === 'object' && props.source?.uri
+        ? props.source.uri.split('/').pop()?.split('?')[0] || ''
+        : '';
+      const attrs = [
+        context ? `in="${context}"` : '',
+        alt ? `alt="${alt}"` : '',
+        src ? `src="${src}"` : '',
+      ].filter(Boolean).join(' ');
+      return `${indent}[image${attrs ? ' ' + attrs : ''}]\n`;
     }
 
-    return '';
+    if (componentName && VIDEO_TYPES.has(componentName)) {
+      const context = getNearestCustomComponentName(node);
+      const paused = props.paused !== undefined ? props.paused : props.shouldPlay !== undefined ? !props.shouldPlay : null;
+      const attrs = [
+        context ? `in="${context}"` : '',
+        paused !== null ? `state="${paused ? 'paused' : 'playing'}"` : '',
+      ].filter(Boolean).join(' ');
+      return `${indent}[video${attrs ? ' ' + attrs : ''}]\n`;
+    }
+
+    // Structural views: pass children through without adding <view> wrapper
+    // This collapses the 50+ nesting levels into flat, readable output
+    return childrenText;
   }
 
   let elementsText = processNode(fiber, 0);
 
-  // Clean up empty views and excessive newlines
-  elementsText = elementsText.replace(/<view>\s*<\/view>\n?/g, '');
+  // Clean up excessive blank lines
+  elementsText = elementsText.replace(/\n{3,}/g, '\n\n');
   
   logger.info('FiberTreeWalker', `Found ${interactives.length} interactive elements`);
   return { elementsText: elementsText.trim(), interactives };

@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useCart } from '../CartContext';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../App';
@@ -16,9 +16,13 @@ export default function DishDetailScreen({ route, navigation }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Image placeholder */}
+      {/* Dish Image */}
       <View style={styles.imagePlaceholder}>
-        <Text style={styles.imageEmoji}>{dish.emoji || '🍽️'}</Text>
+        <Image
+          source={{ uri: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800' }}
+          style={styles.dishImage}
+          resizeMode="cover"
+        />
       </View>
 
       <View style={styles.details}>
@@ -53,10 +57,9 @@ const styles = StyleSheet.create({
   imagePlaceholder: {
     height: 220,
     backgroundColor: '#e9ecef',
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
   },
-  imageEmoji: { fontSize: 80 },
+  dishImage: { width: '100%', height: '100%' },
   details: { padding: 24, gap: 8 },
   name: { fontSize: 28, fontWeight: 'bold', color: '#1a1a2e' },
   description: { fontSize: 16, color: '#6c757d', lineHeight: 24 },

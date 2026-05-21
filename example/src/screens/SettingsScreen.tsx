@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, Switch, ScrollView, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, Switch, ScrollView, Pressable, StyleSheet, ActivityIndicator, Alert, Image } from 'react-native';
 
 export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
@@ -50,6 +50,18 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.headerTitle}>Account Settings</Text>
+
+      {/* Profile Avatar */}
+      <View style={styles.avatarRow}>
+        <Image
+          source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }}
+          style={styles.avatar}
+        />
+        <View>
+          <Text style={styles.avatarName}>{form.fullName}</Text>
+          <Text style={styles.avatarEmail}>{form.email}</Text>
+        </View>
+      </View>
 
       {/* --- Profile Section --- */}
       <View style={styles.section}>
@@ -216,6 +228,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   content: { padding: 24, paddingBottom: 60 },
   headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#1a1a2e', marginBottom: 24 },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 24 },
+  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#e9ecef' },
+  avatarName: { fontSize: 18, fontWeight: '700', color: '#1a1a2e' },
+  avatarEmail: { fontSize: 14, color: '#6c757d' },
   section: {
     backgroundColor: '#fff',
     borderRadius: 16,
