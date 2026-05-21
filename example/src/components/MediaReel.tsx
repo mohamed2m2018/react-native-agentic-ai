@@ -1,48 +1,70 @@
-import { View, Text, StyleSheet, ScrollView, Image, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Pressable  } from 'react-native';
 import { useState } from 'react';
+// @ts-ignore — expo-video types resolve at build time
+import { useVideoPlayer, VideoView } from 'expo-video';
+
+const FOOD_VIDEO_URL = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
 
 const MOCK_MEDIA = [
-  { id: '1', type: 'image', url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=400&fit=crop', title: 'Cheesy Pizza' },
-  { id: '2', type: 'video', url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=400&h=400&fit=crop', title: 'Making a Burger' },
-  { id: '3', type: 'image', url: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=400&h=400&fit=crop', title: 'Sweet Donut' },
-  { id: '4', type: 'video', url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop', title: 'Grilling Steak' },
+  { id: '1', type: 'image' as const, url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=400&fit=crop', title: 'Cheesy Pizza' },
+  { id: '2', type: 'video' as const, url: FOOD_VIDEO_URL, title: 'Making a Burger', poster: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=400&h=400&fit=crop' },
+  { id: '3', type: 'image' as const, url: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=400&h=400&fit=crop', title: 'Sweet Donut' },
+  { id: '4', type: 'video' as const, url: FOOD_VIDEO_URL, title: 'Grilling Steak', poster: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop' },
 ];
 
-export default function MediaReel() {
-  const [playingId, setPlayingId] = useState<string | null>(null);
+function VideoCard({ item }: { item: typeof MOCK_MEDIA[1] }) {
+  const player = useVideoPlayer(item.url, (p: any) => {
+    p.loop = true;
+    p.muted = true;
+  });
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const handlePlayMedia = (item: any) => {
-    if (item.type === 'video') {
-      setPlayingId(item.id);
-      Alert.alert('Playing Video', `Now playing: ${item.title}`);
+  const togglePlay = () => {
+    if (isPlaying) {
+      player.pause();
     } else {
-      Alert.alert('Viewing Image', `Looking at: ${item.title}`);
+      player.play();
     }
+    setIsPlaying(!isPlaying);
   };
 
   return (
+    <Pressable style={styles.mediaCard} onPress={togglePlay}>
+      <VideoView
+        style={styles.mediaFrame}
+        player={player}
+        nativeControls={false}
+      />
+      <View style={styles.overlay}>
+        <Text style={styles.overlayText}>{item.title}</Text>
+        <View style={styles.playIconContainer}>
+          <Text style={styles.playIcon}>{isPlaying ? '⏸️' : '▶️'}</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+export default function MediaReel() {
+  return (
     <View style={styles.container}>
-      <Text style={styles.title}>Featured Food Reels</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {MOCK_MEDIA.map(item => (
-          <Pressable 
-            key={item.id} 
-            style={styles.mediaCard} 
-            onPress={() => handlePlayMedia(item)}
-            accessibilityLabel={`${item.type === 'video' ? 'Play video' : 'View image'} ${item.title}`}
-            accessibilityRole="image"
-          >
-            <Image source={{ uri: item.url }} style={styles.mediaFrame} />
-            <View style={styles.overlay}>
-              <Text style={styles.overlayText}>{item.title}</Text>
-              {item.type === 'video' && (
-                <View style={styles.playIconContainer}>
-                  <Text style={styles.playIcon}>{playingId === item.id ? '⏸️' : '▶️'}</Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-        ))}
+        {MOCK_MEDIA.map(item =>
+          item.type === 'video' ? (
+            <VideoCard key={item.id} item={item} />
+          ) : (
+            <Pressable
+              key={item.id}
+              style={styles.mediaCard}
+              onPress={() => {}}
+            >
+              <Image source={{ uri: item.url }} style={styles.mediaFrame} />
+              <View style={styles.overlay}>
+                <Text style={styles.overlayText}>{item.title}</Text>
+              </View>
+            </Pressable>
+          )
+        )}
       </ScrollView>
     </View>
   );
@@ -50,7 +72,6 @@ export default function MediaReel() {
 
 const styles = StyleSheet.create({
   container: { marginVertical: 20 },
-  title: { fontSize: 20, fontWeight: '700', color: '#1a1a2e', marginBottom: 16, paddingHorizontal: 24 },
   scroll: { paddingHorizontal: 24, gap: 16 },
   mediaCard: {
     width: 160,
@@ -89,6 +110,6 @@ const styles = StyleSheet.create({
   },
   playIcon: {
     fontSize: 20,
-    marginLeft: 4, // Visual alignment
+    marginLeft: 4,
   }
 });

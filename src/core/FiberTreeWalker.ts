@@ -41,7 +41,7 @@ const IMAGE_TYPES = new Set([
   'Image', 'RCTImageView', 'ExpoImage', 'FastImage', 'CachedImage',
 ]);
 const VIDEO_TYPES = new Set([
-  'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer',
+  'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer', 'VideoView',
 ]);
 
 // Known RN internal component names to skip when walking up for context
@@ -428,8 +428,9 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (componentName && IMAGE_TYPES.has(componentName)) {
       const context = getNearestCustomComponentName(node);
       const alt = props.alt || props.accessibilityLabel || '';
+      // Emit the full URI so Gemini can use vision to analyze the image
       const src = typeof props.source === 'object' && props.source?.uri
-        ? props.source.uri.split('/').pop()?.split('?')[0] || ''
+        ? props.source.uri
         : '';
       const attrs = [
         context ? `in="${context}"` : '',
@@ -442,9 +443,16 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (componentName && VIDEO_TYPES.has(componentName)) {
       const context = getNearestCustomComponentName(node);
       const paused = props.paused !== undefined ? props.paused : props.shouldPlay !== undefined ? !props.shouldPlay : null;
+      // Capture video source URI and poster image
+      const src = typeof props.source === 'object' && props.source?.uri
+        ? props.source.uri
+        : '';
+      const poster = props.posterSource?.uri || props.poster || '';
       const attrs = [
         context ? `in="${context}"` : '',
         paused !== null ? `state="${paused ? 'paused' : 'playing'}"` : '',
+        src ? `src="${src}"` : '',
+        poster ? `poster="${poster}"` : '',
       ].filter(Boolean).join(' ');
       return `${indent}[video${attrs ? ' ' + attrs : ''}]\n`;
     }
