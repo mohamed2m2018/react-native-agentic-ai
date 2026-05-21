@@ -4,7 +4,7 @@
 
 // ─── Agent Modes ──────────────────────────────────────────────
 
-export type AgentMode = 'text' | 'voice' | 'live';
+export type AgentMode = 'text' | 'voice';
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 

@@ -374,9 +374,10 @@ describe('VoiceService', () => {
       const ws = MockWebSocket.instances[0];
       ws.simulateSetupComplete();
 
-      service.sendFunctionResponse('call-123', { result: 'Tapped element 5' });
+      service.sendFunctionResponse('tap', 'call-123', { result: 'Tapped element 5' });
 
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      expect(lastMsg.toolResponse.functionResponses[0].name).toBe('tap');
       expect(lastMsg.toolResponse.functionResponses[0].id).toBe('call-123');
       expect(lastMsg.toolResponse.functionResponses[0].response).toEqual({
         result: 'Tapped element 5',

@@ -1,10 +1,10 @@
 /**
  * AgentChatBar — Floating, draggable, compressible chat widget.
- * Supports three modes: Text, Voice, and Live.
+ * Supports two modes: Text and Voice.
  * Does not block underlying UI natively.
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -35,9 +35,6 @@ interface AgentChatBarProps {
   onSpeakerToggle?: (muted: boolean) => void;
   isMicActive?: boolean;
   isSpeakerMuted?: boolean;
-  /** Live mode indicator */
-  isLiveActive?: boolean;
-  onLiveToggle?: (active: boolean) => void;
   /** AI is currently speaking */
   isAISpeaking?: boolean;
   /** Voice WebSocket is connected */
@@ -60,7 +57,6 @@ function ModeSelector({
   const labels: Record<AgentMode, { icon: string; label: string }> = {
     text: { icon: '💬', label: 'Text' },
     voice: { icon: '🎙️', label: 'Voice' },
-    live: { icon: '🔴', label: 'Live' },
   };
 
   return (
@@ -235,73 +231,6 @@ function VoiceControlsRow({
   );
 }
 
-// ─── Live Controls Row ─────────────────────────────────────────
-
-function LiveControlsRow({
-  isLiveActive,
-  isMicActive,
-  isSpeakerMuted,
-  onLiveToggle,
-  onMicToggle,
-  onSpeakerToggle,
-  isArabic,
-}: {
-  isLiveActive: boolean;
-  isMicActive: boolean;
-  isSpeakerMuted: boolean;
-  onLiveToggle: (active: boolean) => void;
-  onMicToggle: (active: boolean) => void;
-  onSpeakerToggle: (muted: boolean) => void;
-  isArabic: boolean;
-}) {
-  return (
-    <View style={styles.inputRow}>
-      {/* Speaker mute/unmute */}
-      <AudioControlButton
-        icon="🔊"
-        activeIcon="🔇"
-        isActive={isSpeakerMuted}
-        onPress={() => onSpeakerToggle(!isSpeakerMuted)}
-        label={isSpeakerMuted ? 'Unmute speaker' : 'Mute speaker'}
-      />
-
-      {/* Mic toggle */}
-      <AudioControlButton
-        icon="🎙️"
-        activeIcon="❌"
-        isActive={!isMicActive}
-        onPress={() => onMicToggle(!isMicActive)}
-        label={isMicActive ? 'Disable mic' : 'Enable mic'}
-      />
-
-      {/* Live button — large center */}
-      <Pressable
-        style={[
-          audioStyles.liveButton,
-          isLiveActive && audioStyles.liveButtonActive,
-        ]}
-        onPress={() => onLiveToggle(!isLiveActive)}
-        accessibilityLabel={isLiveActive ? 'Stop live mode' : 'Start live mode'}
-      >
-        <View style={[audioStyles.liveDot, isLiveActive && audioStyles.liveDotActive]} />
-        <Text style={audioStyles.liveLabel}>
-          {isLiveActive
-            ? (isArabic ? 'مباشر' : 'LIVE')
-            : (isArabic ? 'ابدأ البث' : 'Go Live')}
-        </Text>
-      </Pressable>
-
-      {/* Speaker mute */}
-      <AudioControlButton
-        icon="🔊"
-        activeIcon="🔇"
-        isActive={isSpeakerMuted}
-        onPress={() => onSpeakerToggle(!isSpeakerMuted)}
-        label={isSpeakerMuted ? 'Unmute' : 'Mute'}
-      />
-    </View>
-  );
-}
 
 // ─── Main Component ────────────────────────────────────────────
 
@@ -318,8 +247,6 @@ export function AgentChatBar({
   onSpeakerToggle,
   isMicActive = false,
   isSpeakerMuted = false,
-  isLiveActive = false,
-  onLiveToggle,
   isAISpeaking,
   isVoiceConnected,
 }: AgentChatBarProps) {
@@ -327,34 +254,10 @@ export function AgentChatBar({
   const [isExpanded, setIsExpanded] = useState(false);
   const { height } = useWindowDimensions();
   const isArabic = language === 'ar';
-  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
 
-  // Pulse animation for live mode
-  useEffect(() => {
-    if (isLiveActive) {
-      const pulse = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulse.start();
-      return () => pulse.stop();
-    } else {
-      pulseAnim.setValue(1);
-    }
-    return undefined;
-  }, [isLiveActive, pulseAnim]);
+
 
   const panResponder = useRef(
     PanResponder.create({
@@ -388,18 +291,14 @@ export function AgentChatBar({
   // ─── FAB (Compressed) ──────────────────────────────────────
 
   if (!isExpanded) {
-    const fabIcon = isLiveActive ? '🔴' : isThinking ? '⏳' : '🤖';
+    const fabIcon = isThinking ? '⏳' : '🤖';
     return (
       <Animated.View
-        style={[
-          styles.fabContainer,
-          pan.getLayout(),
-          isLiveActive && { transform: [{ scale: pulseAnim }] },
-        ]}
+        style={[styles.fabContainer, pan.getLayout()]}
         {...panResponder.panHandlers}
       >
         <Pressable
-          style={[styles.fab, isLiveActive && styles.fabLive]}
+          style={styles.fab}
           onPress={() => setIsExpanded(true)}
           accessibilityLabel="Open AI Agent Chat"
         >
@@ -463,17 +362,7 @@ export function AgentChatBar({
         />
       )}
 
-      {mode === 'live' && (
-        <LiveControlsRow
-          isLiveActive={isLiveActive}
-          isMicActive={isMicActive}
-          isSpeakerMuted={isSpeakerMuted}
-          onLiveToggle={onLiveToggle || (() => {})}
-          onMicToggle={onMicToggle || (() => {})}
-          onSpeakerToggle={onSpeakerToggle || (() => {})}
-          isArabic={isArabic}
-        />
-      )}
+
     </Animated.View>
   );
 }
@@ -498,11 +387,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
-  fabLive: {
-    backgroundColor: '#8b0000',
-    borderWidth: 2,
-    borderColor: '#ff4444',
-  },
+
   fabIcon: {
     fontSize: 28,
   },
@@ -676,35 +561,7 @@ const audioStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  liveButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    gap: 8,
-  },
-  liveButtonActive: {
-    backgroundColor: 'rgba(255, 0, 0, 0.25)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 0, 0, 0.5)',
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-  },
-  liveDotActive: {
-    backgroundColor: '#ff0000',
-  },
-  liveLabel: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+
   micButtonConnecting: {
     backgroundColor: 'rgba(255, 200, 50, 0.2)',
     opacity: 0.7,

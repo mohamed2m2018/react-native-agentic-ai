@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { AIAgent } from '@mobileai/react-native';
+import type { ExecutionResult, TokenUsage } from '@mobileai/react-native';
 import { CartProvider } from './CartContext';
 import { AuthProvider, useAuth } from './AuthContext';
 import type { MenuItem } from './menuData';
@@ -172,30 +173,29 @@ export default function App() {
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
           navRef={navRef}
           enableVoice
-          enableLive
           debug
           instructions={{
             system: 'You are a helpful food delivery assistant. Always be polite.',
-            getScreenInstructions: (screenName) => {
+            getScreenInstructions: (screenName: string) => {
               if (screenName === 'Cart') {
                 return 'SECURITY GUARD: You are on the Cart screen. NEVER execute the "checkout" action without first summarizing the order total and asking the user to confirm using the "ask_user" tool.';
               }
               return undefined;
             },
           }}
-          transformScreenContent={(content) => {
+          transformScreenContent={(content: string) => {
             return content.replace(/\b(?:\d[ -]*?){13,16}\b/g, '****-****-****-****');
           }}
           onBeforeTask={() => {
             console.log('[SECURITY] Task started. Audit log engaged.');
           }}
-          onAfterTask={(result) => {
+          onAfterTask={(result: ExecutionResult) => {
             console.log('[SECURITY] Task completed. Success:', result.success);
             if (result.tokenUsage) {
               console.log(`[COST] Total: ${result.tokenUsage.totalTokens} tokens, $${result.tokenUsage.estimatedCostUSD.toFixed(6)}`);
             }
           }}
-          onTokenUsage={(usage) => {
+          onTokenUsage={(usage: TokenUsage) => {
             console.log(`[TOKENS] Step: ${usage.promptTokens} in / ${usage.completionTokens} out / $${usage.estimatedCostUSD.toFixed(6)}`);
           }}
         >
