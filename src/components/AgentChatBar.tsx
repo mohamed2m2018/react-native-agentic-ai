@@ -58,7 +58,7 @@ function ModeSelector({
 
   const labels: Record<AgentMode, { icon: string; label: string }> = {
     text: { icon: '💬', label: 'Text' },
-    voice: { icon: '🎙️', label: 'Voice' },
+    voice: { icon: '🎙️', label: 'Live Agent' },
   };
 
   return (
@@ -121,6 +121,99 @@ function AudioControlButton({
   );
 }
 
+// ─── Dictation Button (optional expo-speech-recognition) ──────
+
+/**
+ * Try to load expo-speech-recognition as an optional peer dependency.
+ * If not installed, returns null and the mic button won't render.
+ * Same pattern as react-native-view-shot for screenshots.
+ */
+let SpeechModule: any = null;
+try {
+  SpeechModule = require('expo-speech-recognition');
+} catch {
+  // Not installed — dictation button won't appear
+}
+
+function DictationButton({
+  language,
+  onTranscript,
+  disabled,
+}: {
+  language: string;
+  onTranscript: (text: string) => void;
+  disabled: boolean;
+}) {
+  const [isListening, setIsListening] = useState(false);
+
+  // Don't render if expo-speech-recognition isn't installed
+  if (!SpeechModule) return null;
+
+  const { ExpoSpeechRecognitionModule } = SpeechModule;
+  if (!ExpoSpeechRecognitionModule) return null;
+
+  const toggle = async () => {
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+
+    try {
+      const perms = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perms.granted) return;
+
+      // Register one-shot listeners for this recording session
+      const resultListener = ExpoSpeechRecognitionModule.addListener(
+        'result',
+        (event: any) => {
+          const transcript = event.results?.[0]?.transcript;
+          if (transcript && event.isFinal) {
+            onTranscript(transcript);
+          }
+        },
+      );
+
+      const endListener = ExpoSpeechRecognitionModule.addListener(
+        'end',
+        () => {
+          setIsListening(false);
+          resultListener.remove();
+          endListener.remove();
+        },
+      );
+
+      ExpoSpeechRecognitionModule.start({
+        lang: language === 'ar' ? 'ar-SA' : 'en-US',
+        interimResults: false,
+        continuous: false,
+        addsPunctuation: true,
+      });
+
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+    }
+  };
+
+  return (
+    <Pressable
+      style={[
+        styles.dictationButton,
+        isListening && styles.dictationButtonActive,
+        disabled && styles.sendButtonDisabled,
+      ]}
+      onPress={toggle}
+      disabled={disabled}
+      accessibilityLabel={isListening ? 'Stop dictation' : 'Start dictation'}
+      hitSlop={8}
+    >
+      <Text style={styles.sendButtonText}>
+        {isListening ? '⏹️' : '🎤'}
+      </Text>
+    </Pressable>
+  );
+}
+
 // ─── Text Input Row ────────────────────────────────────────────
 
 function TextInputRow({
@@ -148,6 +241,11 @@ function TextInputRow({
         returnKeyType="send"
         editable={!isThinking}
         multiline={false}
+      />
+      <DictationButton
+        language={isArabic ? 'ar' : 'en'}
+        onTranscript={(t: string) => setText(t)}
+        disabled={isThinking}
       />
       <Pressable
         style={[styles.sendButton, isThinking && styles.sendButtonDisabled]}
@@ -503,6 +601,17 @@ const styles = StyleSheet.create({
   },
   sendButtonText: {
     fontSize: 18,
+  },
+  dictationButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  },
+  dictationButtonActive: {
+    backgroundColor: 'rgba(255, 59, 48, 0.3)',
   },
 });
 

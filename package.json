@@ -99,13 +99,17 @@
     "react": "*",
     "react-native": "*",
     "react-native-audio-api": "*",
-    "react-native-view-shot": "*"
+    "react-native-view-shot": "*",
+    "expo-speech-recognition": "*"
   },
   "peerDependenciesMeta": {
     "react-native-audio-api": {
       "optional": true
     },
     "react-native-view-shot": {
+      "optional": true
+    },
+    "expo-speech-recognition": {
       "optional": true
     }
   },

@@ -23,6 +23,8 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 - 🔒 **Production-grade security** — Element gating, content masking, lifecycle hooks, human-in-the-loop confirmation.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
+- 🎙️ **Live Agent (Voice Mode)** — Real-time conversational AI that sees your screen and takes action while you speak.
+- 🎤 **Voice Dictation** — Built-in on-device speech-to-text for the text chat mode.
 - 🌍 **Bilingual** — English and Arabic support built-in.
 
 ## 📦 Installation
@@ -33,7 +35,24 @@ npm install @mobileai/react-native
 npm install react-native-agentic-ai
 ```
 
-No native modules required. Works with Expo managed workflow out of the box — **no eject needed**.
+No native modules required by default. Works with Expo managed workflow out of the box — **no eject needed**.
+
+### Optional Native Dependencies
+
+If you want to use **Live Agent (Voice)**, **Text Mode Dictation**, or **Screenshots** (for image/video content), install these optional peer dependencies:
+
+```bash
+# For Voice / Live Agent mode:
+npx expo install react-native-audio-api
+
+# For Text mode voice dictation (mic button):
+npx expo install expo-speech-recognition
+
+# For Screenshots (when asking AI "what do you see in this image?"):
+npx expo install react-native-view-shot
+```
+
+> **Note on Permissions**: Ensure you add Microphone permissions (`NSMicrophoneUsageDescription` / `RECORD_AUDIO`) to your `app.json` or `Info.plist`/`AndroidManifest.xml` if using the audio packages.
 
 ## 🚀 Quick Start
 
@@ -61,7 +80,7 @@ A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, 
 
 ### `<AIAgent>` Component
 
-The root provider. Wrap your app once at the top level.
+The root provider. Wrap your app once at the top level. You can toggle between Text and Live Agent (Voice) modes.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|

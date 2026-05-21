@@ -16,6 +16,7 @@
     "expo": "~55.0.8",
     "expo-audio": "~55.0.9",
     "expo-av": "^16.0.8",
+    "expo-speech-recognition": "^3.1.2",
     "expo-status-bar": "~55.0.4",
     "expo-video": "~55.0.11",
     "react": "19.2.0",
