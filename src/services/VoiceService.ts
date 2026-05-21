@@ -139,50 +139,48 @@ export class VoiceService {
 
   // ─── Send Text ─────────────────────────────────────────────
 
-  /** Send text message (e.g., DOM context) alongside audio */
+  /** Send text message via realtimeInput (same channel as audio) */
   sendText(text: string): void {
     if (!this.isConnected) return;
 
     const message = {
-      clientContent: {
-        turns: [
-          {
-            role: 'USER',
-            parts: [{ text }],
-          },
-        ],
-        turnComplete: true,
-      },
+      realtimeInput: { text },
     };
 
     this.ws!.send(JSON.stringify(message));
   }
 
-  // ─── Send Screen Context (for Live mode) ───────────────────
-
-  /** Send DOM + optional screenshot as context during live conversation */
+  /** Send DOM + optional screenshot as context during live conversation.
+   *
+   * Uses `realtimeInput` (not `clientContent`) to avoid mixing input modes.
+   * Gemini docs: "Avoid mixing clientContent and realtimeInput within
+   * the same active conversation to prevent unpredictable behavior."
+   */
   sendScreenContext(domText: string, screenshotBase64?: string): void {
     if (!this.isConnected) return;
 
-    const parts: any[] = [{ text: domText }];
-
-    if (screenshotBase64) {
-      parts.push({
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: screenshotBase64,
-        },
-      });
-    }
-
-    const message = {
-      clientContent: {
-        turns: [{ role: 'USER', parts }],
-        turnComplete: false, // Don't end the turn — more audio may follow
+    // Send DOM text as realtime text input
+    const textMessage = {
+      realtimeInput: {
+        text: domText,
       },
     };
+    this.ws!.send(JSON.stringify(textMessage));
 
-    this.ws!.send(JSON.stringify(message));
+    // Send screenshot as realtime video input (max 1fps per docs)
+    if (screenshotBase64) {
+      const videoMessage = {
+        realtimeInput: {
+          video: {
+            mimeType: 'image/jpeg',
+            data: screenshotBase64,
+          },
+        },
+      };
+      this.ws!.send(JSON.stringify(videoMessage));
+    }
+
+    logger.debug('VoiceService', `📤 Screen context sent (text: ${domText.length} chars, screenshot: ${screenshotBase64 ? 'yes' : 'no'})`);
   }
 
   // ─── Send Function Response ────────────────────────────────
@@ -215,7 +213,7 @@ export class VoiceService {
     const setup: any = {
       model: `models/${model}`,
       generationConfig: {
-        responseModalities: ['AUDIO', 'TEXT'],
+        responseModalities: ['AUDIO'],
       },
     };
 
