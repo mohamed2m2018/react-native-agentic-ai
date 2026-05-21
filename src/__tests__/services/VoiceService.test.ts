@@ -253,34 +253,19 @@ describe('VoiceService', () => {
       const ws = MockWebSocket.instances[0];
       ws.simulateSetupComplete();
 
-      service.sendScreenContext('<screen>...</screen>', 'base64screenshot');
-
-      // Text is sent as a separate realtimeInput message
-      const textMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 2]);
-      expect(textMsg.realtimeInput.text).toBe('<screen>...</screen>');
-
-      // Screenshot is sent as a separate realtimeInput video message
-      const videoMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
-      expect(videoMsg.realtimeInput.video).toEqual({
-        mimeType: 'image/jpeg',
-        data: 'base64screenshot',
-      });
-    });
-
-    it('sends DOM only when no screenshot', async () => {
-      const service = createService();
-      const callbacks = createCallbacks();
-
-      service.connect(callbacks);
-      await new Promise(r => setTimeout(r, 10));
-
-      const ws = MockWebSocket.instances[0];
-      ws.simulateSetupComplete();
-
       service.sendScreenContext('<screen>...</screen>');
 
       const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
-      expect(lastMsg.realtimeInput.text).toBe('<screen>...</screen>');
+      expect(lastMsg.clientContent.turns[0].parts).toHaveLength(1);
+      expect(lastMsg.clientContent.turns[0].parts[0].text).toBe('<screen>...</screen>');
+      // turnComplete should be false (passive context, don't trigger response)
+      expect(lastMsg.clientContent.turnComplete).toBe(false);
+    });
+
+    it('does not send when not connected', async () => {
+      const service = createService();
+      service.sendScreenContext('<screen>test</screen>');
+      // No crash, no message sent (not connected)
     });
   });
 

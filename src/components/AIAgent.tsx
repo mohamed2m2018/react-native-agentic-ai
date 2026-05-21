@@ -299,10 +299,10 @@ export function AIAgent({
               logger.info('AIAgent', '🎙️ Mic auto-started after connection');
             }
           });
-          // Start live mode — push screen context (Fiber tree + routes) to Gemini
-          // This gives the voice AI the same screen awareness as text mode
-          logger.info('AIAgent', '📡 Starting live mode (screen context streaming)...');
-          runtime.startLiveMode(voiceServiceRef.current!, 2000);
+          // Send initial screen context (tree) so the model knows what's on screen
+          const initialContext = runtime.getScreenContext();
+          voiceServiceRef.current?.sendScreenContext(initialContext);
+          logger.info('AIAgent', '📡 Initial screen context sent to voice model');
         }
       },
       onTranscript: (text, isFinal, role) => {
@@ -314,6 +314,12 @@ export function AIAgent({
         const result = await runtime.executeTool(toolCall.name, toolCall.args);
         logger.info('AIAgent', `Voice tool result: ${result}`);
         voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, { result });
+
+        // After tool execution, push updated screen context
+        // (the screen may have changed from tap/type/navigate)
+        const updatedContext = runtime.getScreenContext();
+        voiceServiceRef.current?.sendScreenContext(updatedContext);
+        logger.info('AIAgent', '📡 Updated screen context sent after tool call');
       },
       onError: (err) => {
         logger.error('AIAgent', `VoiceService error: ${err}`);
@@ -327,7 +333,6 @@ export function AIAgent({
     // Cleanup on mode change back to text
     return () => {
       logger.info('AIAgent', `Cleaning up voice services (leaving "${mode}" mode)`);
-      runtime.stopLiveMode();
       voiceServiceRef.current?.disconnect();
       voiceServiceRef.current = null; // Ensure fresh instance on next connect
       audioInputRef.current?.stop();
@@ -346,16 +351,14 @@ export function AIAgent({
     audioInputRef.current?.stop();
     // 2. Stop audio output (clear queued chunks)
     audioOutputRef.current?.stop();
-    // 3. Stop live mode (screen context streaming)
-    runtime.stopLiveMode();
-    // 4. Disconnect WebSocket
+    // 3. Disconnect WebSocket
     voiceServiceRef.current?.disconnect();
     voiceServiceRef.current = null;
-    // 5. Reset state
+    // 4. Reset state
     setIsMicActive(false);
     setIsAISpeaking(false);
     setIsVoiceConnected(false);
-    // 6. Switch back to text mode (triggers cleanup effect naturally)
+    // 5. Switch back to text mode (triggers cleanup effect naturally)
     setMode('text');
     logger.info('AIAgent', '🛑 Voice session fully stopped');
   }, [runtime]);
