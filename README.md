@@ -16,7 +16,9 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 
 ## ✨ Features
 
-- 🤖 **Zero-config UI understanding** — No need to annotate your views. The AI reads your UI automatically.
+- 🤖 **Zero-config UI understanding** — No annotations needed. The AI sees and understands your entire screen automatically.
+- 🎯 **Works with every component** — Buttons, switches, inputs, custom components — all work out of the box.
+- 🖼️ **Sees images & videos** — The AI knows what media is on screen and can describe it.
 - 🧭 **Auto-navigation** — Navigates between screens to complete multi-step tasks.
 - 🔒 **Production-grade security** — Element gating, content masking, lifecycle hooks, human-in-the-loop confirmation.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
@@ -244,10 +246,10 @@ This starts two servers:
 
 | Tool | Description |
 |------|-------------|
-| `tap(index)` | Tap an interactive element. |
-| `type(index, text)` | Type text into an input. |
+| `tap(index)` | Tap any interactive element. Works universally on buttons, switches, checkboxes, and custom components. |
+| `type(index, text)` | Type text into a text-input. |
 | `navigate(screen)` | Navigate to a screen. |
-| `done(text)` | Complete the task. |
+| `done(text)` | Complete the task with a response. |
 | `ask_user(question)` | Ask the user for clarification. |
 
 ## 📋 Requirements
