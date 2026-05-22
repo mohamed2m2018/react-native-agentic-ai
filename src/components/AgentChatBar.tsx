@@ -135,6 +135,8 @@ interface AgentChatBarProps {
   onConsentDecline?: () => void;
   /** When set, FAB tap opens quick actions sheet instead of expanding chat */
   onQuickActionsPress?: () => void;
+  /** Extra content rendered after chat messages (e.g. CSAT survey) */
+  afterMessagesContent?: React.ReactNode;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -641,6 +643,7 @@ export function AgentChatBar({
   onConsentApprove,
   onConsentDecline,
   onQuickActionsPress,
+  afterMessagesContent,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [pendingImages, setPendingImages] = useState<Array<UserImage & { uri: string }>>([]);
@@ -1593,6 +1596,7 @@ export function AgentChatBar({
                   <LoadingDots size={18} color="#fff" />
                 </View>
               )}
+              {afterMessagesContent}
             </ScrollView>
           )}
 

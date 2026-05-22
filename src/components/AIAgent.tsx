@@ -84,7 +84,8 @@ import { ReportedIssueEventSource } from '../support/ReportedIssueEventSource';
 import { SupportChatModal } from '../support/SupportChatModal';
 import { QuickActionsSheet } from '../support/QuickActionsSheet';
 import { ENDPOINTS } from '../config/endpoints';
-import type { ReportedIssue, SupportModeConfig } from '../support/types';
+import type { ReportedIssue, SupportModeConfig, CSATRating } from '../support/types';
+import { CSATSurvey } from '../support/CSATSurvey';
 import * as ConversationService from '../services/ConversationService';
 import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
 import { getSessionToken, clearSession as clearProxySession } from '../services/ProxySessionService';
@@ -737,6 +738,8 @@ export function AIAgent({
   const [registeredActionRevision, setRegisteredActionRevision] = useState(0);
   const [registeredDataRevision, setRegisteredDataRevision] = useState(0);
   const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
+  const [showCSAT, setShowCSAT] = useState(false);
+  const conversationStartRef = useRef<number>(Date.now());
   // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
   const messagesRef = useRef<AIMessage[]>([]);
 
@@ -4065,6 +4068,17 @@ export function AIAgent({
           onResult?.(normalizedResult);
         }
 
+        // ─── CSAT survey trigger ─────────────────────────────────
+        if (
+          normalizedResult.success &&
+          supportMode?.csat?.enabled !== false &&
+          supportMode?.enabled &&
+          !stepsHadEscalation
+        ) {
+          const idleDelay = (supportMode.csat?.showAfterIdleSeconds ?? 10) * 1000;
+          setTimeout(() => setShowCSAT(true), idleDelay);
+        }
+
         logger.info(
           'AIAgent',
           `Result: ${normalizedResult.success ? '✅' : '❌'} ${normalizedResult.message}`
@@ -4403,6 +4417,30 @@ export function AIAgent({
     [blocks]
   );
 
+  // ─── CSAT survey element ────────────────────────────────────
+
+  const csatElement = showCSAT && supportMode?.csat ? (
+    <CSATSurvey
+      config={{
+        ...supportMode.csat,
+        onSubmit: (rating: CSATRating) => {
+          supportMode.csat!.onSubmit?.(rating);
+          telemetryRef.current?.track('csat_submitted', {
+            score: rating.score,
+            surveyType: supportMode.csat!.surveyType ?? 'csat',
+          });
+        },
+      }}
+      metadata={{
+        conversationDuration: Date.now() - conversationStartRef.current,
+        stepsCount: messages.filter((m) => m.role === 'assistant').length,
+        wasEscalated: tickets.length > 0,
+        screen: getResolvedScreenName(),
+      }}
+      onDismiss={() => setShowCSAT(false)}
+    />
+  ) : null;
+
   // ─── Render ──────────────────────────────────────────────────
 
   return (
@@ -4624,6 +4662,7 @@ export function AIAgent({
                     ? () => setShowQuickActions(true)
                     : undefined
                 }
+                afterMessagesContent={csatElement}
               />
             ) : (
               <ProactiveHint
@@ -4750,6 +4789,7 @@ export function AIAgent({
                       ? () => setShowQuickActions(true)
                       : undefined
                   }
+                  afterMessagesContent={csatElement}
                 />
               </ProactiveHint>
             )}
