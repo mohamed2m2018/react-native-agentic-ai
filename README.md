@@ -87,7 +87,7 @@ The root provider. Wrap your app once at the top level. You can toggle between T
 | `apiKey` | `string` | — | **Required.** Gemini API key. |
 | `model` | `string` | `'gemini-2.5-flash'` | Gemini model name. |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
-| `language` | `'en' \| 'ar'` | `'en'` | UI language. |
+| `language` | `'en' \| 'ar'` | `'en'` | UI language. Forces Gemini Voice to speak the chosen dialect natively. |
 | `maxSteps` | `number` | `10` | Max steps per task. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
 | `onResult` | `(result) => void` | — | Called when the agent finishes. |
@@ -268,6 +268,7 @@ This starts two servers:
 | `tap(index)` | Tap any interactive element. Works universally on buttons, switches, checkboxes, and custom components. |
 | `type(index, text)` | Type text into a text-input. |
 | `navigate(screen)` | Navigate to a screen. |
+| `capture_screenshot(reason)` | Capture the current screen as an image. Called on-demand by the AI (requires `react-native-view-shot`). |
 | `done(text)` | Complete the task with a response. |
 | `ask_user(question)` | Ask the user for clarification. |
 
