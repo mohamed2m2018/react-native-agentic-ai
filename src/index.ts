@@ -12,9 +12,9 @@ export { AIAgent } from './components/AIAgent';
 export { useAction } from './hooks/useAction';
 
 // ─── Services ────────────────────────────────────────────────
-export { VoiceService } from './services/VoiceService';
-export { AudioInputService } from './services/AudioInputService';
-export { AudioOutputService } from './services/AudioOutputService';
+// export { VoiceService } from './services/VoiceService';
+// export { AudioInputService } from './services/AudioInputService';
+// export { AudioOutputService } from './services/AudioOutputService';
 
 // ─── Utilities ───────────────────────────────────────────────
 export { logger } from './utils/logger';
@@ -31,8 +31,8 @@ export type {
   TokenUsage,
 } from './core/types';
 
-export type {
-  VoiceServiceConfig,
-  VoiceServiceCallbacks,
-  VoiceStatus,
-} from './services/VoiceService';
+// export type {
+//   VoiceServiceConfig,
+//   VoiceServiceCallbacks,
+//   VoiceStatus,
+// } from './services/VoiceService';

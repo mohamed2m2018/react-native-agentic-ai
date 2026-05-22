@@ -42,7 +42,11 @@ export type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 const WS_HOST = 'generativelanguage.googleapis.com';
 const WS_PATH = '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
-const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+// Use -09-2025: Google's own cookbook uses this model for Live API tool use.
+// The -12-2025 model had server-side regressions with function calling
+// and was deprecated March 19, 2026. The -09-2025 version has
+// "improved function calling and better handling of speech cut-offs."
+const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 const DEFAULT_INPUT_SAMPLE_RATE = 16000;
 
 // ─── Service ───────────────────────────────────────────────────
@@ -215,6 +219,9 @@ export class VoiceService {
       model: `models/${model}`,
       generationConfig: {
         responseModalities: ['AUDIO'],
+        // Note: Do NOT set thinkingBudget: 0 — it completely disables
+        // the model's ability to reason about when to call tools.
+        // The text thinking blocks are a trade-off for working function calling.
       },
     };
 
@@ -246,13 +253,23 @@ export class VoiceService {
               functionDecl.parameters = {
                 type: 'OBJECT',
                 properties: Object.fromEntries(
-                  Object.entries(tool.parameters).map(([key, param]) => [
-                    key,
-                    {
-                      type: param.type.toUpperCase(),
-                      description: param.description,
-                    },
-                  ])
+                  Object.entries(tool.parameters).map(([key, param]) => {
+                    // Native audio model crashes with BOOLEAN/ENUM types (error 1008)
+                    // Convert to STRING as a workaround
+                    let paramType = param.type.toUpperCase();
+                    let desc = param.description;
+                    if (paramType === 'BOOLEAN') {
+                      paramType = 'STRING';
+                      desc = `${desc} (use "true" or "false")`;
+                    }
+                    return [
+                      key,
+                      {
+                        type: paramType,
+                        description: desc,
+                      },
+                    ];
+                  })
                 ),
                 required: Object.entries(tool.parameters)
                   .filter(([, param]) => param.required)

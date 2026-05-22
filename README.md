@@ -23,8 +23,6 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 - 🔒 **Production-grade security** — Element gating, content masking, lifecycle hooks, human-in-the-loop confirmation.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
-- 🎙️ **Live Agent (Voice Mode)** — Real-time conversational AI that sees your screen and takes action while you speak.
-- 🎤 **Voice Dictation** — Built-in on-device speech-to-text for the text chat mode.
 - 🌍 **Bilingual** — English and Arabic support built-in.
 
 ## 📦 Installation
@@ -39,20 +37,12 @@ No native modules required by default. Works with Expo managed workflow out of t
 
 ### Optional Native Dependencies
 
-If you want to use **Live Agent (Voice)**, **Text Mode Dictation**, or **Screenshots** (for image/video content), install these optional peer dependencies:
+If you want to use **Screenshots** (for image/video content), install this optional peer dependency:
 
 ```bash
-# For Voice / Live Agent mode:
-npx expo install react-native-audio-api
-
-# For Text mode voice dictation (mic button):
-npx expo install expo-speech-recognition
-
 # For Screenshots (when asking AI "what do you see in this image?"):
 npx expo install react-native-view-shot
 ```
-
-> **Note on Permissions**: Ensure you add Microphone permissions (`NSMicrophoneUsageDescription` / `RECORD_AUDIO`) to your `app.json` or `Info.plist`/`AndroidManifest.xml` if using the audio packages.
 
 ## 🚀 Quick Start
 
@@ -80,14 +70,13 @@ A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, 
 
 ### `<AIAgent>` Component
 
-The root provider. Wrap your app once at the top level. You can toggle between Text and Live Agent (Voice) modes.
+The root provider. Wrap your app once at the top level.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `apiKey` | `string` | — | **Required.** Gemini API key. |
 | `model` | `string` | `'gemini-2.5-flash'` | Gemini model name. |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
-| `language` | `'en' \| 'ar'` | `'en'` | UI language. Forces Gemini Voice to speak the chosen dialect natively. |
 | `maxSteps` | `number` | `10` | Max steps per task. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
 | `onResult` | `(result) => void` | — | Called when the agent finishes. |
