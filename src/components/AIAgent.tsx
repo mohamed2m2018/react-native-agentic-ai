@@ -249,6 +249,7 @@ export function AIAgent({
         apiKey,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
+        language,
       });
       logger.info('AIAgent', 'VoiceService created with full voice system prompt and tools');
     }

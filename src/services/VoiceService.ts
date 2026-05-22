@@ -22,6 +22,8 @@ export interface VoiceServiceConfig {
   tools?: ToolDefinition[];
   /** Audio sample rate for mic input (default: 16000) */
   inputSampleRate?: number;
+  /** Language for Gemini speech generation (e.g., 'en', 'ar') */
+  language?: string;
 }
 
 export interface VoiceServiceCallbacks {
@@ -206,6 +208,12 @@ export class VoiceService {
         responseModalities: ['AUDIO'],
       },
     };
+
+    if (this.config.language) {
+      setup.generationConfig.speechConfig = {
+        languageCode: this.config.language === 'ar' ? 'ar-SA' : 'en-US',
+      };
+    }
 
     // Add system instruction if provided
     if (this.config.systemPrompt) {
