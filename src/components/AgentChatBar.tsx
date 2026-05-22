@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Animated,
   PanResponder,
+  ScrollView,
   useWindowDimensions,
 } from 'react-native';
 import type { ExecutionResult, AgentMode } from '../core/types';
@@ -457,7 +458,9 @@ export function AgentChatBar({
       {/* Result Bubble */}
       {lastResult && (
         <View style={[styles.resultBubble, lastResult.success ? styles.resultSuccess : styles.resultError]}>
-          <Text style={styles.resultText}>{lastResult.message}</Text>
+          <ScrollView style={styles.resultScroll} nestedScrollEnabled>
+            <Text style={styles.resultText}>{lastResult.message}</Text>
+          </ScrollView>
           {onDismiss && (
             <Pressable style={styles.dismissButton} onPress={onDismiss} hitSlop={12}>
               <Text style={styles.dismissText}>✕</Text>
@@ -574,6 +577,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     lineHeight: 20,
+    flex: 1,
+  },
+  resultScroll: {
+    maxHeight: 200,
     flex: 1,
   },
   dismissButton: {
