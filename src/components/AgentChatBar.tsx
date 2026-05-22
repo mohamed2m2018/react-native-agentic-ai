@@ -16,6 +16,14 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import type { ExecutionResult, AgentMode } from '../core/types';
+import {
+  MicIcon,
+  SpeakerIcon,
+  SendArrowIcon,
+  StopIcon,
+  LoadingDots,
+  AIBadge,
+} from './Icons';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -56,9 +64,9 @@ function ModeSelector({
 }) {
   if (modes.length <= 1) return null;
 
-  const labels: Record<AgentMode, { icon: string; label: string }> = {
-    text: { icon: '💬', label: 'Text' },
-    voice: { icon: '🎙️', label: 'Live Agent' },
+  const labels: Record<AgentMode, { label: string }> = {
+    text: { label: 'Text' },
+    voice: { label: 'Live Agent' },
   };
 
   return (
@@ -73,7 +81,15 @@ function ModeSelector({
           onPress={() => onSelect(mode)}
           accessibilityLabel={`Switch to ${labels[mode].label} mode`}
         >
-          <Text style={modeStyles.tabIcon}>{labels[mode].icon}</Text>
+          {/* Active indicator dot */}
+          {activeMode === mode && (
+            <View style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: mode === 'voice' ? '#34C759' : '#7B68EE',
+            }} />
+          )}
           <Text
             style={[
               modeStyles.tabLabel,
@@ -91,15 +107,13 @@ function ModeSelector({
 // ─── Audio Control Button ──────────────────────────────────────
 
 function AudioControlButton({
-  icon,
-  activeIcon,
+  children,
   isActive,
   onPress,
   label,
   size = 36,
 }: {
-  icon: string;
-  activeIcon: string;
+  children: React.ReactNode;
   isActive: boolean;
   onPress: () => void;
   label: string;
@@ -116,7 +130,7 @@ function AudioControlButton({
       accessibilityLabel={label}
       hitSlop={8}
     >
-      <Text style={audioStyles.controlIcon}>{isActive ? activeIcon : icon}</Text>
+      {children}
     </Pressable>
   );
 }
@@ -207,9 +221,7 @@ function DictationButton({
       accessibilityLabel={isListening ? 'Stop dictation' : 'Start dictation'}
       hitSlop={8}
     >
-      <Text style={styles.sendButtonText}>
-        {isListening ? '⏹️' : '🎤'}
-      </Text>
+      {isListening ? <StopIcon size={18} color="#FF3B30" /> : <MicIcon size={18} color="#fff" />}
     </Pressable>
   );
 }
@@ -253,9 +265,7 @@ function TextInputRow({
         disabled={isThinking || !text.trim()}
         accessibilityLabel="Send request to AI Agent"
       >
-        <Text style={styles.sendButtonText}>
-          {isThinking ? '⏳' : '🚀'}
-        </Text>
+        {isThinking ? <LoadingDots size={18} color="#fff" /> : <SendArrowIcon size={18} color="#fff" />}
       </Pressable>
     </View>
   );
@@ -288,12 +298,12 @@ function VoiceControlsRow({
     <View style={styles.inputRow}>
       {/* Speaker mute/unmute */}
       <AudioControlButton
-        icon="🔊"
-        activeIcon="🔇"
         isActive={isSpeakerMuted}
         onPress={() => onSpeakerToggle(!isSpeakerMuted)}
         label={isSpeakerMuted ? 'Unmute speaker' : 'Mute speaker'}
-      />
+      >
+        <SpeakerIcon size={18} color="#fff" muted={isSpeakerMuted} />
+      </AudioControlButton>
 
       {/* Mic button — large center */}
       <Pressable
@@ -318,9 +328,16 @@ function VoiceControlsRow({
           isMicActive ? 'Stop recording' : 'Start recording'
         }
       >
-        <Text style={audioStyles.micIcon}>
-          {isConnecting ? '🔄' : isAISpeaking ? '🔊' : isMicActive ? '⏹️' : '🎙️'}
-        </Text>
+        <View style={audioStyles.micIconWrap}>
+          {isConnecting
+            ? <LoadingDots size={20} color="#fff" />
+            : isAISpeaking
+              ? <SpeakerIcon size={20} color="#fff" />
+              : isMicActive
+                ? <StopIcon size={20} color="#fff" />
+                : <MicIcon size={20} color="#fff" />
+          }
+        </View>
         <Text style={audioStyles.micLabel}>
           {isConnecting
             ? (isArabic ? 'جاري الاتصال...' : 'Connecting...')
@@ -402,7 +419,6 @@ export function AgentChatBar({
   // ─── FAB (Compressed) ──────────────────────────────────────
 
   if (!isExpanded) {
-    const fabIcon = isThinking ? '⏳' : '🤖';
     return (
       <Animated.View
         style={[styles.fabContainer, pan.getLayout()]}
@@ -413,7 +429,7 @@ export function AgentChatBar({
           onPress={() => setIsExpanded(true)}
           accessibilityLabel="Open AI Agent Chat"
         >
-          <Text style={styles.fabIcon}>{fabIcon}</Text>
+          {isThinking ? <LoadingDots size={28} color="#fff" /> : <AIBadge size={28} />}
         </Pressable>
       </Animated.View>
     );
@@ -676,8 +692,11 @@ const audioStyles = StyleSheet.create({
   micButtonSpeaking: {
     backgroundColor: 'rgba(52, 199, 89, 0.3)',
   },
-  micIcon: {
-    fontSize: 20,
+  micIconWrap: {
+    width: 20,
+    height: 20,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
   micLabel: {
     color: '#fff',

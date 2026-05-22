@@ -146,6 +146,9 @@ export class AgentRuntime {
         }
         try {
           element.props.onChangeText(args.text);
+          // Wait for React to process the state update and re-render
+          // (same pattern as navigate tool's 500ms post-action delay)
+          await new Promise(resolve => setTimeout(resolve, 500));
           return `✅ Typed "${args.text}" into [${args.index}] "${element.label}"`;
         } catch (error: any) {
           return `❌ Error typing: ${error.message}`;
@@ -174,7 +177,7 @@ export class AgentRuntime {
           }
         }
 
-        // React Navigation path: use navRef.navigate()
+        // React Navigation path: use navRef
         if (!this.navRef) {
           return '❌ Navigation ref not available.';
         }
@@ -188,10 +191,31 @@ export class AgentRuntime {
           const params = args.params ? (typeof args.params === 'string' ? JSON.parse(args.params) : args.params) : undefined;
           // Case-insensitive screen name matching
           const availableRoutes = this.getRouteNames();
+          logger.info('AgentRuntime', `🧭 Navigate requested: "${args.screen}" | Available: [${availableRoutes.join(', ')}] | Params: ${JSON.stringify(params)}`);
           const matchedScreen = availableRoutes.find(
             r => r.toLowerCase() === args.screen.toLowerCase()
-          ) || args.screen;
-          this.navRef.navigate(matchedScreen, params);
+          );
+
+          // Guard: screen must exist in the navigation tree
+          if (!matchedScreen) {
+            const errMsg = `❌ "${args.screen}" is not a screen — it may be content within a screen. Available screens: ${availableRoutes.join(', ')}. Look at the current screen context for "${args.screen}" as a section, category, or element, and scroll/tap to find it. If it's on a different screen, navigate to the correct screen first.`;
+            logger.warn('AgentRuntime', `🧭 Navigate REJECTED: ${errMsg}`);
+            return errMsg;
+          }
+          logger.info('AgentRuntime', `🧭 Navigate matched: "${args.screen}" → "${matchedScreen}"`);
+
+          // Find the path to the screen (handles nested navigators)
+          const screenPath = this.findScreenPath(matchedScreen);
+          if (screenPath.length > 1) {
+            // Nested screen: navigate using parent → { screen: child } pattern
+            // e.g. navigate('HomeTab', { screen: 'Home', params })
+            logger.info('AgentRuntime', `Nested navigation: ${screenPath.join(' → ')}`);
+            const nestedParams = this.buildNestedParams(screenPath, params);
+            this.navRef.navigate(screenPath[0], nestedParams);
+          } else {
+            // Top-level screen: direct navigate
+            this.navRef.navigate(matchedScreen, params);
+          }
           await new Promise(resolve => setTimeout(resolve, 500));
           return `✅ Navigated to "${matchedScreen}"${params ? ` with params: ${JSON.stringify(params)}` : ''}`;
         } catch (error: any) {
@@ -287,6 +311,49 @@ export class AgentRuntime {
       }
     }
     return [...new Set(names)];
+  }
+
+  /**
+   * Find the path from root navigator to a target screen.
+   * Returns [parentTab, screen] for nested screens, or [screen] for top-level.
+   * Example: findScreenPath('Home') → ['HomeTab', 'Home']
+   */
+  private findScreenPath(targetScreen: string): string[] {
+    try {
+      const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
+      if (!state?.routes) return [targetScreen];
+
+      // Check if target is a direct top-level route
+      if (state.routes.some((r: any) => r.name === targetScreen)) {
+        return [targetScreen];
+      }
+
+      // Search nested navigators
+      for (const route of state.routes) {
+        const nestedNames = route.state ? this.collectRouteNames(route.state) : [];
+        if (nestedNames.includes(targetScreen)) {
+          return [route.name, targetScreen];
+        }
+      }
+
+      return [targetScreen]; // Fallback: try direct
+    } catch {
+      return [targetScreen];
+    }
+  }
+
+  /**
+   * Build nested params for React Navigation nested screen navigation.
+   * ['HomeTab', 'Home'] → { screen: 'Home', params }
+   * ['Tab', 'Stack', 'Screen'] → { screen: 'Stack', params: { screen: 'Screen', params } }
+   */
+  private buildNestedParams(path: string[], leafParams?: any): any {
+    // Build from the end: innermost screen gets the leafParams
+    let result = leafParams;
+    for (let i = path.length - 1; i >= 1; i--) {
+      result = { screen: path[i], ...(result !== undefined ? { params: result } : {}) };
+    }
+    return result;
   }
 
   /**

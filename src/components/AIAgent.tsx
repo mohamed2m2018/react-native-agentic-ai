@@ -148,6 +148,10 @@ export function AIAgent({
   const voiceServiceRef = useRef<VoiceService | null>(null);
   const audioInputRef = useRef<AudioInputService | null>(null);
   const audioOutputRef = useRef<AudioOutputService | null>(null);
+  const toolLockRef = useRef<boolean>(false);
+  const userHasSpokenRef = useRef<boolean>(false);
+  const lastScreenContextRef = useRef<string>('');
+  const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Compute available modes from props
   const availableModes: AgentMode[] = useMemo(() => {
@@ -173,8 +177,7 @@ export function AIAgent({
     onAfterStep,
     onBeforeTask,
     onAfterTask,
-    transformScreenContent,
-    customTools,
+    customTools: mode === 'voice' ? { ...customTools, ask_user: null } : customTools,
     instructions,
     stepDelay,
     mcpServerUrl,
@@ -183,7 +186,7 @@ export function AIAgent({
     onStatusUpdate: setStatusText,
     onTokenUsage,
     // Page-agent pattern: block the agent loop until user responds
-    onAskUser: (question: string) => {
+    onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
         askUserResolverRef.current = resolve;
         // Show question in chat bar, allow user input
@@ -191,9 +194,9 @@ export function AIAgent({
         setIsThinking(false);
         setStatusText('');
       });
-    },
+    }),
   }), [
-    apiKey, model, language, maxSteps,
+    mode, apiKey, model, language, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
@@ -237,6 +240,9 @@ export function AIAgent({
 
     logger.info('AIAgent', `Mode changed to "${mode}" — initializing voice services...`);
 
+    // Track async audio output init — mic MUST wait for this
+    let audioOutputInitPromise: Promise<void> = Promise.resolve();
+
     // Create VoiceService with runtime's built-in tools (navigate, tap, type, done, etc.)
     if (!voiceServiceRef.current) {
       logger.info('AIAgent', 'Creating VoiceService...');
@@ -245,13 +251,14 @@ export function AIAgent({
       // Use voice-adapted system prompt — same core rules as text mode
       // but without agent-loop directives that trigger autonomous actions
       const voicePrompt = buildVoiceSystemPrompt(language, instructions?.system);
+      logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
         language,
       });
-      logger.info('AIAgent', 'VoiceService created with full voice system prompt and tools');
+      logger.info('AIAgent', `VoiceService created with ${runtimeTools.length} tools: ${runtimeTools.map(t => t.name).join(', ')}`);
     }
 
     // Create AudioOutputService if not exists
@@ -260,7 +267,11 @@ export function AIAgent({
       audioOutputRef.current = new AudioOutputService({
         onError: (err) => logger.error('AIAgent', `AudioOutput error: ${err}`),
       });
-      audioOutputRef.current.initialize().then((ok) => {
+      // IMPORTANT: Must await initialize() BEFORE starting mic.
+      // initialize() calls setAudioSessionOptions which reconfigures the
+      // audio hardware. If the mic starts before this finishes, the native
+      // audio session change kills the recorder's device handle.
+      audioOutputInitPromise = audioOutputRef.current.initialize().then((ok) => {
         logger.info('AIAgent', `AudioOutputService initialized: ${ok}`);
       });
     }
@@ -271,7 +282,7 @@ export function AIAgent({
       audioInputRef.current = new AudioInputService({
         // Default 16kHz — Gemini Live API input standard
         onAudioChunk: (chunk) => {
-          logger.debug('AIAgent', `Mic chunk: ${chunk.length} chars`);
+          logger.info('AIAgent', `🎤 onAudioChunk: ${chunk.length} chars, voiceService=${!!voiceServiceRef.current}, connected=${voiceServiceRef.current?.isConnected}`);
           voiceServiceRef.current?.sendAudio(chunk);
         },
         onError: (err) => logger.error('AIAgent', `AudioInput error: ${err}`),
@@ -283,62 +294,204 @@ export function AIAgent({
     logger.info('AIAgent', 'Connecting VoiceService...');
     void voiceServiceRef.current.connect({
       onAudioResponse: (audio) => {
-        logger.info('AIAgent', `Received audio response (${audio.length} chars)`);
+        logger.info('AIAgent', `🔊 Audio response: ${audio.length} chars, audioOutputRef=${!!audioOutputRef.current}`);
         setIsAISpeaking(true);
-        audioOutputRef.current?.enqueue(audio);
+        if (!audioOutputRef.current) {
+          logger.error('AIAgent', '❌ audioOutputRef.current is NULL — cannot play audio!');
+          return;
+        }
+        audioOutputRef.current.enqueue(audio);
       },
       onStatusChange: (status) => {
         logger.info('AIAgent', `Voice status: ${status}`);
         const connected = status === 'connected';
         setIsVoiceConnected(connected);
         if (connected) {
-          logger.info('AIAgent', '✅ VoiceService connected — auto-starting mic...');
-          // Auto-start mic streaming once WebSocket is ready
-          audioInputRef.current?.start().then((ok) => {
-            if (ok) {
-              setIsMicActive(true);
-              logger.info('AIAgent', '🎙️ Mic auto-started after connection');
-            }
+          logger.info('AIAgent', '✅ VoiceService connected — waiting for audio session init before starting mic...');
+          // Wait for audio session config to finish BEFORE starting mic.
+          // If mic starts while setAudioSessionOptions is in flight,
+          // the native audio device gets killed (AudioDeviceStop error).
+          audioOutputInitPromise.then(() => {
+            logger.info('AIAgent', '✅ Audio session ready — starting mic now...');
+            audioInputRef.current?.start().then((ok) => {
+              if (ok) {
+                setIsMicActive(true);
+                logger.info('AIAgent', '🎙️ Mic auto-started after connection');
+              }
+            });
           });
-          // Send initial screen context so the model knows what's on screen.
-          // sendScreenContext uses turnComplete: false (passive context)
-          // so the model should NOT act on it until the user speaks.
-          const initialContext = runtime.getScreenContext();
-          voiceServiceRef.current?.sendScreenContext(initialContext);
-          logger.info('AIAgent', '📡 Initial screen context sent (passive, turnComplete=false)');
+        }
+
+        // Handle unexpected disconnection — auto-reconnect ONLY if not intentional
+        if (
+          status === 'disconnected' &&
+          mode === 'voice' &&
+          voiceServiceRef.current &&
+          !voiceServiceRef.current.intentionalDisconnect
+        ) {
+          // Stop mic & audio immediately so user isn't stuck
+          audioInputRef.current?.stop();
+          audioOutputRef.current?.stop();
+          setIsMicActive(false);
+          setIsAISpeaking(false);
+
+          logger.warn('AIAgent', '⚠️ Voice connection dropped unexpectedly — attempting reconnect in 2s...');
+
+          // Auto-reconnect after short delay
+          setTimeout(() => {
+            if (
+              mode === 'voice' &&
+              voiceServiceRef.current &&
+              !voiceServiceRef.current.intentionalDisconnect &&
+              voiceServiceRef.current.lastCallbacks
+            ) {
+              logger.info('AIAgent', '🔄 Reconnecting VoiceService...');
+              void voiceServiceRef.current.connect(voiceServiceRef.current.lastCallbacks);
+            }
+          }, 2000);
         }
       },
       onTranscript: (text, isFinal, role) => {
         logger.info('AIAgent', `Transcript [${role}] (final=${isFinal}): "${text}"`);
+        if (role === 'user') {
+          userHasSpokenRef.current = true;
+        }
+      },
+      onSetupComplete: () => {
+        logger.info('AIAgent', '✅ SDK setup complete — sending initial screen context now');
+        userHasSpokenRef.current = false;
+        const initialContext = runtime.getScreenContext();
+        lastScreenContextRef.current = initialContext; // Seed for screen change detection
+        const passiveContext = `[SYSTEM CONTEXT — THIS IS NOT A USER REQUEST. DO NOT RESPOND. DO NOT NAVIGATE. DO NOT CALL ANY TOOLS. DO NOT SPEAK. Just silently read and memorize this screen layout. You will use it when the user speaks their first voice command.]\n\n${initialContext}`;
+        logger.info('AIAgent', `📡 Initial screen context (${passiveContext.length} chars):\n${passiveContext}`);
+        voiceServiceRef.current?.sendScreenContext(passiveContext);
+        logger.info('AIAgent', '📡 Initial screen context sent (turnComplete=true)');
       },
       onToolCall: async (toolCall) => {
-        logger.info('AIAgent', `Voice tool call: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
-        // Execute the tool via AgentRuntime and send result back to Gemini
-        const result = await runtime.executeTool(toolCall.name, toolCall.args);
-        logger.info('AIAgent', `Voice tool result: ${result}`);
+        logger.info('AIAgent', `🔧 Voice tool call: ${toolCall.name}(${JSON.stringify(toolCall.args)}) [id=${toolCall.id}]`);
 
-        voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, { result });
+        // Code-level gate: reject tool calls before the user has spoken.
+        // The model sometimes auto-navigates on receiving screen context.
+        if (!userHasSpokenRef.current) {
+          logger.warn('AIAgent', `🚫 Rejected tool call ${toolCall.name} — user hasn't spoken yet`);
+          voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, {
+            result: 'Action rejected: wait for the user to speak before performing any actions.',
+          });
+          return;
+        }
 
-        // After tool execution, push updated screen context
-        // (the screen may have changed from tap/type/navigate)
-        const updatedContext = runtime.getScreenContext();
-        voiceServiceRef.current?.sendScreenContext(updatedContext);
-        logger.info('AIAgent', '📡 Updated screen context sent after tool call');
+        // CRITICAL: Gate audio input during tool execution.
+        // The Gemini Live API crashes (code 1008) if sendRealtimeInput
+        // (audio) is called while a tool call is pending. Stop the mic
+        // before executing the tool and resume after the response is sent.
+        audioInputRef.current?.stop();
+        logger.info('AIAgent', `🔇 Mic paused for tool execution: ${toolCall.name}`);
+
+        // One-tool-at-a-time enforcement (mirrors text mode's line 752).
+        if (toolLockRef.current) {
+          logger.warn('AIAgent', `⏳ Tool locked — waiting for previous tool to finish before executing ${toolCall.name}`);
+          while (toolLockRef.current) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        }
+        toolLockRef.current = true;
+
+        try {
+          // Execute the tool via AgentRuntime and send result back to Gemini
+          const result = await runtime.executeTool(toolCall.name, toolCall.args);
+          logger.info('AIAgent', `🔧 Tool result for ${toolCall.name}: ${result}`);
+
+          // Step delay — matches text mode's stepDelay (line 820 in AgentRuntime).
+          await new Promise(resolve => setTimeout(resolve, 300));
+
+          // Include updated screen context IN the tool response
+          const updatedContext = runtime.getScreenContext();
+          lastScreenContextRef.current = updatedContext; // Sync with poll tracker
+          logger.info('AIAgent', `📡 Updated screen context after ${toolCall.name} (${updatedContext.length} chars):\n${updatedContext}`);
+          const enrichedResult = `${result}\n\n<updated_screen>\n${updatedContext}\n</updated_screen>`;
+          logger.info('AIAgent', `📡 Enriched tool response (${enrichedResult.length} chars):\n${enrichedResult}`);
+
+          voiceServiceRef.current?.sendFunctionResponse(toolCall.name, toolCall.id, { result: enrichedResult });
+          logger.info('AIAgent', `📡 Tool response sent for ${toolCall.name} [id=${toolCall.id}]`);
+        } finally {
+          toolLockRef.current = false;
+          // Resume mic after tool response is sent
+          if (voiceServiceRef.current?.isConnected) {
+            audioInputRef.current?.start().then((ok) => {
+              if (ok) {
+                setIsMicActive(true);
+                logger.info('AIAgent', `🔊 Mic resumed after tool execution: ${toolCall.name}`);
+              }
+            });
+          }
+        }
       },
       onError: (err) => {
         logger.error('AIAgent', `VoiceService error: ${err}`);
+        // Stop mic & audio on error to prevent stale state
+        audioInputRef.current?.stop();
+        audioOutputRef.current?.stop();
+        setIsMicActive(false);
+        setIsAISpeaking(false);
       },
       onTurnComplete: () => {
         logger.info('AIAgent', 'AI turn complete');
         setIsAISpeaking(false);
+        // No cool-down or echo gate needed — hardware AEC handles everything.
+        // Mic stays active and ready for the next voice command immediately.
       },
     });
+
+    // ─── Screen Change Detection ───────────────────────────────
+    // Poll the Fiber tree every 5s and resend context if the screen meaningfully changed.
+    // This gives voice mode the same screen-awareness as text mode's per-step re-read.
+    const SCREEN_POLL_INTERVAL = 5000;
+    const MIN_DIFF_RATIO = 0.05; // Ignore changes smaller than 5% of total length (animation flicker)
+
+    screenPollIntervalRef.current = setInterval(() => {
+      if (!voiceServiceRef.current?.isConnected) return;
+      // Skip during tool execution — the enriched tool response handles that
+      if (toolLockRef.current) {
+        logger.debug('AIAgent', '🔄 Screen poll skipped — tool lock active');
+        return;
+      }
+
+      try {
+        const currentContext = runtime.getScreenContext();
+        if (currentContext === lastScreenContextRef.current) return; // No change
+
+        // Check if the change is meaningful (not just animation/cursor flicker)
+        const lastLen = lastScreenContextRef.current.length;
+        const diff = Math.abs(currentContext.length - lastLen);
+        const diffRatio = lastLen > 0 ? diff / lastLen : 1;
+
+        if (diffRatio < MIN_DIFF_RATIO) {
+          logger.debug('AIAgent', `🔄 Screen poll: minor change ignored (${diff} chars, ${(diffRatio * 100).toFixed(1)}% < ${MIN_DIFF_RATIO * 100}% threshold)`);
+          return;
+        }
+
+        logger.info('AIAgent', `🔄 Screen change detected (${lastLen} → ${currentContext.length} chars, ${(diffRatio * 100).toFixed(1)}% diff)`);
+        lastScreenContextRef.current = currentContext;
+        const passiveUpdate = `[SCREEN UPDATE — The UI has changed. Here is the current screen layout. This is not a user request — do not act unless the user asks.]\n\n${currentContext}`;
+        voiceServiceRef.current?.sendScreenContext(passiveUpdate);
+        logger.info('AIAgent', '🔄 Updated screen context sent to voice model');
+      } catch (err) {
+        logger.warn('AIAgent', `🔄 Screen poll error: ${err}`);
+      }
+    }, SCREEN_POLL_INTERVAL);
 
     // Cleanup on mode change back to text
     return () => {
       logger.info('AIAgent', `Cleaning up voice services (leaving "${mode}" mode)`);
+      // Stop screen change polling
+      if (screenPollIntervalRef.current) {
+        clearInterval(screenPollIntervalRef.current);
+        screenPollIntervalRef.current = null;
+        logger.info('AIAgent', '🔄 Screen poll stopped');
+      }
+      lastScreenContextRef.current = '';
       voiceServiceRef.current?.disconnect();
-      voiceServiceRef.current = null; // Ensure fresh instance on next connect
+      voiceServiceRef.current = null;
       audioInputRef.current?.stop();
       setIsMicActive(false);
       setIsAISpeaking(false);
@@ -362,7 +515,7 @@ export function AIAgent({
     setIsMicActive(false);
     setIsAISpeaking(false);
     setIsVoiceConnected(false);
-    // 5. Switch back to text mode (triggers cleanup effect naturally)
+    // 6. Switch back to text mode (triggers cleanup effect naturally)
     setMode('text');
     logger.info('AIAgent', '🛑 Voice session fully stopped');
   }, [runtime]);

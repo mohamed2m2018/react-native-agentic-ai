@@ -45,13 +45,14 @@ export interface VoiceServiceCallbacks {
   onError?: (error: string) => void;
   /** Called when AI turn is complete (all audio sent) */
   onTurnComplete?: () => void;
+  /** Called when SDK setup is complete — safe to send screen context */
+  onSetupComplete?: () => void;
 }
 
 export type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 // ─── Constants ─────────────────────────────────────────────────
 
-// Official docs use -12-2025 for function calling with the SDK
 const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const DEFAULT_INPUT_SAMPLE_RATE = 16000;
 
@@ -61,7 +62,9 @@ export class VoiceService {
   private session: Session | null = null;
   private config: VoiceServiceConfig;
   private callbacks: VoiceServiceCallbacks = {};
+  public lastCallbacks: VoiceServiceCallbacks | null = null;
   private _status: VoiceStatus = 'disconnected';
+  public intentionalDisconnect = false;
 
   constructor(config: VoiceServiceConfig) {
     this.config = config;
@@ -80,7 +83,9 @@ export class VoiceService {
     }
 
     this.callbacks = callbacks;
+    this.lastCallbacks = callbacks;
     this.setStatus('connecting');
+    this.intentionalDisconnect = false;
 
     const model = this.config.model || DEFAULT_MODEL;
     logger.info('VoiceService', `Connecting via SDK (model: ${model})`);
@@ -95,6 +100,11 @@ export class VoiceService {
         responseModalities: [Modality.AUDIO],
       };
 
+      // Enable transcription for debugging and UX
+      sdkConfig.inputAudioTranscription = {};
+      sdkConfig.outputAudioTranscription = {};
+      logger.info('VoiceService', 'Transcription enabled');
+
       if (this.config.systemPrompt) {
         sdkConfig.systemInstruction = {
           parts: [{ text: this.config.systemPrompt }],
@@ -104,6 +114,15 @@ export class VoiceService {
       if (toolDeclarations.length > 0) {
         sdkConfig.tools = [{ functionDeclarations: toolDeclarations }];
       }
+
+      // FULL CONFIG DUMP — see exactly what we send to SDK
+      const configDump = JSON.stringify({
+        ...sdkConfig,
+        systemInstruction: sdkConfig.systemInstruction ? '(present)' : '(none)',
+        tools: sdkConfig.tools ? `${toolDeclarations.length} declarations` : '(none)',
+      });
+      logger.info('VoiceService', `📋 SDK config: ${configDump}`);
+      logger.info('VoiceService', `📋 Tool names: ${toolDeclarations.map((t: any) => t.name).join(', ')}`);
 
       const session = await ai.live.connect({
         model: model,
@@ -117,12 +136,23 @@ export class VoiceService {
             this.handleSDKMessage(message);
           },
           onerror: (error: any) => {
-            logger.error('VoiceService', `SDK error: ${error?.message || 'Unknown'}`);
+            const errDetail = error
+              ? JSON.stringify(error, Object.getOwnPropertyNames(error)).substring(0, 500)
+              : 'null';
+            logger.error('VoiceService', `SDK error: ${errDetail}`);
             this.setStatus('error');
             this.callbacks.onError?.(error?.message || 'SDK connection error');
           },
           onclose: (event: any) => {
-            logger.info('VoiceService', `SDK session closed: ${event?.reason || 'unknown'}`);
+            const closeDetail = event
+              ? JSON.stringify(event, Object.getOwnPropertyNames(event)).substring(0, 500)
+              : 'null';
+            if (this.intentionalDisconnect) {
+              logger.info('VoiceService', `SDK session closed (intentional)`);
+            } else {
+              logger.error('VoiceService', `SDK session closed UNEXPECTEDLY — code: ${event?.code}, reason: ${event?.reason}, detail: ${closeDetail}`);
+              this.callbacks.onError?.(`Connection lost (code: ${event?.code || 'unknown'})`);
+            }
             this.session = null;
             this.setStatus('disconnected');
           },
@@ -141,7 +171,8 @@ export class VoiceService {
 
   disconnect(): void {
     if (this.session) {
-      logger.info('VoiceService', 'Disconnecting...');
+      logger.info('VoiceService', 'Disconnecting (intentional)...');
+      this.intentionalDisconnect = true;
       this.session.close();
       this.session = null;
       this.setStatus('disconnected');
@@ -171,12 +202,21 @@ export class VoiceService {
 
     const mimeType = `audio/pcm;rate=${this.config.inputSampleRate || DEFAULT_INPUT_SAMPLE_RATE}`;
 
+    // DEBUG: log every send call
+    if (this.sendCount <= 5 || this.sendCount % 10 === 0) {
+      logger.info('VoiceService', `📡 sendAudio #${this.sendCount}: len=${base64Audio.length}, mime=${mimeType}, preview=${base64Audio.substring(0, 30)}...`);
+    }
+
     try {
       this.session.sendRealtimeInput({
         audio: { data: base64Audio, mimeType },
       });
+      // Log every 50th successful send to confirm data is reaching WebSocket
+      if (this.sendCount % 50 === 0) {
+        logger.info('VoiceService', `✅ sendAudio #${this.sendCount} OK — session.isOpen=${!!this.session}`);
+      }
     } catch (error: any) {
-      logger.error('VoiceService', `sendAudio failed: ${error.message}`);
+      logger.error('VoiceService', `❌ sendAudio EXCEPTION: ${error.message}\n${error.stack?.substring(0, 300)}`);
       this.session = null;
       this.setStatus('disconnected');
     }
@@ -188,6 +228,7 @@ export class VoiceService {
   sendText(text: string): void {
     if (!this.isConnected || !this.session) return;
 
+    logger.info('VoiceService', `🗣️ USER (text): "${text}"`);
     try {
       this.session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text }] }],
@@ -208,9 +249,9 @@ export class VoiceService {
     try {
       this.session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: domText }] }],
-        turnComplete: false,
+        turnComplete: true,
       });
-      logger.debug('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
+      logger.info('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
     } catch (error: any) {
       logger.error('VoiceService', `sendScreenContext failed: ${error.message}`);
     }
@@ -286,6 +327,16 @@ export class VoiceService {
    */
   private handleSDKMessage(message: any): void {
     try {
+      // RAW MESSAGE DUMP — full session visibility
+      const msgKeys = Object.keys(message || {}).join(', ');
+      logger.info('VoiceService', `📨 SDK message keys: [${msgKeys}]`);
+
+      // Full raw dump for non-audio messages (audio is too large)
+      if (!message.serverContent?.modelTurn?.parts?.some((p: any) => p.inlineData)) {
+        const rawDump = JSON.stringify(message).substring(0, 1000);
+        logger.info('VoiceService', `📨 RAW: ${rawDump}`);
+      }
+
       // Tool calls — top-level (per official docs)
       if (message.toolCall?.functionCalls) {
         this.handleToolCalls(message.toolCall.functionCalls);
@@ -300,6 +351,7 @@ export class VoiceService {
       // Setup complete acknowledgment
       if (message.setupComplete !== undefined) {
         logger.info('VoiceService', '✅ Setup complete — ready for audio');
+        this.callbacks.onSetupComplete?.();
       }
 
       // Error messages
@@ -324,10 +376,18 @@ export class VoiceService {
     }
   }
 
+  private audioResponseCount = 0;
+
   /** Process server content (audio responses, transcripts, turn events) */
   private handleServerContent(content: any): void {
+    // Log all keys for full visibility
+    const contentKeys = Object.keys(content || {}).join(', ');
+    logger.debug('VoiceService', `📦 serverContent keys: [${contentKeys}]`);
+
     // Turn complete
     if (content.turnComplete) {
+      logger.info('VoiceService', `🏁 Turn complete (audioChunks sent: ${this.audioResponseCount})`);
+      this.audioResponseCount = 0;
       this.callbacks.onTurnComplete?.();
     }
 
@@ -335,10 +395,14 @@ export class VoiceService {
     if (content.modelTurn?.parts) {
       for (const part of content.modelTurn.parts) {
         if (part.inlineData?.data) {
+          this.audioResponseCount++;
+          if (this.audioResponseCount <= 3 || this.audioResponseCount % 20 === 0) {
+            logger.info('VoiceService', `🔊 Audio chunk #${this.audioResponseCount}: ${part.inlineData.data.length} b64 chars, mime=${part.inlineData.mimeType || 'unknown'}`);
+          }
           this.callbacks.onAudioResponse?.(part.inlineData.data);
         }
         if (part.text) {
-          logger.debug('VoiceService', `💬 Text: "${part.text.substring(0, 80)}"`);
+          logger.info('VoiceService', `🤖 MODEL: "${part.text}"`);
           this.callbacks.onTranscript?.(part.text, true, 'model');
         }
       }
@@ -346,11 +410,13 @@ export class VoiceService {
 
     // Input transcription (user's speech-to-text)
     if (content.inputTranscription?.text) {
+      logger.info('VoiceService', `🗣️ USER (voice): "${content.inputTranscription.text}"`);
       this.callbacks.onTranscript?.(content.inputTranscription.text, true, 'user');
     }
 
     // Output transcription (model's speech-to-text)
     if (content.outputTranscription?.text) {
+      logger.info('VoiceService', `🤖 MODEL (voice): "${content.outputTranscription.text}"`);
       this.callbacks.onTranscript?.(content.outputTranscription.text, true, 'model');
     }
 
