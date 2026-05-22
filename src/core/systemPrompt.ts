@@ -68,7 +68,7 @@ If a \`start_ai_call\` tool is available, use it only when a trusted external pa
 /**
  * Navigation rules — identical in text and voice agents.
  */
-const NAVIGATION_RULE = `- NAVIGATION: Always use tap actions to move between screens — tap tab bar buttons, back buttons, and navigation links. This ensures all required route params (like item IDs) are passed automatically by the app. The navigate() tool is ONLY for top-level screens that require no params (e.g. Login, Settings, Cart). NEVER call navigate() on screens that require a selection or ID (e.g. DishDetail, SelectCategory, ProfileDetail) — this will crash the app. For those screens, always tap the relevant item in the parent screen.`;
+const NAVIGATION_RULE = `- NAVIGATION: Always use tap actions to move between screens — tap tab bar buttons, back buttons, and navigation links. This ensures all required route params (like item IDs) are passed automatically by the app. The navigate() tool is ONLY for top-level screens that require no params (e.g. Login, Cart). NEVER call navigate() on screens that require a selection or ID (e.g. DishDetail, SelectCategory, ProfileDetail) — this will crash the app. For those screens, always tap the relevant item in the parent screen.`;
 
 /**
  * Screen-finding procedure — used when the AI needs to navigate to a different screen.
@@ -211,9 +211,10 @@ const SCREEN_AWARENESS_RULE = `- SCREEN AWARENESS: Before asking the user for in
 /**
  * Language settings block.
  */
-const LANGUAGE_SETTINGS = (isArabic: boolean) => `<language_settings>
+const LANGUAGE_SETTINGS = (isArabic: boolean, locale?: string) => `<language_settings>
 ${isArabic ? '- Working language: **Arabic**. Respond in Arabic.' : '- Working language: **English**. Respond in English.'}
 - Use the language that the user is using. Return in user's language.
+${locale ? `- Respond in ${locale} language. Maintain conversation in this language unless the user switches.` : ''}
 </language_settings>`;
 
 /**
@@ -322,6 +323,14 @@ B3. APP INVESTIGATION (only when needed)
        refunds, or orders. Escalate only after investigation is blocked,
        available tools cannot resolve the issue, direct customer follow-up is
        required, or the user explicitly asks for a human.
+    5. SHOW YOUR WORK with guide_user. Every time you inspect a specific
+       element on the current screen to extract a number, status, label, or
+       data point, call guide_user(index, action="read") FIRST so the user
+       sees the blue ring on what you're checking. Use action="verify" when
+       re-checking a value the user contested. Keep each highlight brief
+       (autoRemoveAfterMs ~900). This is required during investigation — the
+       user should always see what you're looking at, not just your final
+       summary.
 
     Template: "To verify [specific thing], I need to check [specific screen].
     Would you like me to do that?"
@@ -402,7 +411,9 @@ export function buildSystemPrompt(
   language: string,
   hasKnowledge = false,
   isCopilot = true,
-  supportStyle: SupportStyle = 'warm-concise'
+  supportStyle: SupportStyle = 'warm-concise',
+  locale?: string,
+  enableWebSearch = false,
 ): string {
   const isArabic = language === 'ar';
 
@@ -445,7 +456,7 @@ You excel at the following tasks:
 5. Automating UI interactions like tapping buttons and filling forms (only when necessary)
 </intro>
 
-${LANGUAGE_SETTINGS(isArabic)}
+${LANGUAGE_SETTINGS(isArabic, locale)}
 
 <input>
 At every step, your input will consist of:
@@ -484,7 +495,24 @@ Available tools:
       : ''
   }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
-</tools>
+- guide_user(index, message?, action?, autoRemoveAfterMs?): Show a blue ring + tooltip overlay on a specific element. CALL THIS EAGERLY whenever you read data from the screen — every detail, total, fee, status, or field you inspect should be highlighted with action="read" or action="verify" BEFORE you mention it in your reply. Use action="tap" when guiding the user to tap. Use action="type" when typing. Auto-dismisses after ~5s.${enableWebSearch ? `
+- web_search(query): Search the web for real-time, domain-relevant info NOT available on screen or in the knowledge base. Use ONLY for app-related queries (product info, promotions, store details, dietary/allergen info, etc).` : ''}
+</tools>${enableWebSearch ? `
+
+<web_search_policy>
+You have access to web search (Google Search grounding). Use it ONLY when ALL of these conditions are true:
+1. The query is directly relevant to the app's domain, the user's account, or customer support.
+2. The answer is NOT available on screen, in the knowledge base, or in app data sources.
+3. The information is time-sensitive or factual (e.g., current promotions, store hours, product recalls, delivery partner status, real-time pricing).
+
+NEVER use web search for:
+- General knowledge questions unrelated to the app or its domain (e.g., "what's the capital of France", "who won the game last night").
+- Entertainment, news, or personal queries that have nothing to do with the user's support needs.
+- Information already available in the app's knowledge base or on screen.
+
+If the user asks something outside the app's domain, politely redirect: "I'm here to help with [app name] — is there something I can assist you with in the app?"
+</web_search_policy>` : ''}
+
 
 ${CUSTOM_ACTIONS}
 
@@ -668,7 +696,8 @@ export function buildVoiceSystemPrompt(
   language: string,
   userInstructions?: string,
   hasKnowledge = false,
-  supportStyle: SupportStyle = 'warm-concise'
+  supportStyle: SupportStyle = 'warm-concise',
+  locale?: string
 ): string {
   const isArabic = language === 'ar';
 
@@ -707,6 +736,7 @@ Available tools:
       : ''
   }
 - query_data(source, query): Query an app-registered live data source for structured async data such as products, recommendations, inventory, pricing, or order status.
+- guide_user(index, message?, action?, autoRemoveAfterMs?): Show a blue ring + tooltip overlay on a specific element. CALL THIS EAGERLY whenever you read data from the screen — every detail, total, fee, status, or field you inspect should be highlighted with action="read" or action="verify" BEFORE you mention it in your reply. Use action="tap" when guiding the user to tap. Auto-dismisses after ~5s.
 - ask_user_permission_voice_mode(question): Voice mode only. Ask the user for explicit permission before app actions. This shows Allow and Don’t Allow buttons and waits for a tap.
 
 CRITICAL — tool call protocol:
@@ -796,7 +826,7 @@ ${SHARED_CAPABILITY}
 - Suggest next steps briefly after completing an action.
 </speech_rules>
 
-${LANGUAGE_SETTINGS(isArabic)}`;
+${LANGUAGE_SETTINGS(isArabic, locale)}`;
 
   if (userInstructions?.trim()) {
     prompt += `\n\n<app_instructions>\n${userInstructions.trim()}\n</app_instructions>`;
@@ -817,7 +847,8 @@ ${LANGUAGE_SETTINGS(isArabic)}`;
 export function buildKnowledgeOnlyPrompt(
   language: string,
   hasKnowledge: boolean,
-  userInstructions?: string
+  userInstructions?: string,
+  locale?: string
 ): string {
   const isArabic = language === 'ar';
 
@@ -863,7 +894,7 @@ Available tools:
 - Be helpful, accurate, and concise.
 </rules>
 
-${LANGUAGE_SETTINGS(isArabic)}`;
+${LANGUAGE_SETTINGS(isArabic, locale)}`;
 
   if (userInstructions?.trim()) {
     prompt += `\n\n<app_instructions>\n${userInstructions.trim()}\n</app_instructions>`;
@@ -884,7 +915,8 @@ ${LANGUAGE_SETTINGS(isArabic)}`;
  */
 export function buildCompanionPrompt(
   language: string,
-  hasKnowledge: boolean
+  hasKnowledge: boolean,
+  locale?: string
 ): string {
   const isArabic = language === 'ar';
   const knowledgeToolLine = hasKnowledge
@@ -913,7 +945,7 @@ Be concise, calm, and practical.
 - If the task is sensitive, remind the user to review carefully before they tap the final button.
 </user_facing_tone>
 
-${LANGUAGE_SETTINGS(isArabic)}
+${LANGUAGE_SETTINGS(isArabic, locale)}
 
 ${COMPANION_SCREEN_STATE_GUIDE}
 

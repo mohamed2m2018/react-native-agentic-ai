@@ -200,6 +200,7 @@ export interface ScreenSnapshot {
   availableScreens: string[];
   elementsText: string;
   elements: InteractiveNode[];
+  hasLoadingIndicator?: boolean;
 }
 
 export type ActionIntent =
@@ -211,7 +212,7 @@ export type ActionIntent =
   | { type: 'select_picker'; index: number; value: string }
   | { type: 'set_date'; index: number; date: string }
   | { type: 'dismiss_keyboard' }
-  | { type: 'guide_user'; index: number; message: string; autoRemoveAfterMs?: number }
+  | { type: 'guide_user'; index: number; message: string; action?: 'tap' | 'read' | 'type' | 'verify' | 'scroll' | 'fill' | 'wait'; autoRemoveAfterMs?: number }
   | { type: 'simplify_zone'; zoneId: string }
   | { type: 'render_block'; zoneId: string; blockType: string; props?: unknown; lifecycle?: AIRichBlockLifecycle }
   | { type: 'inject_card'; zoneId: string; templateName: string; props?: unknown }
@@ -454,6 +455,13 @@ export interface AgentConfig {
    * Default: 'warm-concise'
    */
   supportStyle?: SupportStyle;
+
+  /**
+   * Enable web search grounding. When true, the provider can use Google Search
+   * (Gemini) or web_search_preview (OpenAI) for domain-relevant queries.
+   * Text mode only. Default: true.
+   */
+  enableWebSearch?: boolean;
 
   /**
    * Optional outcome verifier settings for critical app-changing actions.
@@ -949,6 +957,8 @@ export interface ProviderResult {
   text?: string;
   /** Token usage for this specific call */
   tokenUsage?: TokenUsage;
+  /** Grounding metadata from Google Search (Gemini only) */
+  groundingMetadata?: unknown;
 }
 
 export interface AIProvider {
@@ -964,6 +974,14 @@ export interface AIProvider {
     /** Optional user-uploaded images to send alongside the message */
     userImages?: UserImage[],
   ): Promise<ProviderResult>;
+
+  /**
+   * Create a provider-specific web search tool.
+   * Gemini: separate googleSearch-grounded call.
+   * OpenAI: separate Responses API call with web_search_preview.
+   * Returns null when web search is disabled or unsupported.
+   */
+  createWebSearchTool?(): ToolDefinition | null;
 }
 
 // ─── AI-Native UI (Pillar B) ───────────────────────────────────────────────────

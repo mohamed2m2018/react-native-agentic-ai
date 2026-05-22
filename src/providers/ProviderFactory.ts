@@ -15,6 +15,7 @@ export function createProvider(
   model?: string,
   proxyUrl?: string,
   proxyHeaders?: Record<string, string>,
+  enableWebSearch?: boolean,
 ): AIProvider {
   switch (provider) {
     case 'openai':
@@ -23,6 +24,7 @@ export function createProvider(
         model || 'gpt-4.1-mini',
         proxyUrl,
         proxyHeaders,
+        enableWebSearch,
       );
     case 'gemini':
     default:
@@ -31,6 +33,7 @@ export function createProvider(
         model || 'gemini-2.5-flash',
         proxyUrl,
         proxyHeaders,
+        enableWebSearch,
       );
   }
 }

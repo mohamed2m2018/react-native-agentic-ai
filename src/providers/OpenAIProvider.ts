@@ -25,6 +25,32 @@ import type {
 const AGENT_STEP_FN = 'agent_step';
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const REASONING_FIELDS = ['previous_goal_eval', 'memory', 'plan'] as const;
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  tag: string,
+  maxRetries = MAX_RETRIES,
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const msg = error.message || '';
+      const is429 = msg.includes('429') || msg.includes('rate') || msg.includes('Too Many');
+      const is503 = msg.includes('503');
+      if ((!is429 && !is503) || attempt === maxRetries) throw error;
+
+      const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+      logger.warn(tag, `Rate limited — retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
 
 // ─── Provider ──────────────────────────────────────────────────
 
@@ -33,12 +59,16 @@ export class OpenAIProvider implements AIProvider {
   private baseUrl: string;
   private headers: Record<string, string>;
 
+  private enableWebSearch: boolean;
+
   constructor(
     apiKey?: string,
     model: string = 'gpt-4.1-mini',
     proxyUrl?: string,
     proxyHeaders?: Record<string, string>,
+    enableWebSearch?: boolean,
   ) {
+    this.enableWebSearch = enableWebSearch ?? false;
     if (proxyUrl) {
       this.baseUrl = proxyUrl.endsWith('/')
         ? `${proxyUrl}v1/chat/completions`
@@ -62,6 +92,81 @@ export class OpenAIProvider implements AIProvider {
     this.model = model;
   }
 
+  /**
+   * Returns a web_search tool that makes a separate OpenAI Responses API
+   * call with web_search_preview. Falls back gracefully on errors.
+   */
+  createWebSearchTool(): ToolDefinition | null {
+    if (!this.enableWebSearch) return null;
+
+    // Derive Responses API URL from the chat completions base URL
+    const searchUrl = this.baseUrl.includes('/v1/chat/completions')
+      ? this.baseUrl.replace('/v1/chat/completions', '/v1/responses')
+      : this.baseUrl.replace(/\/+$/, '') + '/v1/responses';
+    const headers = this.headers;
+    const model = this.model;
+
+    return {
+      name: 'web_search',
+      description:
+        'Search the web for real-time, domain-relevant information that is NOT available '
+        + 'on screen or in the knowledge base. Use ONLY for app-related queries: product info, '
+        + 'current promotions, store/restaurant details, delivery status from external sources, '
+        + 'dietary or allergen info for menu items, etc. '
+        + 'Do NOT use for general knowledge questions unrelated to the app.',
+      parameters: {
+        query: {
+          type: 'string' as const,
+          description: 'The search query — should be specific and related to the app domain',
+          required: true,
+        },
+      },
+      execute: async (args: Record<string, any>) => {
+        const query = args.query;
+        if (!query?.trim()) return 'Error: search query is required.';
+
+        logger.info('WebSearch', `Searching (OpenAI): "${query}"`);
+        try {
+          const json = await retryWithBackoff(async () => {
+            const res = await fetch(searchUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                model,
+                input: query,
+                tools: [{ type: 'web_search_preview' }],
+              }),
+            });
+
+            if (!res.ok) {
+              const errBody = await res.text().catch(() => '');
+              throw new Error(`HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+            }
+
+            return res.json();
+          }, 'WebSearch');
+          const text = json.output
+            ?.filter((o: any) => o.type === 'message')
+            ?.flatMap((o: any) => o.content || [])
+            ?.filter((c: any) => c.type === 'output_text')
+            ?.map((c: any) => c.text)
+            ?.join('\n');
+
+          if (!text) {
+            logger.warn('WebSearch', 'No text in OpenAI search response');
+            return 'Web search returned no results for this query.';
+          }
+
+          logger.info('WebSearch', `Got ${text.length} chars`);
+          return `Web search results for "${query}":\n\n${text}`;
+        } catch (error: any) {
+          logger.error('WebSearch', `Failed: ${error.message}`);
+          return `Web search failed: ${error.message}. Try answering from available app data instead.`;
+        }
+      },
+    };
+  }
+
   async generateContent(
     systemPrompt: string,
     userMessage: string,
@@ -82,26 +187,28 @@ export class OpenAIProvider implements AIProvider {
     const startTime = Date.now();
 
     try {
-      const response = await fetch(this.baseUrl, {
-        method: 'POST',
-        headers: this.headers,
-        signal,
-        body: JSON.stringify({
-          model: this.model,
-          messages,
-          tools: [agentStepTool],
-          tool_choice: 'required',
-          temperature: 0.2,
-          max_tokens: 2048,
-        }),
-      });
+      const data = await retryWithBackoff(async () => {
+        const response = await fetch(this.baseUrl, {
+          method: 'POST',
+          headers: this.headers,
+          signal,
+          body: JSON.stringify({
+            model: this.model,
+            messages,
+            tools: [agentStepTool],
+            tool_choice: 'required',
+            temperature: 0.2,
+            max_tokens: 2048,
+          }),
+        });
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`OpenAI API error ${response.status}: ${errorBody}`);
-      }
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`OpenAI API error ${response.status}: ${errorBody}`);
+        }
 
-      const data = await response.json();
+        return response.json();
+      }, 'OpenAIProvider');
       const elapsed = Date.now() - startTime;
       logger.info('OpenAIProvider', `Response received in ${elapsed}ms`);
 
