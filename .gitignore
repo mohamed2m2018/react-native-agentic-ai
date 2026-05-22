@@ -86,10 +86,10 @@ android/generated
 nitrogen/
 
 example/dist/
-page-agent-reference/
 .npmrc
 .env
 fetch-models.mjs
 list-all-models.mjs
 list-models.mjs
 .agent/
+*.tgz
