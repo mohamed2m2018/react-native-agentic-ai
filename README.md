@@ -172,12 +172,35 @@ import { useAction } from '@mobileai/react-native';
 // or: import { useAction } from 'react-native-agentic-ai';
 
 function CartScreen() {
-  const { clearCart, getTotal } = useCart();
+  const { cart, clearCart, getTotal } = useCart();
 
-  useAction('checkout', 'Place the order', {}, async () => {
+  // 'checkout' = tool name the AI calls, description = how the AI decides when to use it
+  useAction('checkout', 'Place the order and checkout', {}, async () => {
+    // Guard: return early with a failure message so the AI knows why
+    if (cart.length === 0) {
+      return { success: false, message: 'Cart is empty' };
+    }
     const total = getTotal();
-    clearCart();
-    return { success: true, message: `Order placed! Total: $${total}` };
+
+    // Human-in-the-loop: the AI's execution pauses here until the user taps Confirm/Cancel.
+    // This is how you prevent the AI from performing critical actions without explicit approval.
+    return new Promise((resolve) => {
+      Alert.alert(
+        'Confirm Order by AI',
+        `Do you want the AI to place your order for $${total}?`,
+        [
+          { text: 'Cancel', style: 'cancel',
+            onPress: () => resolve({ success: false, message: 'User denied the checkout.' }) },
+          { text: 'Confirm', style: 'default',
+            onPress: () => {
+              clearCart();
+              // Return success: true so the AI knows the action completed
+              resolve({ success: true, message: `Order placed! Total: $${total}` });
+            }
+          },
+        ]
+      );
+    });
   });
 }
 ```
