@@ -34,8 +34,6 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 ### 🎤 Voice Mode (Live Agent)
 - 🗣️ **Real-time voice chat** — Bidirectional audio with Gemini Live API. Speak naturally, the agent responds with voice.
 - 🔄 **Screen change detection** — The agent automatically detects when the screen changes (e.g., loading finishes) and updates its context — no polling tool needed.
-- 🛡️ **Tool-first protocol** — Tool calls are emitted before speech to prevent server crashes (Gemini Live API limitation).
-- 🔇 **Audio gating** — Mic is automatically paused during tool execution and resumed after, preventing race conditions.
 - 🚫 **Auto-navigation guard** — Code-level gate rejects tool calls before the user speaks, preventing the model from acting on screen context alone.
 
 ### Security & Production
