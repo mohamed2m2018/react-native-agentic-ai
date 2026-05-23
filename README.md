@@ -4,6 +4,10 @@
 
 > If this helped you, consider giving it a ⭐ on [GitHub](https://github.com/mohamed2m2018/react-native-agentic-ai) — it helps others find this project!
 
+<p align="center">
+  <img src="./assets/demo.gif" alt="MobileAI Demo" width="350" />
+</p>
+
 **Two names, one package — install either:**
 
 | | Package | npm |

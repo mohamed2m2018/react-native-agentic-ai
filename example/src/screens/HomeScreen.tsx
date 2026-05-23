@@ -91,7 +91,7 @@ export default function HomeScreen({ navigation }: Props) {
       onEndReachedThreshold={0.3}
       ListHeaderComponent={
         <View>
-          <Text style={styles.title}>🍽️ FoodApp</Text>
+          <Text style={styles.title}>FoodApp</Text>
           <Text style={styles.subtitle}>What are you craving?</Text>
 
           <MediaReel />

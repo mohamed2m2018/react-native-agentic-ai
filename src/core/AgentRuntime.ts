@@ -487,7 +487,8 @@ ${screen.elementsText}
         ),
         execute: async (args) => {
           try {
-            const result = action.handler(args);
+            const result = await action.handler(args);
+            logger.info('AgentRuntime', `Action "${action.name}" result:`, JSON.stringify(result));
             return typeof result === 'string' ? result : JSON.stringify(result);
           } catch (error: any) {
             return `❌ Action "${action.name}" failed: ${error.message}`;
