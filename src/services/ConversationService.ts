@@ -175,6 +175,37 @@ export async function fetchConversations({
 }
 
 /**
+ * Signal that a conversation has ended.
+ * Triggers server-side insight generation (what went wrong, what could improve).
+ * Fire-and-forget — never throws.
+ */
+export async function endConversation({
+  conversationId,
+  analyticsKey,
+}: {
+  conversationId: string;
+  analyticsKey: string;
+}): Promise<boolean> {
+  if (!analyticsKey || !conversationId) return false;
+
+  try {
+    const res = await fetch(`${ENDPOINTS.conversations}/${conversationId}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analyticsKey }),
+    });
+
+    if (!res.ok) {
+      logger.warn('ConversationService', `endConversation failed: ${res.status}`);
+    }
+    return res.ok;
+  } catch (err) {
+    logger.warn('ConversationService', `endConversation error: ${err}`);
+    return false;
+  }
+}
+
+/**
  * Fetch the full message history of a single conversation.
  * Returns null on failure.
  */

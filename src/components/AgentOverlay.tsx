@@ -16,10 +16,10 @@ export function AgentOverlay({ visible, statusText, onCancel }: AgentOverlayProp
   if (!visible) return null;
 
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
+    <View style={styles.overlay} pointerEvents="box-none" {...{ aiIgnore: true }}>
       <View style={styles.pill}>
         <ActivityIndicator size="small" color="#fff" />
-        <Text style={styles.text}>{statusText || 'Thinking...'}</Text>
+        <Text style={styles.text}>{statusText || 'Working...'}</Text>
         {onCancel && (
           <TouchableOpacity
             onPress={onCancel}

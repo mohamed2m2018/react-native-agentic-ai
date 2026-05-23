@@ -124,6 +124,14 @@ When executing a multi-step resolution, you must communicate your progress to ke
     );
   }
 
+  // Language / locale setting
+  if (config.locale) {
+    parts.push(
+      `### Language\n` +
+        `Respond in ${config.locale} language. Maintain conversation in this language unless the user switches.\n`
+    );
+  }
+
   // Business hours context
   if (config.businessHours) {
     parts.push(

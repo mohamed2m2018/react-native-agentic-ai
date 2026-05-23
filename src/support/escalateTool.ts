@@ -86,9 +86,15 @@ export function createEscalateTool(
         description: 'Brief summary of why escalation is needed and what has been tried',
         required: true,
       },
+      handoffTriggerType: {
+        type: 'string',
+        description: 'What triggered the handoff (e.g. tool_call, user_request, auto)',
+        required: false,
+      },
     },
     execute: async (args: Record<string, unknown>) => {
       const reason = String(args.reason ?? 'User requested human support');
+      const handoffTriggerType = String(args.handoffTriggerType ?? 'tool_call');
       const context = getContext();
 
       if (provider === 'mobileai') {
@@ -116,6 +122,7 @@ export function createEscalateTool(
                 pushToken,
                 pushTokenType,
                 deviceId: getDeviceId(),
+                handoffTriggerType,
               }),
             });
 

@@ -46,6 +46,12 @@ export interface SupportModeConfig {
   systemContext?: string;
 
   /**
+   * Locale / language code for the support conversation (e.g. 'es', 'fr', 'ar').
+   * When set, the AI responds in this language unless the user switches.
+   */
+  locale?: string;
+
+  /**
    * Topics the AI should NOT attempt to resolve — escalate immediately.
    * Example: ['billing dispute', 'account deletion', 'legal']
    */
@@ -185,8 +191,8 @@ export interface CSATConfig {
   /** Enable CSAT survey after conversation. Default: true if support mode enabled */
   enabled?: boolean;
 
-  /** Which survey to show. 'csat' = Customer Satisfaction, 'ces' = Customer Effort Score. Default: 'csat' */
-  surveyType?: 'csat' | 'ces';
+  /** Which survey to show. 'csat' = Customer Satisfaction, 'ces' = Customer Effort Score, 'nps' = Net Promoter Score. Default: 'csat' */
+  surveyType?: 'csat' | 'ces' | 'nps';
 
   /** Question text. Default varies by surveyType ("How was your experience?" or "How easy was it to resolve your issue?") */
   question?: string;

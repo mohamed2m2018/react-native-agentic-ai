@@ -225,6 +225,16 @@ export class TelemetryService {
     this.track('wireframe_snapshot', snapshot as unknown as Record<string, unknown>);
   }
 
+  /** Track an onboarding step with optional metadata */
+  trackOnboardingStep(step: string, metadata?: Record<string, unknown>): void {
+    this.track('onboarding_step', { step, ...metadata });
+  }
+
+  /** Track an engagement signal with optional metadata */
+  trackEngagement(signal: string, metadata?: Record<string, unknown>): void {
+    this.track('engagement_signal', { signal, ...metadata });
+  }
+
   // ─── Flush ──────────────────────────────────────────────────
 
   /** Send queued events to the cloud API */

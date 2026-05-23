@@ -76,6 +76,20 @@ const DATE_PICKER_TYPES = new Set([
   'RNDatePicker',
 ]);
 const TEXT_TYPES = new Set(['Text', 'RCTText']);
+
+const LOADING_INDICATOR_TYPES = new Set([
+  'ActivityIndicator',
+  'RCTActivityIndicatorView',
+  'SkeletonPlaceholder',
+  'ShimmerPlaceholder',
+  'ContentLoader',
+  'Skeleton',
+  'SkeletonContent',
+  'MotiSkeletonGroup',
+  'Placeholder',
+  'PlaceholderLine',
+  'PlaceholderMedia',
+]);
 const RADIO_TYPES = new Set([
   'Radio',
   'RadioButton',
@@ -842,7 +856,13 @@ function isIconGlyph(text: string): boolean {
 
 function normalizeRuntimeLabel(text: string | null | undefined): string {
   if (!text) return '';
-  return String(text).replace(/\s+/g, ' ').trim();
+  return String(text)
+    .replace(/,\s*tab,\s*\d+\s*of\s*\d+/i, '')
+    .replace(/,\s*button$/i, '')
+    .replace(/,\s*selected$/i, '')
+    .replace(/,\s*adjustable$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function scoreRuntimeLabel(text: string, source: RuntimeLabelSource): number {
@@ -1152,6 +1172,7 @@ function matchesRefList(node: any, refs?: React.RefObject<any>[]): boolean {
 export interface WalkResult {
   elementsText: string;
   interactives: InteractiveElement[];
+  hasLoadingIndicator: boolean;
 }
 
 // ─── Note on overlays ──────────────────────────────────────────
@@ -1169,7 +1190,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   const fiber = getFiberFromRef(rootRef);
   if (!fiber) {
     logger.warn('FiberTreeWalker', 'Could not access Fiber tree from ref');
-    return { elementsText: '', interactives: [] };
+    return { elementsText: '', interactives: [], hasLoadingIndicator: false };
   }
 
   // Always walk from the absolute root Fiber (HostRoot) — this ensures we
@@ -1190,6 +1211,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   // (toasts, modals, overlays) are included naturally since they aren't hidden.
   const overlayNodes: any[] = [];
 
+  let hasLoadingIndicator = false;
   const interactives: InteractiveElement[] = [];
   let currentIndex = 0;
   const hasWhitelist =
@@ -1294,6 +1316,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
           ? node.elementType
           : null;
     const componentName = getComponentName(node);
+    if (!hasLoadingIndicator && componentName && LOADING_INDICATOR_TYPES.has(componentName)) {
+      const animating = props.animating !== false && props.hidesWhenStopped !== true;
+      if (animating) hasLoadingIndicator = true;
+    }
     const isTextNode = typeStr === 'RCTText' || typeStr === 'Text';
     const isImageNode = !!(componentName && IMAGE_TYPES.has(componentName));
     const isVideoNode = !!(componentName && VIDEO_TYPES.has(componentName));
@@ -1604,9 +1630,9 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
   logger.info(
     'FiberTreeWalker',
-    `Found ${interactives.length} interactive elements`
+    `Found ${interactives.length} interactive elements${hasLoadingIndicator ? ' (loading indicator detected)' : ''}`
   );
-  return { elementsText: elementsText.trim(), interactives };
+  return { elementsText: elementsText.trim(), interactives, hasLoadingIndicator };
 }
 
 // ─── Scrollable Container Detection ────────────────────────────

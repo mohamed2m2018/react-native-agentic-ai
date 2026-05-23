@@ -9,6 +9,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { MobileAI } from './telemetry/MobileAI';
 import type {
   KnowledgeEntry,
   KnowledgeRetriever,
@@ -61,6 +62,7 @@ export class KnowledgeBaseService {
       const entries = await this.retriever.retrieve(query, screenName);
 
       if (!entries || entries.length === 0) {
+        MobileAI.track('knowledge_miss', { query, screen: screenName });
         return 'No relevant knowledge found for this query. Answer based on what is visible on screen, or let the user know you don\'t have that information.';
       }
 

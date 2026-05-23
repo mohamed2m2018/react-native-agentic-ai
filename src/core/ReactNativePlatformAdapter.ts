@@ -1,5 +1,5 @@
 import React from 'react';
-import { DeviceEventEmitter, Keyboard, NativeModules } from 'react-native';
+import { DeviceEventEmitter, Dimensions, Keyboard, NativeModules, UIManager, TurboModuleRegistry } from 'react-native';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { walkFiberTree, findScrollableContainers } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
@@ -119,6 +119,226 @@ function findFiberNode(
     if (sibling) queue.push({ node: sibling, depth: current.depth + 1 });
   }
   return null;
+}
+
+function isHostFiber(node: any): boolean {
+  return node?.tag === 5 || node?.tag === 6;
+}
+
+function findHostFiber(fiberNode: any): any | null {
+  if (isHostFiber(fiberNode) && fiberNode.stateNode) return fiberNode;
+
+  const visitDescendant = (node: any, depth = 0): any | null => {
+    if (!node || depth > 12) return null;
+    if (isHostFiber(node) && node.stateNode) return node;
+    let child = getChild(node);
+    while (child) {
+      const found = visitDescendant(child, depth + 1);
+      if (found) return found;
+      child = getSibling(child);
+    }
+    return null;
+  };
+
+  const found = visitDescendant(getChild(fiberNode));
+  if (found) return found;
+
+  let parent = getParent(fiberNode);
+  let depth = 0;
+  while (parent && depth < 8) {
+    if (isHostFiber(parent) && parent.stateNode) return parent;
+    parent = getParent(parent);
+    depth++;
+  }
+
+  return null;
+}
+
+let _nativeDOMResolved = false;
+let _nativeDOMCxx: any = null;
+function getNativeDOMCxx(): any {
+  if (_nativeDOMResolved) return _nativeDOMCxx;
+  _nativeDOMResolved = true;
+  try {
+    _nativeDOMCxx = (TurboModuleRegistry as any).get('NativeDOMCxx') ?? null;
+  } catch {
+    _nativeDOMCxx = null;
+  }
+  return _nativeDOMCxx;
+}
+
+let _fabricRendererResolved = false;
+let _fabricRenderer: any = null;
+function getFabricRenderer(): any {
+  if (_fabricRendererResolved) return _fabricRenderer;
+  _fabricRendererResolved = true;
+  if (!(global as any).nativeFabricUIManager) return null;
+  try {
+    _fabricRenderer = require('react-native/Libraries/Renderer/shims/ReactFabric').default ?? null;
+  } catch {
+    _fabricRenderer = null;
+  }
+  return _fabricRenderer;
+}
+
+/**
+ * Measures a host fiber's native view position on screen. Handles both
+ * Fabric ({node, canonical}) and Paper (stateNode with measure) formats.
+ *
+ * Returns true if measurement was dispatched (callback may still be pending).
+ */
+function measureHostFiber(
+  hostFiber: any,
+  callback: (x: number, y: number, w: number, h: number) => void,
+): boolean {
+  const stateNode = hostFiber.stateNode;
+  if (!stateNode) return false;
+
+  // Resolve shadow node — try multiple known paths
+  const shadowNode =
+    stateNode.node ??
+    hostFiber.alternate?.stateNode?.node ??
+    null;
+
+  // Resolve public instance — try canonical, then renderer lazy-create
+  let publicInstance = stateNode.canonical?.publicInstance ?? null;
+  if (!publicInstance) {
+    const renderer = getFabricRenderer();
+    if (renderer?.getPublicInstanceFromInternalInstanceHandle) {
+      try {
+        publicInstance = renderer.getPublicInstanceFromInternalInstanceHandle(hostFiber) ?? null;
+      } catch {}
+    }
+  }
+
+  // Resolve native tag — check all known locations
+  const nativeTag =
+    stateNode.canonical?.nativeTag ??
+    stateNode._nativeTag ??
+    stateNode.__nativeTag ??
+    publicInstance?.__nativeTag ??
+    null;
+
+  logger.debug('HighlightMeasure', `shadow=${!!shadowNode} pub=${!!publicInstance} tag=${nativeTag ?? '?'} sn_keys=${Object.keys(stateNode).slice(0, 6).join(',')}`);
+
+  // ── Strategy 1: Shadow node + NativeDOMCxx (most direct on Fabric) ──
+  if (shadowNode) {
+    const nativeDOM = getNativeDOMCxx();
+    if (nativeDOM && typeof nativeDOM.measureInWindow === 'function') {
+      nativeDOM.measureInWindow(shadowNode, callback);
+      return true;
+    }
+    if (nativeDOM && typeof nativeDOM.measure === 'function') {
+      nativeDOM.measure(shadowNode, (_x: number, _y: number, w: number, h: number, px: number, py: number) => callback(px, py, w, h));
+      return true;
+    }
+  }
+
+  // ── Strategy 2: Public instance measureInWindow (works when shadow node is resolvable internally) ──
+  if (publicInstance && typeof publicInstance.measureInWindow === 'function') {
+    publicInstance.measureInWindow(callback);
+    return true;
+  }
+
+  // ── Strategy 3: nativeTag + UIManager.measure (Paper + Fabric compat) ──
+  if (nativeTag && UIManager.measure) {
+    UIManager.measure(nativeTag, (_x: number, _y: number, w: number, h: number, px: number, py: number) => callback(px, py, w, h));
+    return true;
+  }
+
+  // ── Strategy 4: stateNode IS the measurable instance (Paper) ──
+  if (typeof stateNode.measureInWindow === 'function') {
+    stateNode.measureInWindow(callback);
+    return true;
+  }
+  if (typeof stateNode.measure === 'function') {
+    stateNode.measure((_x: number, _y: number, w: number, h: number, px: number, py: number) => callback(px, py, w, h));
+    return true;
+  }
+
+  // ── Strategy 5: getBoundingClientRect (sync, Fabric ReactNativeElement) ──
+  const bcrTarget = publicInstance ?? stateNode;
+  if (typeof bcrTarget.getBoundingClientRect === 'function') {
+    try {
+      const rect = bcrTarget.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        callback(rect.x, rect.y, rect.width, rect.height);
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+const SCROLL_COMPONENT_NAMES = new Set([
+  'ScrollView', 'RCTScrollView', 'FlatList', 'SectionList', 'VirtualizedList',
+]);
+
+function getComponentName(fiber: any): string | null {
+  if (!fiber) return null;
+  if (typeof fiber.type === 'string') return fiber.type;
+  return fiber.type?.displayName || fiber.type?.name || null;
+}
+
+function findScrollAncestor(fiberNode: any): any | null {
+  let node = getParent(fiberNode);
+  let depth = 0;
+  while (node && depth < 30) {
+    const name = getComponentName(node);
+    if (name && SCROLL_COMPONENT_NAMES.has(name)) {
+      const sn = node.stateNode;
+      if (sn) {
+        const ref = sn.getScrollResponder?.() ?? sn.getNativeScrollRef?.() ?? sn._listRef?.getScrollRef?.() ?? sn;
+        if (typeof ref.scrollTo === 'function' || typeof ref.scrollToOffset === 'function') {
+          return ref;
+        }
+      }
+    }
+    node = getParent(node);
+    depth++;
+  }
+  return null;
+}
+
+function scrollElementIntoView(
+  hostFiber: any,
+  scrollRef: any,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 600);
+
+    const measured = measureHostFiber(hostFiber, (_x, y, _w, h) => {
+      clearTimeout(timeout);
+      const screenH = Dimensions.get('window').height;
+      const margin = 80;
+
+      if (y >= margin && y + h <= screenH - margin) {
+        resolve();
+        return;
+      }
+
+      const metrics = scrollRef._scrollMetrics;
+      const currentOffset = metrics?.offset ?? 0;
+
+      let targetOffset: number;
+      if (y < margin) {
+        targetOffset = currentOffset - (margin - y);
+      } else {
+        targetOffset = currentOffset + (y + h - screenH + margin);
+      }
+      targetOffset = Math.max(0, targetOffset);
+
+      if (typeof scrollRef.scrollToOffset === 'function') {
+        scrollRef.scrollToOffset({ offset: targetOffset, animated: true });
+      } else if (typeof scrollRef.scrollTo === 'function') {
+        scrollRef.scrollTo({ y: targetOffset, animated: true });
+      }
+
+      setTimeout(resolve, 350);
+    });
+    if (!measured) { clearTimeout(timeout); resolve(); }
+  });
 }
 
 function extractPickerOptions(
@@ -424,6 +644,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       availableScreens: dehydrated.availableScreens,
       elementsText: dehydrated.elementsText,
       elements: dehydrated.elements,
+      hasLoadingIndicator: walkResult.hasLoadingIndicator,
     };
     this.lastSnapshot = snapshot;
     return snapshot;
@@ -502,7 +723,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         return this.guideUser(
           intent.index,
           intent.message,
-          intent.autoRemoveAfterMs
+          intent.autoRemoveAfterMs,
+          intent.action
         );
       case 'simplify_zone':
         return this.simplifyZone(intent.zoneId);
@@ -716,6 +938,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       return `✅ Tapped native alert button [${index}] "${element.label}" → dialog dismissed`;
     }
 
+    // Show the user where we are tapping, briefly.
+    await this.showActionHighlight(element, 'tap');
+
     if (element.type === 'switch' && element.props.onValueChange) {
       try {
         await awaitHandlerResult(element.props.onValueChange(!element.props.value));
@@ -797,6 +1022,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     const element = resolved.element;
     index = element.index;
 
+    await this.showActionHighlight(element, 'tap');
+
     if (
       element.props.onLongPress &&
       typeof element.props.onLongPress === 'function'
@@ -841,10 +1068,13 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     const label = element.label || `[${element.type}]`;
     const fiberNode = element.fiberNode;
 
+    // Briefly highlight the field so the user sees what we are typing into.
+    await this.showActionHighlight(element, 'type');
+
     if (typeof props.onChangeText === 'function') {
       try {
         props.onChangeText(text);
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, 120));
         return `✅ Typed "${text}" into [${index}] "${label}"`;
       } catch (err: any) {
         return `❌ onChangeText failed: ${err.message}`;
@@ -861,7 +1091,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         const innerProps = getProps(innerTextInputFiber);
         try {
           innerProps.onChangeText(text);
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 120));
           return `✅ Typed "${text}" into wrapped component [${index}] "${label}"`;
         } catch {}
       }
@@ -912,7 +1142,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
             return `❌ Type failed: Cannot locate native host node to explicitly inject visual text into uncontrolled element [${index}].`;
           }
 
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 120));
           return `✅ Typed "${text}" into [${index}] "${label}"`;
         } catch (err: any) {
           return `❌ Type failed: ${err.message}`;
@@ -1022,7 +1252,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 350));
 
       const offsetAfter =
         typeof scrollRef.scrollToOffset === 'function'
@@ -1051,6 +1281,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     if (!resolved.ok) return resolved.message;
     const element = resolved.element;
     index = element.index;
+
+    await this.showActionHighlight(element, 'tap');
+
     const normalizedValue = Number(value);
     if (
       !Number.isFinite(normalizedValue) ||
@@ -1088,6 +1321,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     if (!resolved.ok) return resolved.message;
     const element = resolved.element;
     index = element.index;
+
+    await this.showActionHighlight(element, 'tap');
 
     const onValueChange = element.props.onValueChange;
     if (!onValueChange || typeof onValueChange !== 'function') {
@@ -1131,6 +1366,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     const element = resolved.element;
     index = element.index;
 
+    await this.showActionHighlight(element, 'tap');
+
     const dateObj = new Date(date);
     if (isNaN(dateObj.getTime())) {
       return `❌ Invalid date format: "${date}". Use ISO 8601 format (e.g., "2025-03-25" or "2025-03-25T14:30:00").`;
@@ -1159,10 +1396,59 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     }
   }
 
+  /**
+   * Emits a transient HighlightOverlay event on the target element to show the
+   * user what the agent is about to do. Used by tap/type/scroll handlers so
+   * every UI action is visible to the user without the agent having to call
+   * `guide_user` manually.
+   */
+  private async showActionHighlight(
+    element: { fiberNode: any; label: string; index: number },
+    action: 'tap' | 'type' | 'scroll' | 'verify',
+    durationMs = 600
+  ): Promise<void> {
+    if (process.env.NODE_ENV === 'test') return;
+
+    const hostFiber = findHostFiber(element.fiberNode);
+    if (!hostFiber) return;
+
+    const scrollRef = findScrollAncestor(element.fiberNode);
+    if (scrollRef) {
+      try { await scrollElementIntoView(hostFiber, scrollRef); } catch {}
+    }
+
+    await new Promise<void>((resolve) => {
+      let resolved = false;
+      const finish = () => { if (!resolved) { resolved = true; setTimeout(resolve, durationMs); } };
+      const bail = () => { if (!resolved) { resolved = true; resolve(); } };
+      const safetyTimer = setTimeout(bail, 800);
+
+      requestAnimationFrame(() => {
+        try {
+          const measured = measureHostFiber(hostFiber, (x, y, w, h) => {
+            clearTimeout(safetyTimer);
+            if (w > 0 && h > 0) {
+              DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
+                pageX: x, pageY: y, width: w, height: h,
+                message: '', action,
+                autoRemoveAfterMs: durationMs + 400,
+              });
+            }
+            finish();
+          });
+          if (!measured) { clearTimeout(safetyTimer); bail(); }
+        } catch {
+          clearTimeout(safetyTimer);
+          bail();
+        }
+      });
+    });
+  }
+
   private async dismissKeyboard(): Promise<string> {
     try {
       Keyboard.dismiss();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 120));
       return '✅ Keyboard dismissed.';
     } catch (error: any) {
       return `❌ Error dismissing keyboard: ${error.message}`;
@@ -1172,7 +1458,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   private async guideUser(
     index: number,
     message: string,
-    autoRemoveAfterMs?: number
+    autoRemoveAfterMs?: number,
+    action?: 'tap' | 'read' | 'type' | 'verify' | 'scroll' | 'fill' | 'wait'
   ): Promise<string> {
     const resolved = this.resolveInteractiveElement(index, 'guide_user');
     if (!resolved.ok) return resolved.message;
@@ -1186,49 +1473,53 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         width: 100,
         height: 100,
         message,
+        action,
         autoRemoveAfterMs: autoRemoveAfterMs || 5000,
       });
       return `✅ Highlighted element ${index} ("${element.label}") with message: "${message}"`;
     }
 
-    const stateNode = getStateNode(element.fiberNode);
-    if (!stateNode || typeof stateNode.measure !== 'function') {
+    const hostFiber = findHostFiber(element.fiberNode);
+    if (!hostFiber) {
       return `❌ Element at index ${index} (${element.label}) cannot be highlighted because its layout position cannot be measured.`;
     }
 
-    return new Promise((resolve) => {
-      stateNode.measure(
-        (
-          _x: number,
-          _y: number,
-          width: number,
-          height: number,
-          pageX: number,
-          pageY: number
-        ) => {
-          if (width === 0 || height === 0) {
-            resolve(`❌ Element at index ${index} is not visible (0x0 size)`);
-            return;
-          }
+    const scrollRef = findScrollAncestor(element.fiberNode);
+    if (scrollRef) {
+      try { await scrollElementIntoView(hostFiber, scrollRef); } catch {}
+    }
 
-          DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
-            pageX,
-            pageY,
-            width,
-            height,
-            message,
-            autoRemoveAfterMs: autoRemoveAfterMs || 5000,
+    return new Promise((resolve) => {
+      const safetyTimeout = setTimeout(() => {
+        resolve(`❌ Element at index ${index} (${element.label}) — measurement timed out.`);
+      }, 800);
+
+      requestAnimationFrame(() => {
+        try {
+          const measured = measureHostFiber(hostFiber, (pageX, pageY, width, height) => {
+            clearTimeout(safetyTimeout);
+            if (width === 0 || height === 0) {
+              resolve(`❌ Element at index ${index} is not visible (0x0 size)`);
+              return;
+            }
+
+            DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
+              pageX, pageY, width, height, message, action,
+              autoRemoveAfterMs: autoRemoveAfterMs || 5000,
+            });
+
+            resolve(`✅ Highlighted element ${index} ("${element.label}") with message: "${message}"`);
           });
 
-          logger.info(
-            'ReactNativePlatformAdapter',
-            `Highlighted element ${index} ("${element.label}") at ${pageX},${pageY}`
-          );
-          resolve(
-            `✅ Highlighted element ${index} ("${element.label}") with message: "${message}"`
-          );
+          if (!measured) {
+            clearTimeout(safetyTimeout);
+            resolve(`❌ Element at index ${index} — no measurement API available`);
+          }
+        } catch (e: any) {
+          clearTimeout(safetyTimeout);
+          resolve(`❌ Element at index ${index} — measurement failed: ${e?.message}`);
         }
-      );
+      });
     });
   }
 

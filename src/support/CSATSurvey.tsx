@@ -44,6 +44,8 @@ const CES_OPTIONS = [
   { label: 'Very Easy', score: 5 },
 ];
 
+const NPS_SCALE = Array.from({ length: 11 }, (_, i) => i); // 0–10
+
 const STAR_COUNT = 5;
 
 export function CSATSurvey({
@@ -62,9 +64,11 @@ export function CSATSurvey({
   const surveyType = config.surveyType ?? 'csat';
   const ratingType = config.ratingType ?? 'emoji';
   
-  const defaultQuestion = surveyType === 'ces' 
-    ? 'How easy was it to get the help you needed?' 
-    : 'How was your experience?';
+  const defaultQuestion = surveyType === 'nps'
+    ? 'How likely are you to recommend us to a friend or colleague?'
+    : surveyType === 'ces'
+      ? 'How easy was it to get the help you needed?'
+      : 'How was your experience?';
   const question = config.question ?? defaultQuestion;
 
   const handleSubmit = () => {
@@ -79,9 +83,11 @@ export function CSATSurvey({
     config.onSubmit(rating);
     setSubmitted(true);
 
-    // Track CSAT/CES response
-    const fcrAchieved = selectedScore >= 4 || (ratingType === 'thumbs' && selectedScore === 5);
-    const eventName = surveyType === 'ces' ? 'ces_response' : 'csat_response';
+    // Track CSAT/CES/NPS response
+    const fcrAchieved = surveyType === 'nps'
+      ? selectedScore >= 9
+      : selectedScore >= 4 || (ratingType === 'thumbs' && selectedScore === 5);
+    const eventName = surveyType === 'nps' ? 'nps_response' : surveyType === 'ces' ? 'ces_response' : 'csat_response';
     
     MobileAI.track(eventName, { score: selectedScore, fcrAchieved, ticketId: metadata?.ticketId });
     if (fcrAchieved) {
@@ -142,6 +148,40 @@ export function CSATSurvey({
                 </Text>
               </TouchableOpacity>
             ))}
+          </View>
+        )}
+
+        {surveyType === 'nps' && (
+          <View>
+            <View style={styles.npsRow}>
+              {NPS_SCALE.map((score) => (
+                <TouchableOpacity
+                  key={score}
+                  onPress={() => setSelectedScore(score)}
+                  style={[
+                    styles.npsButton,
+                    selectedScore === score && {
+                      backgroundColor: `${primary}30`,
+                      borderColor: primary,
+                    },
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.npsNumber,
+                      { color: selectedScore === score ? primary : textColor },
+                    ]}
+                  >
+                    {score}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.npsLabels}>
+              <Text style={{ color: '#71717a', fontSize: 10 }}>Not likely</Text>
+              <Text style={{ color: '#71717a', fontSize: 10 }}>Very likely</Text>
+            </View>
           </View>
         )}
 
@@ -313,6 +353,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 4,
     fontWeight: '500',
+  },
+  npsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  npsButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 36,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  npsNumber: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  npsLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    paddingHorizontal: 2,
   },
   cesRow: {
     flexDirection: 'row',
