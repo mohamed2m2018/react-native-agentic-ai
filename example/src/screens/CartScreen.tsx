@@ -15,7 +15,7 @@ export default function CartScreen() {
     // 🔒 SECURITY: The AI's execution is paused here until the human actively confirms via Alert.
     return new Promise((resolve) => {
       Alert.alert(
-        'Confirm Order by AI 🤖',
+        'Confirm Order by AI',
         `Do you want the AI to place your order for $${total}?`,
         [
           {
@@ -28,7 +28,7 @@ export default function CartScreen() {
             style: 'default',
             onPress: () => {
               clearCart();
-              Alert.alert('Success! 🎉', `Your order of $${total} is completed.`);
+              Alert.alert('Success!', `Your order of $${total} is completed.`);
               resolve({ success: true, message: `Order placed! Total: $${total}` });
             }
           }
@@ -39,7 +39,7 @@ export default function CartScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🛒 Your Cart</Text>
+      <Text style={styles.title}>Your Cart</Text>
 
       {cart.length === 0 ? (
         <View style={styles.empty}>
@@ -81,7 +81,7 @@ export default function CartScreen() {
               onPress={() => {
                 const total = getTotal();
                 clearCart();
-                Alert.alert('Order Placed! 🎉', `Your order of $${total} has been placed.`);
+                Alert.alert('Order Placed!', `Your order of $${total} has been placed.`);
               }}
               // @ts-ignore - custom prop read by the Agent runtime
               aiIgnore={true} // 🔒 SECURITY: AI cannot tap this. Must use the secure checkout action.
