@@ -41,8 +41,7 @@ interface AIAgentProps {
   model?: string;
   /** Navigation container ref (from useNavigationContainerRef) */
   navRef?: any;
-  /** UI language */
-  language?: 'en' | 'ar';
+
   /** Max agent steps per request */
   maxSteps?: number;
   /** Show/hide the chat bar */
@@ -101,7 +100,7 @@ export function AIAgent({
   apiKey,
   model = 'gemini-2.5-flash',
   navRef,
-  language = 'en',
+
   maxSteps = 10,
   showChatBar = true,
   children,
@@ -169,7 +168,7 @@ export function AIAgent({
   const config: AgentConfig = useMemo(() => ({
     apiKey,
     model,
-    language,
+    language: 'en',
     maxSteps,
     interactiveBlacklist,
     interactiveWhitelist,
@@ -196,7 +195,7 @@ export function AIAgent({
       });
     }),
   }), [
-    mode, apiKey, model, language, maxSteps,
+    mode, apiKey, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
@@ -250,13 +249,13 @@ export function AIAgent({
       logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
       // Use voice-adapted system prompt — same core rules as text mode
       // but without agent-loop directives that trigger autonomous actions
-      const voicePrompt = buildVoiceSystemPrompt(language, instructions?.system);
+      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system);
       logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
-        language,
+        language: 'en',
       });
       logger.info('AIAgent', `VoiceService created with ${runtimeTools.length} tools: ${runtimeTools.map(t => t.name).join(', ')}`);
     }
@@ -498,7 +497,7 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, runtime, language, instructions]);
+  }, [mode, apiKey, runtime, instructions]);
 
   // ─── Stop Voice Session (full cleanup) ─────────────────────
 
@@ -582,7 +581,7 @@ export function AIAgent({
             onSend={handleSend}
             isThinking={isThinking}
             lastResult={lastResult}
-            language={language}
+            language={'en'}
             onDismiss={() => setLastResult(null)}
             availableModes={availableModes}
             mode={mode}

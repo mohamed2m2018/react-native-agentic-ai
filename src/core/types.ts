@@ -61,7 +61,7 @@ export interface AgentStep {
 export interface AgentConfig {
   apiKey: string;
   model?: string;
-  language?: 'en' | 'ar';
+
 
   /** Maximum steps per task (page-agent default: 40) */
   maxSteps?: number;

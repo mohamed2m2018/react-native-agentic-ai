@@ -29,7 +29,7 @@ Wrap your navigation with `<AIAgent>`. The AI automatically understands your ent
 - 🧭 **Auto-navigation** — Navigates between screens to complete multi-step tasks.
 - 🧩 **Custom actions** — Expose any business logic (checkout, API calls) as AI-callable tools with `useAction`.
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
-- 🌍 **Bilingual** — English and Arabic support built-in.
+
 
 ### 🎤 Voice Mode (Live Agent)
 - 🗣️ **Real-time voice chat** — Bidirectional audio with Gemini Live API. Speak naturally, the agent responds with voice.
@@ -172,16 +172,25 @@ A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, 
 
 The root provider. Wrap your app once at the top level.
 
-| Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| `apiKey` | `string` | — | **Required.** Gemini API key. |
-| `model` | `string` | `'gemini-2.5-flash'` | Gemini model name for text mode. |
-| `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
-| `maxSteps` | `number` | `10` | Max steps per task (text mode). |
-| `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
-| `enableVoice` | `boolean` | `true` | Enable voice mode tab in the chat bar. |
-| `language` | `'en' \| 'ar'` | `'en'` | Agent language (English/Arabic). |
-| `onResult` | `(result) => void` | — | Called when the agent finishes. |
+| Prop | Type | Default | Mode | Description |
+|------|------|---------|------|-------------|
+| `apiKey` | `string` | — | Both | **Required.** Gemini API key. |
+| `model` | `string` | `'gemini-2.5-flash'` | Text | Gemini model name. |
+| `navRef` | `NavigationContainerRef` | — | Both | Navigation ref for auto-navigation. |
+| `maxSteps` | `number` | `10` | Text | Max steps per task. |
+| `showChatBar` | `boolean` | `true` | Both | Show the floating chat bar. |
+| `enableVoice` | `boolean` | `true` | Voice | Enable voice mode tab in the chat bar. |
+| `instructions` | `{ system?, getScreenInstructions? }` | — | Both | Custom system prompt and per-screen instructions. |
+| `customTools` | `Record<string, ToolDefinition \| null>` | — | Both | Override or remove built-in tools. |
+| `onResult` | `(result) => void` | — | Text | Called when the agent finishes a task. |
+| `onBeforeStep` | `(stepCount) => void` | — | Text | Called before each agent step. |
+| `onAfterStep` | `(history) => void` | — | Text | Called after each agent step. |
+| `onTokenUsage` | `(usage) => void` | — | Text | Token usage callback per step. |
+| `stepDelay` | `number` | — | Text | Delay between steps in ms. |
+| `router` | `{ push, replace, back }` | — | Both | Expo Router instance. |
+| `pathname` | `string` | — | Both | Current pathname (Expo Router). |
+| `mcpServerUrl` | `string` | — | Text | WebSocket URL for MCP bridge. |
+| `debug` | `boolean` | `false` | Both | Enable SDK debug logging. |
 
 ### `useAction(name, description, params, handler)`
 
