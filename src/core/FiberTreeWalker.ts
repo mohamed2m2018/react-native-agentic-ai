@@ -1,22 +1,21 @@
 /**
  * FiberTreeWalker — Traverses React's Fiber tree to discover interactive elements.
  *
- * This is the React Native equivalent of page-agent.js reading the DOM.
+ * Walks the React Native fiber tree to extract a text representation of the UI.
  * Instead of traversing HTML nodes, we traverse React Fiber nodes and detect
  * interactive elements by their type and props (onPress, onChangeText, etc.).
  *
- * Architecture inspired by: https://github.com/alibaba/page-agent
  */
 
 import { logger } from '../utils/logger';
 import type { InteractiveElement, ElementType } from './types';
 
-// ─── Walk Configuration (mirrors page-agent DomConfig) ─────────
+// ─── Walk Configuration ─────────
 
 export interface WalkConfig {
-  /** React refs of elements to exclude — mirrors page-agent interactiveBlacklist */
+  /** React refs of elements to exclude */
   interactiveBlacklist?: React.RefObject<any>[];
-  /** If set, only these elements are interactive — mirrors page-agent interactiveWhitelist */
+  /** If set, only these elements are interactive */
   interactiveWhitelist?: React.RefObject<any>[];
 }
 
@@ -53,14 +52,14 @@ const RN_INTERNAL_NAMES = new Set([
   'AnimatedComponentWrapper', 'Animated',
 ]);
 
-// ─── State Extraction (mirrors page-agent DEFAULT_INCLUDE_ATTRIBUTES) ──
+// ─── State Extraction ──
 
 /** Props to extract as state attributes — covers lazy devs who skip accessibility */
 const STATE_PROPS = ['value', 'checked', 'selected', 'active', 'on', 'isOn', 'toggled', 'enabled'];
 
 /**
  * Extract state attributes from a fiber node's props.
- * Mirrors page-agent's DEFAULT_INCLUDE_ATTRIBUTES extraction.
+ * Extracts meaningful state from a fiber node.
  * Priority: accessibilityState > accessibilityRole > direct scalar props.
  */
 function extractStateAttributes(props: any): string {
@@ -319,7 +318,7 @@ function getFiberFromRef(ref: any): any | null {
 
 /**
  * Check if a Fiber node matches any ref in the given list.
- * Mirrors page-agent.js: `interactiveBlacklist.includes(element)`
+ * Checks if an element is excluded from AI interaction
  * We compare the Fiber's stateNode (native instance) against ref.current.
  */
 function matchesRefList(node: any, refs?: React.RefObject<any>[]): boolean {
@@ -402,7 +401,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         props: { ...props },
       });
 
-      // Build output tag with state attributes (mirrors page-agent format)
+      // Build output tag with state attributes
       const stateAttrs = extractStateAttributes(props);
       const attrStr = stateAttrs ? ` ${stateAttrs}` : '';
       const textContent = label || '';

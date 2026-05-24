@@ -1,5 +1,5 @@
 /**
- * @mobileai/react-native — Page-Agent Architecture
+ * @mobileai/react-native
  *
  * Zero-wrapper AI agent for React Native.
  * Auto-detects interactive elements via React Fiber tree traversal.

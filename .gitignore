@@ -94,6 +94,4 @@ list-models.mjs
 .agent/
 *.tgz
 test-audio/
-page-agent-reference/
-rntl-reference/
 VOICE_LESSONS_LEARNED.md

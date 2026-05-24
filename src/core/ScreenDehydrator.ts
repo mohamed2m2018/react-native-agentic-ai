@@ -1,6 +1,6 @@
 /**
  * ScreenDehydrator — Converts discovered interactive elements into
- * a text representation for the LLM, matching page-agent.js format.
+ * a text representation for the LLM.
  *
  * Output example:
  * ```

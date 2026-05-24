@@ -1,5 +1,5 @@
 /**
- * AgentRuntime — The main agent loop, inspired by page-agent.js.
+ * AgentRuntime — The main agent loop.
  *
  * Flow:
  * 1. Walk Fiber tree → detect interactive elements
@@ -52,7 +52,7 @@ export class AgentRuntime {
 
     this.registerBuiltInTools();
 
-    // Apply customTools — mirrors page-agent: null = remove, otherwise override
+    // Apply customTools
     if (config.customTools) {
       for (const [name, tool] of Object.entries(config.customTools)) {
         if (tool === null) {
@@ -237,7 +237,7 @@ export class AgentRuntime {
       },
     });
 
-    // ask_user — ask for clarification (mirrors page-agent: blocks until user responds)
+    // ask_user — ask for clarification
     this.tools.set('ask_user', {
       name: 'ask_user',
       description: 'Ask the user a question and wait for their answer. Use this if you need more information or clarification.',
@@ -246,7 +246,7 @@ export class AgentRuntime {
       },
       execute: async (args) => {
         if (this.config.onAskUser) {
-          // Page-agent pattern: block until user responds, then continue the loop
+          // Block until user responds, then continue the loop
           this.config.onStatusUpdate?.('Waiting for your answer...');
           const answer = await this.config.onAskUser(args.question);
           return `User answered: ${answer}`;
@@ -444,7 +444,7 @@ export class AgentRuntime {
   /**
    * Get current screen context as formatted text.
    * Used by voice mode: sent once at connect + after each tool call.
-   * Follows page-agent pattern: tree in user prompt, not system instructions.
+   * Tree goes in user prompt, not system instructions.
    */
   public getScreenContext(): string {
     try {
@@ -531,7 +531,7 @@ ${screen.elementsText}
     };
   }
 
-  // ─── Instructions (mirrors page-agent #getInstructions) ───────
+  // ─── Instructions ───────
 
   private getInstructions(screenName: string): string {
     const { instructions } = this.config;
@@ -556,7 +556,7 @@ ${screen.elementsText}
     return result ? `<instructions>\n${result}</instructions>\n\n` : '';
   }
 
-  // ─── Observation System (mirrors PageAgentCore.#handleObservations) ──
+  // ─── Observation System ──
 
   private observations: string[] = [];
   private lastScreenName: string = '';
@@ -581,7 +581,7 @@ ${screen.elementsText}
     }
   }
 
-  // ─── User Prompt Assembly (mirrors PageAgentCore.#assembleUserPrompt) ──
+  // ─── User Prompt Assembly ──
 
   private assembleUserPrompt(
     step: number,
@@ -595,7 +595,7 @@ ${screen.elementsText}
     // 1. <instructions> (optional system/screen instructions)
     prompt += this.getInstructions(screenName);
 
-    // 2. <agent_state> — user request + step info (mirrors page-agent)
+    // 2. <agent_state> — user request + step info
     prompt += '<agent_state>\n';
     prompt += '<user_request>\n';
     prompt += `${contextualMessage}\n`;
@@ -605,7 +605,7 @@ ${screen.elementsText}
     prompt += '</step_info>\n';
     prompt += '</agent_state>\n\n';
 
-    // 3. <agent_history> — structured per-step history (mirrors page-agent)
+    // 3. <agent_history> — structured per-step history
     prompt += '<agent_history>\n';
 
     let stepIndex = 0;
@@ -667,14 +667,14 @@ ${screen.elementsText}
 
     logger.info('AgentRuntime', `Starting execution: "${contextualMessage}"`);
 
-    // Lifecycle: onBeforeTask (mirrors page-agent)
+    // Lifecycle: onBeforeTask
     await this.config.onBeforeTask?.();
 
     try {
       for (let step = 0; step < maxSteps; step++) {
         logger.info('AgentRuntime', `===== Step ${step + 1}/${maxSteps} =====`);
 
-        // Lifecycle: onBeforeStep (mirrors page-agent)
+        // Lifecycle: onBeforeStep
         await this.config.onBeforeStep?.(step);
 
         // 1. Walk Fiber tree with security config and dehydrate screen
@@ -690,16 +690,16 @@ ${screen.elementsText}
         logger.info('AgentRuntime', `Screen: ${screen.screenName}`);
         logger.debug('AgentRuntime', `Dehydrated:\n${screen.elementsText}`);
 
-        // 2. Apply transformScreenContent (mirrors page-agent transformPageContent)
+        // 2. Apply transformScreenContent
         let screenContent = screen.elementsText;
         if (this.config.transformScreenContent) {
           screenContent = await this.config.transformScreenContent(screenContent);
         }
 
-        // 3. Handle observations (mirrors page-agent #handleObservations)
+        // 3. Handle observations
         this.handleObservations(step, maxSteps, screenName);
 
-        // 4. Assemble structured user prompt (mirrors page-agent #assembleUserPrompt)
+        // 4. Assemble structured user prompt
         const contextMessage = this.assembleUserPrompt(
           step, maxSteps, contextualMessage, screenName, screenContent,
         );
@@ -789,7 +789,7 @@ ${screen.elementsText}
         };
         this.history.push(agentStep);
 
-        // Lifecycle: onAfterStep (mirrors page-agent)
+        // Lifecycle: onAfterStep
         await this.config.onAfterStep?.(this.history);
 
         // Check if done
@@ -817,7 +817,7 @@ ${screen.elementsText}
           return result;
         }
 
-        // Step delay (mirrors page-agent stepDelay)
+        // Step delay
         await new Promise(resolve => setTimeout(resolve, stepDelay));
       }
 
