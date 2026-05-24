@@ -572,59 +572,59 @@ export function AIAgent({
     <AgentContext.Provider value={runtime}>
       <View ref={rootViewRef} style={styles.root} collapsable={false}>
         {children}
+
+        {/* Overlay (shown while thinking) */}
+        <AgentOverlay visible={isThinking} statusText={statusText} />
+
+        {/* Chat bar */}
+        {showChatBar && (
+          <AgentChatBar
+            onSend={handleSend}
+            isThinking={isThinking}
+            lastResult={lastResult}
+            language={language}
+            onDismiss={() => setLastResult(null)}
+            availableModes={availableModes}
+            mode={mode}
+            onModeChange={(newMode) => {
+              logger.info('AIAgent', `Mode change: ${mode} → ${newMode}`);
+              setMode(newMode);
+            }}
+            isMicActive={isMicActive}
+            isSpeakerMuted={isSpeakerMuted}
+            isAISpeaking={isAISpeaking}
+            onStopSession={stopVoiceSession}
+            isVoiceConnected={isVoiceConnected}
+            onMicToggle={(active) => {
+              if (active && !isVoiceConnected) {
+                logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
+                return;
+              }
+              logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
+              setIsMicActive(active);
+              if (active) {
+                logger.info('AIAgent', 'Starting AudioInput...');
+                audioInputRef.current?.start().then((ok) => {
+                  logger.info('AIAgent', `AudioInput start result: ${ok}`);
+                });
+              } else {
+                logger.info('AIAgent', 'Stopping AudioInput...');
+                audioInputRef.current?.stop();
+              }
+            }}
+            onSpeakerToggle={(muted) => {
+              logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
+              setIsSpeakerMuted(muted);
+              if (muted) {
+                audioOutputRef.current?.mute();
+              } else {
+                audioOutputRef.current?.unmute();
+              }
+            }}
+
+          />
+        )}
       </View>
-
-      {/* Overlay (shown while thinking) */}
-      <AgentOverlay visible={isThinking} statusText={statusText} />
-
-      {/* Chat bar */}
-      {showChatBar && (
-        <AgentChatBar
-          onSend={handleSend}
-          isThinking={isThinking}
-          lastResult={lastResult}
-          language={language}
-          onDismiss={() => setLastResult(null)}
-          availableModes={availableModes}
-          mode={mode}
-          onModeChange={(newMode) => {
-            logger.info('AIAgent', `Mode change: ${mode} → ${newMode}`);
-            setMode(newMode);
-          }}
-          isMicActive={isMicActive}
-          isSpeakerMuted={isSpeakerMuted}
-          isAISpeaking={isAISpeaking}
-          onStopSession={stopVoiceSession}
-          isVoiceConnected={isVoiceConnected}
-          onMicToggle={(active) => {
-            if (active && !isVoiceConnected) {
-              logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
-              return;
-            }
-            logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
-            setIsMicActive(active);
-            if (active) {
-              logger.info('AIAgent', 'Starting AudioInput...');
-              audioInputRef.current?.start().then((ok) => {
-                logger.info('AIAgent', `AudioInput start result: ${ok}`);
-              });
-            } else {
-              logger.info('AIAgent', 'Stopping AudioInput...');
-              audioInputRef.current?.stop();
-            }
-          }}
-          onSpeakerToggle={(muted) => {
-            logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
-            setIsSpeakerMuted(muted);
-            if (muted) {
-              audioOutputRef.current?.mute();
-            } else {
-              audioOutputRef.current?.unmute();
-            }
-          }}
-
-        />
-      )}
     </AgentContext.Provider>
   );
 }
