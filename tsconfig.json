@@ -39,7 +39,8 @@
     "**/__tests__",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "example"
+    "example",
+    "example-expo-router"
   ],
   "extends": "expo/tsconfig.base"
 }

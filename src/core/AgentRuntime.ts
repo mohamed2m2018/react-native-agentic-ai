@@ -709,7 +709,7 @@ ${screen.elementsText}
 
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Analyzing screen...');
-        const systemPrompt = buildSystemPrompt(this.config.language || 'en');
+        const systemPrompt = buildSystemPrompt('en');
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
