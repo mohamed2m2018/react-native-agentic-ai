@@ -27,7 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
 console.log('🚀 AIAgent.tsx MODULE LOADED');
@@ -92,6 +92,13 @@ interface AIAgentProps {
   onTokenUsage?: (usage: TokenUsage) => void;
   /** Enable SDK debug logging (disabled by default) */
   debug?: boolean;
+  /**
+   * Domain knowledge the AI can query via the query_knowledge tool.
+   * Pass a static KnowledgeEntry[] or a { retrieve(query, screen) } function.
+   */
+  knowledgeBase?: KnowledgeBaseConfig;
+  /** Max token budget for knowledge retrieval (default: 2000) */
+  knowledgeMaxTokens?: number;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -122,6 +129,8 @@ export function AIAgent({
   enableVoice = false,
   onTokenUsage,
   debug = false,
+  knowledgeBase,
+  knowledgeMaxTokens,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -184,6 +193,8 @@ export function AIAgent({
     pathname,
     onStatusUpdate: setStatusText,
     onTokenUsage,
+    knowledgeBase,
+    knowledgeMaxTokens,
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
@@ -200,6 +211,7 @@ export function AIAgent({
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
+    knowledgeBase, knowledgeMaxTokens,
   ]);
 
   const provider = useMemo(() => new GeminiProvider(apiKey, model), [apiKey, model]);
@@ -249,7 +261,7 @@ export function AIAgent({
       logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
       // Use voice-adapted system prompt — same core rules as text mode
       // but without agent-loop directives that trigger autonomous actions
-      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system);
+      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system, !!knowledgeBase);
       logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,

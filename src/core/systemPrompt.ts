@@ -6,7 +6,7 @@
  * to give the LLM clear, structured instructions.
  */
 
-export function buildSystemPrompt(language: string): string {
+export function buildSystemPrompt(language: string, hasKnowledge = false): string {
   const isArabic = language === 'ar';
 
   return `<confidentiality>
@@ -63,7 +63,8 @@ Available tools:
 - type(index, text): Type text into a text-input element by its index.
 - navigate(screen, params): Navigate to a specific screen. params is optional JSON object.
 - done(text, success): Complete task. Text is your final response to the user — keep it concise unless the user explicitly asks for detail.
-- ask_user(question): Ask the user for clarification ONLY when you cannot determine what action to take.
+- ask_user(question): Ask the user for clarification ONLY when you cannot determine what action to take.${hasKnowledge ? `
+- query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen. Do NOT use for UI actions.` : ''}
 </tools>
 
 <custom_actions>
@@ -75,7 +76,7 @@ If a UI element is hidden (aiIgnore) but a matching custom action exists, use th
 <rules>
 - There are 2 types of requests — always determine which type BEFORE acting:
   1. Information requests (e.g. "what's available?", "how much is X?", "list the items"):
-     Read the screen content and call done() with the answer. Do NOT perform any tap/type/navigate actions.
+     Read the screen content and call done() with the answer.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge before saying you don\'t know.' : ''} Do NOT perform any tap/type/navigate actions.
   2. Action requests (e.g. "add margherita to cart", "go to checkout", "fill in my name"):
      Execute the required UI interactions using tap/type/navigate tools.
 - For action requests, determine whether the user gave specific step-by-step instructions or an open-ended task:
@@ -121,7 +122,8 @@ The ask_user action should ONLY be used when the user gave an action request but
 
 <capability>
 - It is ok to just provide information without performing any actions.
-- User can ask questions about what's on screen — answer them directly via done().
+- User can ask questions about what's on screen — answer them directly via done().${hasKnowledge ? `
+- You have access to a knowledge base with domain-specific info. Use query_knowledge for questions about the business that aren't visible on screen.` : ''}
 - It is ok to fail the task. User would rather you report failure than repeat failed actions endlessly.
 - The user can be wrong. If the request is not achievable, tell the user via done().
 - The app can have bugs. If something is not working as expected, report it to the user.
@@ -184,6 +186,7 @@ plan: "Call done to report the cart contents to the user."
 export function buildVoiceSystemPrompt(
   language: string,
   userInstructions?: string,
+  hasKnowledge = false,
 ): string {
   const isArabic = language === 'ar';
 
@@ -211,7 +214,8 @@ Available tools:
 - tap(index): Tap an interactive element by its index. Works universally on buttons, switches, and custom components. For switches, this toggles their state.
 - type(index, text): Type text into a text-input element by its index. ONLY works on text-input elements.
 - navigate(screen, params): Navigate to a screen listed in Available Screens. ONLY use screen names from the Available Screens list — section titles, category names, or other visible text are content within a screen, not navigable screens.
-- done(text, success): Complete task and respond to the user.
+- done(text, success): Complete task and respond to the user.${hasKnowledge ? `
+- query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen.` : ''}
 
 CRITICAL — tool call protocol:
 When you decide to use a tool, emit the function call IMMEDIATELY as the first thing in your response — before any speech or audio output.
@@ -229,7 +233,7 @@ If a UI element is hidden but a matching custom action exists, use the action.
 <rules>
 - There are 2 types of requests — always determine which type BEFORE acting:
   1. Information requests (e.g. "what's available?", "how much is X?", "list the items"):
-     Read the screen content and answer by speaking. Do NOT perform any tap/type/navigate actions.
+     Read the screen content and answer by speaking.${hasKnowledge ? ' If the answer is NOT on screen, try query_knowledge before saying you don\'t know.' : ''} Do NOT perform any tap/type/navigate actions.
   2. Action requests (e.g. "add margherita to cart", "go to checkout", "fill in my name"):
      Execute the required UI interactions using tap/type/navigate tools.
 - For action requests, determine whether the user gave specific step-by-step instructions or an open-ended task:
@@ -250,7 +254,8 @@ If a UI element is hidden but a matching custom action exists, use the action.
 </rules>
 
 <capability>
-- You can see the current screen context — use it to answer questions directly.
+- You can see the current screen context — use it to answer questions directly.${hasKnowledge ? `
+- You have access to a knowledge base with domain-specific info. Use query_knowledge for questions about the business that aren't visible on screen.` : ''}
 - It is ok to just provide information without performing any actions.
 - It is ok to fail the task. The user would rather you report failure than repeat failed actions endlessly.
 - The user can be wrong. If the request is not achievable, tell them.

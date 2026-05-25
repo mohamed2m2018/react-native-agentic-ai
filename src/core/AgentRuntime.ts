@@ -14,6 +14,7 @@ import { walkFiberTree } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt } from './systemPrompt';
+import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
 import type {
   AIProvider,
   AgentConfig,
@@ -38,6 +39,7 @@ export class AgentRuntime {
   private history: AgentStep[] = [];
   private isRunning = false;
   private lastAskUserQuestion: string | null = null;
+  private knowledgeService: KnowledgeBaseService | null = null;
 
   constructor(
     provider: AIProvider,
@@ -49,6 +51,14 @@ export class AgentRuntime {
     this.config = config;
     this.rootRef = rootRef;
     this.navRef = navRef;
+
+    // Initialize knowledge base service if configured
+    if (config.knowledgeBase) {
+      this.knowledgeService = new KnowledgeBaseService(
+        config.knowledgeBase,
+        config.knowledgeMaxTokens
+      );
+    }
 
     this.registerBuiltInTools();
 
@@ -269,6 +279,28 @@ export class AgentRuntime {
         return '❌ Screenshot capture failed. react-native-view-shot may not be installed.';
       },
     });
+
+    // query_knowledge — retrieve domain-specific knowledge (only if knowledgeBase is configured)
+    if (this.knowledgeService) {
+      this.tools.set('query_knowledge', {
+        name: 'query_knowledge',
+        description:
+          'Search the app knowledge base for domain-specific information '
+          + '(policies, FAQs, product details, delivery areas, allergens, etc). '
+          + 'Use when the user asks about the business or app and the answer is NOT visible on screen.',
+        parameters: {
+          question: {
+            type: 'string',
+            description: 'The question or topic to search for',
+            required: true,
+          },
+        },
+        execute: async (args) => {
+          const screenName = this.getCurrentScreenName();
+          return this.knowledgeService!.retrieve(args.question, screenName);
+        },
+      });
+    }
   }
 
   // ─── Action Registration (useAction hook) ──────────────────
@@ -401,6 +433,8 @@ export class AgentRuntime {
         return 'Wrapping up...';
       case 'ask_user':
         return 'Asking you a question...';
+      case 'query_knowledge':
+        return 'Searching knowledge base...';
       default:
         return `Running ${toolName}...`;
     }
@@ -709,7 +743,7 @@ ${screen.elementsText}
 
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Analyzing screen...');
-        const systemPrompt = buildSystemPrompt('en');
+        const systemPrompt = buildSystemPrompt('en', !!this.knowledgeService);
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);

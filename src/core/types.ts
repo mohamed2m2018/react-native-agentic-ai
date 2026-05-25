@@ -170,6 +170,18 @@ export interface AgentConfig {
    */
   pathname?: string;
 
+  // ─── Knowledge Base ────────────────────────────────────────────────────────
+
+  /**
+   * Domain knowledge the AI can query via the query_knowledge tool.
+   * Pass a static array of KnowledgeEntry[] (SDK handles keyword matching),
+   * or a KnowledgeRetriever with a custom async retrieve() function.
+   */
+  knowledgeBase?: KnowledgeBaseConfig;
+
+  /** Max tokens for knowledge retrieval results (~4 chars per token). Default: 2000 */
+  knowledgeMaxTokens?: number;
+
   // ─── MCP Bridge Integration ──────────────────────────────────────────────
 
   /**
@@ -212,6 +224,36 @@ export interface ActionDefinition {
   parameters: Record<string, string>;
   handler: (args: Record<string, any>) => any;
 }
+
+// ─── Knowledge Base ───────────────────────────────────────────
+
+/** A single knowledge entry the AI can retrieve. */
+export interface KnowledgeEntry {
+  /** Unique identifier */
+  id: string;
+  /** Human-readable title (also used for keyword matching) */
+  title: string;
+  /** The knowledge text content */
+  content: string;
+  /** Optional tags for keyword matching (e.g., ['refund', 'policy']) */
+  tags?: string[];
+  /** Optional: only surface this entry on these screens */
+  screens?: string[];
+  /** Priority 0-10 — higher = preferred when multiple match (default: 5) */
+  priority?: number;
+}
+
+/** Async retriever function — consumer brings their own retrieval logic. */
+export interface KnowledgeRetriever {
+  retrieve: (query: string, screenName: string) => Promise<KnowledgeEntry[]>;
+}
+
+/**
+ * Knowledge base configuration — accepts either:
+ * - A static array of KnowledgeEntry[] (SDK handles keyword matching)
+ * - A KnowledgeRetriever object with a custom retrieve() function
+ */
+export type KnowledgeBaseConfig = KnowledgeEntry[] | KnowledgeRetriever;
 
 // ─── Provider Interface ──────────────────────────────────────
 
