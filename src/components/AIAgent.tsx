@@ -99,6 +99,12 @@ interface AIAgentProps {
   knowledgeBase?: KnowledgeBaseConfig;
   /** Max token budget for knowledge retrieval (default: 2000) */
   knowledgeMaxTokens?: number;
+  /**
+   * Enable or disable UI control (tap, type, navigate).
+   * When false, the AI operates as a knowledge-only assistant.
+   * Default: true
+   */
+  enableUIControl?: boolean;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -131,6 +137,7 @@ export function AIAgent({
   debug = false,
   knowledgeBase,
   knowledgeMaxTokens,
+  enableUIControl,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -195,6 +202,7 @@ export function AIAgent({
     onTokenUsage,
     knowledgeBase,
     knowledgeMaxTokens,
+    enableUIControl,
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
@@ -211,7 +219,7 @@ export function AIAgent({
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
-    knowledgeBase, knowledgeMaxTokens,
+    knowledgeBase, knowledgeMaxTokens, enableUIControl,
   ]);
 
   const provider = useMemo(() => new GeminiProvider(apiKey, model), [apiKey, model]);

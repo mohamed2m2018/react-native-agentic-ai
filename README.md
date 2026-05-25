@@ -151,14 +151,27 @@ In your root layout (`app/_layout.tsx`):
 ```tsx
 import { AIAgent } from '@mobileai/react-native';
 import { Slot, useNavigationContainerRef } from 'expo-router';
+import type { KnowledgeEntry } from '@mobileai/react-native';
+
+const KNOWLEDGE: KnowledgeEntry[] = [
+  {
+    id: 'returns',
+    title: 'Return Policy',
+    content: '30-day returns on all items. Electronics must be returned within 15 days.',
+    tags: ['return', 'refund'],
+  },
+  // ... more entries
+];
 
 export default function RootLayout() {
-  // expo-router re-exports useNavigationContainerRef from React Navigation
-  // so useNavigationContainerRef works — just don't wrap with <NavigationContainer>
   const navRef = useNavigationContainerRef();
 
   return (
-    <AIAgent apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!} navRef={navRef}>
+    <AIAgent
+      apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY!}
+      navRef={navRef}
+      knowledgeBase={KNOWLEDGE}
+    >
       <Slot />
     </AIAgent>
   );
@@ -192,6 +205,9 @@ The root provider. Wrap your app once at the top level.
 | `pathname` | `string` | — | Both | Current pathname (Expo Router). |
 | `mcpServerUrl` | `string` | — | Text | WebSocket URL for MCP bridge. |
 | `debug` | `boolean` | `false` | Both | Enable SDK debug logging. |
+| `knowledgeBase` | `KnowledgeEntry[] \| KnowledgeRetriever` | — | Both | Domain knowledge the AI can query. See [Knowledge Base](#-knowledge-base). |
+| `knowledgeMaxTokens` | `number` | `2000` | Both | Max token budget for knowledge retrieval results. |
+| `enableUIControl` | `boolean` | `true` | Both | When `false`, disables UI tools (tap/type/navigate). AI becomes a knowledge-only assistant. |
 
 ### `useAction(name, description, params, handler)`
 
@@ -395,6 +411,78 @@ This starts two servers:
 | `capture_screenshot(reason)` | Capture the current screen as an image. Called on-demand by the AI (requires `react-native-view-shot`). |
 | `done(text)` | Complete the task with a response. |
 | `ask_user(question)` | Ask the user for clarification. |
+| `query_knowledge(question)` | Search the knowledge base. Only available when `knowledgeBase` is configured. |
+
+## 🧠 Knowledge Base
+
+Give the AI domain-specific knowledge it can query on demand — policies, FAQs, product details, etc. The AI uses a `query_knowledge` tool to fetch relevant entries only when needed (no token waste).
+
+### Static Array (Simple)
+
+Pass an array of entries — the SDK handles keyword-based retrieval internally:
+
+```tsx
+import type { KnowledgeEntry } from '@mobileai/react-native';
+
+const KNOWLEDGE: KnowledgeEntry[] = [
+  {
+    id: 'shipping',
+    title: 'Shipping Policy',
+    content: 'Free shipping on orders over $75. Standard: 5-7 days ($4.99). Express: 2-3 days ($12.99).',
+    tags: ['shipping', 'delivery', 'free shipping'],
+  },
+  {
+    id: 'returns',
+    title: 'Return Policy',
+    content: '30-day returns on all items. Refunds processed in 5-7 business days.',
+    tags: ['return', 'refund', 'exchange'],
+    screens: ['product/[id]', 'order-history'], // optional: only surface on these screens
+  },
+];
+
+<AIAgent knowledgeBase={KNOWLEDGE} />
+```
+
+### Custom Retriever (Advanced)
+
+Bring your own retrieval logic — call an API, vector database, or any async source:
+
+```tsx
+<AIAgent
+  knowledgeBase={{
+    retrieve: async (query: string, screenName?: string) => {
+      const results = await fetch(`/api/knowledge?q=${query}&screen=${screenName}`);
+      return results.json();
+    },
+  }}
+/>
+```
+
+The retriever receives the user's question and current screen name, and returns a formatted string with the relevant knowledge.
+
+### Knowledge-Only Mode
+
+Set `enableUIControl={false}` to disable all UI interactions. The AI becomes a lightweight FAQ / support assistant — no screen analysis, no multi-step agent loop, just question → answer:
+
+```tsx
+<AIAgent
+  enableUIControl={false}
+  knowledgeBase={KNOWLEDGE}
+/>
+```
+
+**How it differs from full mode:**
+
+| | Full mode (default) | Knowledge-only mode |
+|---|---|---|
+| UI tree analysis | ✅ Full fiber walk | ❌ Skipped |
+| Screen content sent to LLM | ✅ ~500-2000 tokens | ❌ Only screen name |
+| Screenshots | ✅ Optional | ❌ Skipped |
+| Agent loop | Up to 10 steps | Single LLM call |
+| Available tools | 7 (tap, type, navigate, ...) | 2 (done, query_knowledge) |
+| System prompt | ~1,500 tokens | ~400 tokens |
+
+The AI still knows the current **screen name** (from navigation state, zero cost), so `screens`-filtered knowledge entries work correctly. It just can't see what's *on* the screen — ideal for domain Q&A where answers come from knowledge, not UI.
 
 ## 📋 Requirements
 
