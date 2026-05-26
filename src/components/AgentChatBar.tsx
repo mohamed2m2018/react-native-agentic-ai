@@ -18,7 +18,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import type { ExecutionResult, AgentMode } from '../core/types';
+import type { ExecutionResult, AgentMode, ChatBarTheme } from '../core/types';
 import {
   MicIcon,
   SpeakerIcon,
@@ -52,6 +52,8 @@ interface AgentChatBarProps {
   isVoiceConnected?: boolean;
   /** Full session cleanup (stop mic, audio, WebSocket, live mode) */
   onStopSession?: () => void;
+  /** Color theme overrides */
+  theme?: ChatBarTheme;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -237,19 +239,26 @@ function TextInputRow({
   onSend,
   isThinking,
   isArabic,
+  theme,
 }: {
   text: string;
   setText: (t: string) => void;
   onSend: () => void;
   isThinking: boolean;
   isArabic: boolean;
+  theme?: ChatBarTheme;
 }) {
   return (
     <View style={styles.inputRow}>
       <TextInput
-        style={[styles.input, isArabic && styles.inputRTL]}
+        style={[
+          styles.input,
+          isArabic && styles.inputRTL,
+          theme?.inputBackgroundColor ? { backgroundColor: theme.inputBackgroundColor } : undefined,
+          theme?.textColor ? { color: theme.textColor } : undefined,
+        ]}
         placeholder={isArabic ? 'اكتب طلبك...' : 'Ask AI...'}
-        placeholderTextColor="#999"
+        placeholderTextColor={theme?.textColor ? `${theme.textColor}66` : '#999'}
         value={text}
         onChangeText={setText}
         onSubmitEditing={onSend}
@@ -263,12 +272,16 @@ function TextInputRow({
         disabled={isThinking}
       />
       <Pressable
-        style={[styles.sendButton, isThinking && styles.sendButtonDisabled]}
+        style={[
+          styles.sendButton,
+          isThinking && styles.sendButtonDisabled,
+          theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
+        ]}
         onPress={onSend}
         disabled={isThinking || !text.trim()}
         accessibilityLabel="Send request to AI Agent"
       >
-        {isThinking ? <LoadingDots size={18} color="#fff" /> : <SendArrowIcon size={18} color="#fff" />}
+        {isThinking ? <LoadingDots size={18} color={theme?.textColor || '#fff'} /> : <SendArrowIcon size={18} color={theme?.textColor || '#fff'} />}
       </Pressable>
     </View>
   );
@@ -380,6 +393,7 @@ export function AgentChatBar({
   isAISpeaking,
   isVoiceConnected,
   onStopSession,
+  theme,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -452,11 +466,11 @@ export function AgentChatBar({
         {...panResponder.panHandlers}
       >
         <Pressable
-          style={styles.fab}
+          style={[styles.fab, theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined]}
           onPress={() => setIsExpanded(true)}
           accessibilityLabel="Open AI Agent Chat"
         >
-          {isThinking ? <LoadingDots size={28} color="#fff" /> : <AIBadge size={28} />}
+          {isThinking ? <LoadingDots size={28} color={theme?.textColor || '#fff'} /> : <AIBadge size={28} />}
         </Pressable>
       </Animated.View>
     );
@@ -465,7 +479,12 @@ export function AgentChatBar({
   // ─── Expanded Widget ───────────────────────────────────────
 
   return (
-    <Animated.View style={[styles.expandedContainer, pan.getLayout(), { transform: [{ translateY: keyboardOffset }] }]}>
+    <Animated.View style={[
+      styles.expandedContainer,
+      pan.getLayout(),
+      { transform: [{ translateY: keyboardOffset }] },
+      theme?.backgroundColor ? { backgroundColor: theme.backgroundColor } : undefined,
+    ]}>
       {/* Drag Handle */}
       <View {...panResponder.panHandlers} style={styles.dragHandleArea} accessibilityLabel="Drag AI Agent">
         <View style={styles.dragGrip} />
@@ -483,9 +502,14 @@ export function AgentChatBar({
 
       {/* Result Bubble */}
       {lastResult && (
-        <View style={[styles.resultBubble, lastResult.success ? styles.resultSuccess : styles.resultError]}>
+        <View style={[
+          styles.resultBubble,
+          lastResult.success
+            ? [styles.resultSuccess, theme?.successColor ? { backgroundColor: theme.successColor } : undefined]
+            : [styles.resultError, theme?.errorColor ? { backgroundColor: theme.errorColor } : undefined],
+        ]}>
           <ScrollView style={styles.resultScroll} nestedScrollEnabled>
-            <Text style={styles.resultText}>{lastResult.message}</Text>
+            <Text style={[styles.resultText, theme?.textColor ? { color: theme.textColor } : undefined]}>{lastResult.message}</Text>
           </ScrollView>
           {onDismiss && (
             <Pressable style={styles.dismissButton} onPress={onDismiss} hitSlop={12}>
@@ -503,6 +527,7 @@ export function AgentChatBar({
           onSend={handleSend}
           isThinking={isThinking}
           isArabic={isArabic}
+          theme={theme}
         />
       )}
 

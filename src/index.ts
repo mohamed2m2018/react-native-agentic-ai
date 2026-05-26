@@ -33,6 +33,7 @@ export type {
   KnowledgeEntry,
   KnowledgeRetriever,
   KnowledgeBaseConfig,
+  ChatBarTheme,
 } from './core/types';
 
 export type {

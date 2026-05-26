@@ -27,7 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
 console.log('🚀 AIAgent.tsx MODULE LOADED');
@@ -105,6 +105,17 @@ interface AIAgentProps {
    * Default: true
    */
   enableUIControl?: boolean;
+  /**
+   * Quick accent color for the chat bar.
+   * Tints the FAB, send button, and active states.
+   * Overridden by theme.primaryColor if both are provided.
+   */
+  accentColor?: string;
+  /**
+   * Full theme customization for the chat bar popup.
+   * Overrides accentColor for any specified key.
+   */
+  theme?: ChatBarTheme;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -138,6 +149,8 @@ export function AIAgent({
   knowledgeBase,
   knowledgeMaxTokens,
   enableUIControl,
+  accentColor,
+  theme,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -603,6 +616,10 @@ export function AIAgent({
             lastResult={lastResult}
             language={'en'}
             onDismiss={() => setLastResult(null)}
+            theme={accentColor || theme ? {
+              ...(accentColor ? { primaryColor: accentColor } : {}),
+              ...theme,
+            } : undefined}
             availableModes={availableModes}
             mode={mode}
             onModeChange={(newMode) => {
