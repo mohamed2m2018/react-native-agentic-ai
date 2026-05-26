@@ -35,8 +35,20 @@ console.log('🚀 AIAgent.tsx MODULE LOADED');
 // ─── Props ─────────────────────────────────────────────────────
 
 interface AIAgentProps {
-  /** Gemini API key */
-  apiKey: string;
+  /** 
+   * Gemini API key (for local prototyping only).
+   * Do not ship API keys in your production app bundle. 
+   */
+  apiKey?: string;
+  /** 
+   * The URL of your secure backend proxy (for production).
+   * Routes all Gemini API traffic through your server.
+   */
+  proxyUrl?: string;
+  /** 
+   * Headers to send to your backend proxy (e.g., auth tokens). 
+   */
+  proxyHeaders?: Record<string, string>;
   /** Gemini model name */
   model?: string;
   /** Navigation container ref (from useNavigationContainerRef) */
@@ -122,6 +134,8 @@ interface AIAgentProps {
 
 export function AIAgent({
   apiKey,
+  proxyUrl,
+  proxyHeaders,
   model = 'gemini-2.5-flash',
   navRef,
 
@@ -196,6 +210,8 @@ export function AIAgent({
 
   const config: AgentConfig = useMemo(() => ({
     apiKey,
+    proxyUrl,
+    proxyHeaders,
     model,
     language: 'en',
     maxSteps,
@@ -227,7 +243,7 @@ export function AIAgent({
       });
     }),
   }), [
-    mode, apiKey, model, maxSteps,
+    mode, apiKey, proxyUrl, proxyHeaders, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
@@ -235,7 +251,10 @@ export function AIAgent({
     knowledgeBase, knowledgeMaxTokens, enableUIControl,
   ]);
 
-  const provider = useMemo(() => new GeminiProvider(apiKey, model), [apiKey, model]);
+  const provider = useMemo(
+    () => new GeminiProvider(apiKey, model, proxyUrl, proxyHeaders), 
+    [apiKey, model, proxyUrl, proxyHeaders]
+  );
 
   const runtime = useMemo(
     () => new AgentRuntime(provider, config, rootViewRef.current, navRef),
@@ -286,6 +305,8 @@ export function AIAgent({
       logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,
+        proxyUrl,
+        proxyHeaders,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
         language: 'en',
@@ -530,7 +551,7 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, runtime, instructions]);
+  }, [mode, apiKey, proxyUrl, proxyHeaders, runtime, instructions]);
 
   // ─── Stop Voice Session (full cleanup) ─────────────────────
 

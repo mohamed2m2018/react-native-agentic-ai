@@ -27,7 +27,9 @@ import type { ToolDefinition } from '../core/types';
 // ─── Types ─────────────────────────────────────────────────────
 
 export interface VoiceServiceConfig {
-  apiKey: string;
+  apiKey?: string;
+  proxyUrl?: string;
+  proxyHeaders?: Record<string, string>;
   model?: string;
   systemPrompt?: string;
   tools?: ToolDefinition[];
@@ -91,7 +93,21 @@ export class VoiceService {
     logger.info('VoiceService', `Connecting via SDK (model: ${model})`);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: this.config.apiKey });
+      const genAiConfig: any = {};
+
+      if (this.config.proxyUrl) {
+        genAiConfig.apiKey = 'proxy-key';
+        genAiConfig.httpOptions = {
+          baseUrl: this.config.proxyUrl,
+          headers: this.config.proxyHeaders || {},
+        };
+      } else if (this.config.apiKey) {
+        genAiConfig.apiKey = this.config.apiKey;
+      } else {
+        throw new Error('[mobileai] Must provide apiKey or proxyUrl');
+      }
+
+      const ai = new GoogleGenAI(genAiConfig);
 
       const toolDeclarations = this.buildToolDeclarations();
 
