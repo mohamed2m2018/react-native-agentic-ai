@@ -34,6 +34,7 @@
 - 🌐 **MCP bridge** — Let external AI agents (OpenClaw, Claude Desktop) control your app remotely.
 - 🧠 **Knowledge base** — Give the AI domain knowledge (policies, FAQs, product info) it can query on demand. Static array or bring your own retriever.
 - 💡 **Knowledge-only mode** — Set `enableUIControl={false}` for a lightweight AI assistant with no UI interaction — single LLM call, ~70% fewer tokens.
+- 🎙️ **Voice dictation** — Let users speak their request instead of typing. Automatically enabled if `expo-speech-recognition` is installed.
 
 
 ### 🎤 Voice Mode (Live Agent)
