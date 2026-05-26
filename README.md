@@ -186,11 +186,7 @@ export default function RootLayout() {
 
 A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, fill forms — it reads your live UI and acts.
 
-## 🧠 Knowledge Base
-
-Give the AI domain-specific knowledge it can query on demand — policies, FAQs, product details, etc. The AI uses a `query_knowledge` tool to fetch relevant entries only when needed (no token waste).
-
-### 💡 Knowledge-Only Mode
+### Knowledge-Only Mode (No UI Automation)
 
 Don't need UI automation? Set `enableUIControl={false}`. The AI becomes a lightweight FAQ / support assistant — no screen analysis, no multi-step agent loop, just question → answer:
 
@@ -213,6 +209,11 @@ Don't need UI automation? Set `enableUIControl={false}`. The AI becomes a lightw
 | System prompt | ~1,500 tokens | ~400 tokens |
 
 The AI still knows the current **screen name** (from navigation state, zero cost), so `screens`-filtered knowledge entries work correctly. It just can't see what's *on* the screen — ideal for domain Q&A where answers come from knowledge, not UI.
+
+## 🧠 Knowledge Base
+
+Give the AI domain-specific knowledge it can query on demand — policies, FAQs, product details, etc. The AI uses a `query_knowledge` tool to fetch relevant entries only when needed (no token waste).
+
 
 ### Static Array (Simple)
 
