@@ -190,6 +190,30 @@ A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, 
 
 Give the AI domain-specific knowledge it can query on demand — policies, FAQs, product details, etc. The AI uses a `query_knowledge` tool to fetch relevant entries only when needed (no token waste).
 
+### 💡 Knowledge-Only Mode
+
+Don't need UI automation? Set `enableUIControl={false}`. The AI becomes a lightweight FAQ / support assistant — no screen analysis, no multi-step agent loop, just question → answer:
+
+```tsx
+<AIAgent
+  enableUIControl={false}
+  knowledgeBase={KNOWLEDGE}
+/>
+```
+
+**How it differs from full mode:**
+
+| | Full mode (default) | Knowledge-only mode |
+|---|---|---|
+| UI tree analysis | ✅ Full fiber walk | ❌ Skipped |
+| Screen content sent to LLM | ✅ ~500-2000 tokens | ❌ Only screen name |
+| Screenshots | ✅ Optional | ❌ Skipped |
+| Agent loop | Up to 10 steps | Single LLM call |
+| Available tools | 7 (tap, type, navigate, ...) | 2 (done, query_knowledge) |
+| System prompt | ~1,500 tokens | ~400 tokens |
+
+The AI still knows the current **screen name** (from navigation state, zero cost), so `screens`-filtered knowledge entries work correctly. It just can't see what's *on* the screen — ideal for domain Q&A where answers come from knowledge, not UI.
+
 ### Static Array (Simple)
 
 Pass an array of entries — the SDK handles keyword-based retrieval internally:
@@ -233,29 +257,6 @@ Bring your own retrieval logic — call an API, vector database, or any async so
 
 The retriever receives the user's question and current screen name, and returns a formatted string with the relevant knowledge.
 
-### Knowledge-Only Mode
-
-Set `enableUIControl={false}` to disable all UI interactions. The AI becomes a lightweight FAQ / support assistant — no screen analysis, no multi-step agent loop, just question → answer:
-
-```tsx
-<AIAgent
-  enableUIControl={false}
-  knowledgeBase={KNOWLEDGE}
-/>
-```
-
-**How it differs from full mode:**
-
-| | Full mode (default) | Knowledge-only mode |
-|---|---|---|
-| UI tree analysis | ✅ Full fiber walk | ❌ Skipped |
-| Screen content sent to LLM | ✅ ~500-2000 tokens | ❌ Only screen name |
-| Screenshots | ✅ Optional | ❌ Skipped |
-| Agent loop | Up to 10 steps | Single LLM call |
-| Available tools | 7 (tap, type, navigate, ...) | 2 (done, query_knowledge) |
-| System prompt | ~1,500 tokens | ~400 tokens |
-
-The AI still knows the current **screen name** (from navigation state, zero cost), so `screens`-filtered knowledge entries work correctly. It just can't see what's *on* the screen — ideal for domain Q&A where answers come from knowledge, not UI.
 
 ## 🔌 API Reference
 
