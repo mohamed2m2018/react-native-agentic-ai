@@ -285,6 +285,31 @@ The root provider. Wrap your app once at the top level.
 | `knowledgeBase` | `KnowledgeEntry[] \| KnowledgeRetriever` | — | Both | Domain knowledge the AI can query. See [Knowledge Base](#-knowledge-base). |
 | `knowledgeMaxTokens` | `number` | `2000` | Both | Max token budget for knowledge retrieval results. |
 | `enableUIControl` | `boolean` | `true` | Both | When `false`, disables UI tools (tap/type/navigate). AI becomes a knowledge-only assistant. |
+| `accentColor` | `string` | — | Both | Quick accent color for the chat bar — tints the FAB, send button, and active states. |
+| `theme` | `ChatBarTheme` | — | Both | Full color customization for the popup. See [Customization](#-customization). |
+
+### 🎨 Customization
+
+**Quick — one color:**
+```tsx
+<AIAgent accentColor="#6C5CE7" />
+```
+
+**Full theme control:**
+```tsx
+<AIAgent
+  accentColor="#6C5CE7"
+  theme={{
+    backgroundColor: 'rgba(44, 30, 104, 0.95)',
+    inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
+    textColor: '#ffffff',
+    successColor: 'rgba(40, 167, 69, 0.3)',
+    errorColor: 'rgba(220, 53, 69, 0.3)',
+  }}
+/>
+```
+
+All fields are optional — only override what you need.
 
 ### `useAction(name, description, params, handler)`
 
