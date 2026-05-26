@@ -107,7 +107,11 @@ function RootLayoutNav() {
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
       navRef={navRef}
       knowledgeBase={SHOP_KNOWLEDGE}
-      enableUIControl={false}
+      accentColor="#6C5CE7"
+      theme={{
+        backgroundColor: 'rgba(44, 30, 104, 0.95)',
+        inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
+      }}
       instructions={{
         system: 'You are ShopApp\'s AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app.',
       }}
