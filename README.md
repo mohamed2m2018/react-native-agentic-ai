@@ -69,6 +69,16 @@ If you want to use **Screenshots** (for image/video content), install this optio
 npx expo install react-native-view-shot
 ```
 
+#### 🎙️ Voice Dictation (Speech-to-Text)
+
+If you only want users to be able to dictate text into the chat bar (without the full real-time low-latency Voice Agent), you can simply install `expo-speech-recognition`:
+
+```bash
+npx expo install expo-speech-recognition
+```
+
+The SDK automatically detects this package and adds a microphone icon to the chat input field. No extra configuration required for Expo managed apps!
+
 #### 🎤 Voice Mode (Real-time Voice Chat)
 
 Voice mode enables real-time bidirectional audio with the Gemini Live API. It requires one native module:
