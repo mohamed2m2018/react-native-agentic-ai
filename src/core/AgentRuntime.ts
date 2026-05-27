@@ -40,6 +40,7 @@ export class AgentRuntime {
   private isRunning = false;
   private lastAskUserQuestion: string | null = null;
   private knowledgeService: KnowledgeBaseService | null = null;
+  private uiControlOverride?: boolean;
 
   constructor(
     provider: AIProvider,
@@ -466,6 +467,17 @@ export class AgentRuntime {
     return route.name || 'Unknown';
   }
 
+  // ─── Dynamic Config Overrides ────────────────────────────────
+
+  public setUIControlOverride(enabled: boolean | undefined) {
+    this.uiControlOverride = enabled;
+  }
+
+  private isUIEnabled(): boolean {
+    if (this.uiControlOverride !== undefined) return this.uiControlOverride;
+    return this.config.enableUIControl !== false; // defaults to true
+  }
+
   /** Maps a tool call to a user-friendly status label for the loading overlay. */
   private getToolStatusLabel(toolName: string, args: Record<string, any>): string {
     switch (toolName) {
@@ -754,7 +766,7 @@ ${screen.elementsText}
       // ─── Knowledge-only fast path ─────────────────────────────────
       // Skip fiber walk, dehydration, screenshots, and multi-step loop.
       // Only sends the user question → single LLM call → done.
-      if (this.config.enableUIControl === false) {
+      if (!this.isUIEnabled()) {
         this.config.onStatusUpdate?.('Thinking...');
         const hasKnowledge = !!this.knowledgeService;
         const systemPrompt = buildKnowledgeOnlyPrompt(

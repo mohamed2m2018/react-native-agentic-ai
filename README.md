@@ -385,6 +385,59 @@ function CartScreen() {
 | `parameters` | `Record<string, string>` | Parameter schema (e.g., `{ itemName: 'string' }`). |
 | `handler` | `(args) => any` | Execution handler. Can be sync or async. |
 
+### Headless / Custom UI Integration (`useAI`)
+
+Want to completely hide the default floating chat bar and build your own custom interface? 
+The `useAI()` hook lets you tap directly into the agent's brain from anywhere inside the `<AIAgent>` tree.
+
+```tsx
+import { useAI } from '@mobileai/react-native';
+
+function CustomChatScreen() {
+  const { send, isLoading, status, messages, lastResult } = useAI();
+  
+  return (
+    <View style={{ flex: 1 }}>
+      <FlatList 
+        data={messages} 
+        renderItem={({ item }) => (
+          <Text style={{ color: item.role === 'user' ? 'blue' : 'black' }}>
+            {item.content}
+          </Text>
+        )} 
+      />
+      
+      {isLoading && <Text>{status}</Text>}
+      
+      <TextInput 
+        onSubmitEditing={(e) => send(e.nativeEvent.text)} 
+        placeholder="Ask the AI..."
+      />
+    </View>
+  );
+}
+```
+
+**1. Global Chat Persistence**  
+Because `messages` are managed globally by the root `<AIAgent>` provider, your chat history survives even if the user navigates away to a completely different tab and comes back!
+
+**2. Dynamic Config Overrides**  
+You can dynamically override global settings just for the specific screen calling the hook:
+
+```tsx
+const router = useRouter();
+
+const { send } = useAI({
+  // Force Knowledge-Only mode for tasks sent from this specific screen
+  enableUIControl: false,
+  
+  // Custom routing: navigate back to this screen when the agent finishes
+  onResult: (result) => {
+    router.push('/(tabs)/chat');
+  },
+});
+```
+
 ## 🔒 Security & Production Setup
 
 ### 1. API Key Protection (Backend Proxy)

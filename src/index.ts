@@ -9,7 +9,7 @@
 export { AIAgent } from './components/AIAgent';
 
 // ─── Hooks ───────────────────────────────────────────────────
-export { useAction } from './hooks/useAction';
+export { useAction, useAI } from './hooks/useAction';
 
 // ─── Services ────────────────────────────────────────────────
 export { VoiceService } from './services/VoiceService';
@@ -34,6 +34,7 @@ export type {
   KnowledgeRetriever,
   KnowledgeBaseConfig,
   ChatBarTheme,
+  AIMessage,
 } from './core/types';
 
 export type {
