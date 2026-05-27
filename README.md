@@ -150,6 +150,9 @@ export default function App() {
       // proxyUrl="https://api.yourdomain.com/gemini-proxy"
       // proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
       
+      // 🔌 Optional: If you use Serverless for text, you can route Voice to a dedicated server
+      // voiceProxyUrl="https://voice-server.render.com"
+      
       navRef={navRef}
     >
       <NavigationContainer ref={navRef}>
@@ -285,6 +288,8 @@ The root provider. Wrap your app once at the top level.
 | `apiKey` | `string` | — | Both | Gemini API key (Prototypes only). |
 | `proxyUrl` | `string` | — | Both | Secure backend proxy URL (For production). |
 | `proxyHeaders` | `Record<string, string>` | — | Both | Optional headers for proxy (e.g. auth tokens). |
+| `voiceProxyUrl` | `string` | — | Voice | Specific proxy URL for Voice Mode WebSockets. |
+| `voiceProxyHeaders` | `Record<string, string>` | — | Voice | Specific headers for Voice Mode WebSockets. |
 | `model` | `string` | `'gemini-2.5-flash'` | Text | Gemini model name. |
 | `navRef` | `NavigationContainerRef` | — | Both | Navigation ref for auto-navigation. |
 | `maxSteps` | `number` | `10` | Text | Max steps per task. |
@@ -389,11 +394,15 @@ The safest architecture is to use a **Backend Proxy**.
 **A. How to configure the SDK for production:**
 ```tsx
 <AIAgent 
-  proxyUrl="https://api.yourdomain.com/gemini-proxy"
+  proxyUrl="https://myapp.vercel.app/api/gemini" // Used for Text Mode
   proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
+  
+  // (Optional) Serverless Hybrid Architecture:
+  voiceProxyUrl="https://voice-server.render.com" // Used for Voice Mode WebSockets
   navRef={navRef}
 >
 ```
+> **Note on Hybrid Architectures:** If `voiceProxyUrl` isn't provided, it safely falls back to using `proxyUrl` for everything. You only need `voiceProxyUrl` if your main API is hosted on a Serverless environment (like Vercel) that terminates WebSockets, requiring you to host the voice socket on a dedicated platform.
 
 **B. Next.js Route Handler Example (For Text Mode):**
 ```typescript
