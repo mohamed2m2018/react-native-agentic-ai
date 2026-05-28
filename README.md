@@ -6,30 +6,19 @@
 npm install @mobileai/react-native
 ```
 
-<table>
-<tr>
-<td width="35%">
-
-### 🤖 AI Agent
+### 🤖 AI Agent — Autonomous UI Control
 
 <p align="center">
-  <img src="./assets/demo.gif" alt="AI Agent autonomously controlling a React Native app UI via natural language" width="300" />
+  <img src="./assets/demo.gif" alt="AI Agent autonomously controlling a React Native app UI via natural language" width="350" />
 </p>
-
-</td>
-<td width="65%">
 
 ### 🧪 AI-Powered Testing via MCP
 
 <p align="center">
-  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — AI editor finding bugs in React Native app" width="100%" />
+  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — AI editor finding bugs in React Native app" width="700" />
 </p>
 
-</td>
-</tr>
-</table>
-
-> *Left: AI agent autonomously navigating and acting on the app. Right: Google Antigravity finding 5 bugs via MCP — no test code, just English.*
+> *Google Antigravity finding 5 bugs in the example app — no test code, just English.*
 
 ---
 
