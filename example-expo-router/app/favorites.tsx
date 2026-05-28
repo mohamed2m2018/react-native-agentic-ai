@@ -4,7 +4,7 @@ import { Text, View } from '@/components/Themed';
 const FAVORITES = [
   { id: '1', name: 'Wireless Headphones', price: 79.99 },
   { id: '3', name: 'Laptop Stand', price: 49.99 },
-  { id: '5', name: 'Yoga Mat', price: 34.99 },
+  { id: '5', name: 'Yoga Mat', price: 39.99 }, // 🐛 BUG: price is 39.99 here but 34.99 on home/detail page
 ];
 
 export default function FavoritesScreen() {

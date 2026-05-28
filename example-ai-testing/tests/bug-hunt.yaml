@@ -1,0 +1,34 @@
+# 🐛 Bug Hunt — Detect the bugs
+#
+# This app has 5 intentional bugs planted.
+# Use your AI editor to find them via MCP.
+#
+# Can be used two ways:
+#   1. DIRECT: "Check the emulator — is the Laptop Stand price consistent across screens?"
+#   2. SAVED PLAN: "Read example-ai-testing/tests/bug-hunt.yaml and run each check on the emulator"
+
+name: "Bug Hunt — 5 Planted Bugs"
+description: "This example app has 5 intentional bugs. Use the AI to find all of them."
+
+bugs_to_find: 5
+
+checks:
+  - id: "price-sync-list"
+    check: "Navigate to the home screen, read the Laptop Stand price, then tap on it and read the price on the detail page. Are they the same?"
+    hint: "Compare the list price vs the detail page price for Laptop Stand"
+
+  - id: "missing-profile-email"
+    check: "Navigate to the Profile tab. Does it show the user's email address under their name?"
+    hint: "The profile should show both name AND email"
+
+  - id: "missing-settings-link"
+    check: "Navigate to Settings. The Support section should have 3 items: About, Privacy Policy, Help Center. Are all 3 present?"
+    hint: "Count the items in the Support section"
+
+  - id: "spec-contradiction"
+    check: "Tap on Running Shoes. Read the description AND the specifications list. Does the material mentioned in the description match the spec listed?"
+    hint: "Compare what the description says about the 'upper' material vs what the specs list says"
+
+  - id: "favorites-price-sync"
+    check: "Navigate to Profile, then tap Favorites. Read the Yoga Mat price. Then go back to home and read the Yoga Mat price there. Are they the same?"
+    hint: "Cross-reference the Yoga Mat price between Favorites and Home screens"

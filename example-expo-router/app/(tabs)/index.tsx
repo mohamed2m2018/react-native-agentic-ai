@@ -5,7 +5,7 @@ import { Text, View } from '@/components/Themed';
 const PRODUCTS = [
   { id: '1', name: 'Wireless Headphones', price: 79.99, category: 'Electronics' },
   { id: '2', name: 'Running Shoes', price: 129.99, category: 'Footwear' },
-  { id: '3', name: 'Laptop Stand', price: 49.99, category: 'Accessories' },
+  { id: '3', name: 'Laptop Stand', price: 45.99, category: 'Accessories' }, // 🐛 BUG: price is 45.99 here but 49.99 on detail page
   { id: '4', name: 'Coffee Maker', price: 89.99, category: 'Kitchen' },
   { id: '5', name: 'Yoga Mat', price: 34.99, category: 'Fitness' },
   { id: '6', name: 'Desk Lamp', price: 44.99, category: 'Home Office' },

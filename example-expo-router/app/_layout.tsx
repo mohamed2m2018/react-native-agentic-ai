@@ -107,8 +107,9 @@ function RootLayoutNav() {
     <AIAgent
       apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
       navRef={navRef}
+      mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
       knowledgeBase={SHOP_KNOWLEDGE}
-      showChatBar={false}
+      showChatBar={true}
       enableUIControl={true}
       accentColor="#6C5CE7"
       theme={{

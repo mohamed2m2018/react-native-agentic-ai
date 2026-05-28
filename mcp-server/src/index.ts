@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
 
@@ -77,95 +78,122 @@ async function executeTaskInApp(command: string): Promise<any> {
   });
 }
 
-// ─── MCP Server Setup (HTTP / SSE) ─────────────────────────────
+// ─── MCP Tools Registration ───────────────────────────────────
 
-const app = express();
-app.use(cors());
+function registerTools(mcp: McpServer) {
+  mcp.tool(
+    'execute_task',
+    'Execute a natural language task in the connected React Native mobile app',
+    {
+      command: z.string().describe('The natural language command to execute, e.g. "Order 2 lemonades"'),
+    },
+    async ({ command }) => {
+      console.log(`[MCP] Tool invoked: execute_task("${command}")`);
+      try {
+        const result = await executeTaskInApp(command);
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (error: any) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Error executing task: ${error.message}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 
-// The MCP wrapper
-const mcp = new McpServer({
-  name: 'react-native-ai-agent-bridge',
-  version: '1.0.0',
-});
-
-// ─── MCP Tools ────────────────────────────────────────────────
-
-mcp.tool(
-  'execute_task',
-  'Execute a natural language task in the connected React Native mobile app',
-  {
-    command: z.string().describe('The natural language command to execute, e.g. "Order 2 lemonades"'),
-  },
-  async ({ command }) => {
-    console.log(`[MCP] Tool invoked: execute_task("${command}")`);
-    try {
-      const result = await executeTaskInApp(command);
-      
+  mcp.tool(
+    'get_app_status',
+    'Check if the React Native app is currently connected to the bridge',
+    async () => {
+      const isConnected = activeAppConnection !== null && activeAppConnection.readyState === WebSocket.OPEN;
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    } catch (error: any) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: `Error executing task: ${error.message}`,
+            text: JSON.stringify({
+              connected: isConnected,
+              pendingRequests: pendingRequests.size,
+            }, null, 2),
           },
         ],
       };
     }
-  }
-);
+  );
+}
 
-mcp.tool(
-  'get_app_status',
-  'Check if the React Native app is currently connected to the bridge',
-  async () => {
-    const isConnected = activeAppConnection !== null && activeAppConnection.readyState === WebSocket.OPEN;
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            connected: isConnected,
-            pendingRequests: pendingRequests.size,
-          }, null, 2),
-        },
-      ],
-    };
-  }
-);
+// ─── HTTP Server Setup ──────────────────────────────────────────
 
-// ─── HTTP Endpoints for SSE Transport ─────────────────────────
+const app = express();
+app.use(cors());
 
-let transport: SSEServerTransport | null = null;
+// ─── Streamable HTTP Transport (Modern MCP - single /mcp endpoint) ──
+
+app.all('/mcp', async (req, res) => {
+  // Create a new MCP server + transport per session
+  const mcp = new McpServer({
+    name: 'react-native-ai-agent-bridge',
+    version: '1.0.0',
+  });
+  registerTools(mcp);
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // stateless mode
+  });
+
+  await mcp.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});
+
+// ─── Legacy SSE Transport (backwards compatibility) ─────────────
+
+const legacyMcp = new McpServer({
+  name: 'react-native-ai-agent-bridge',
+  version: '1.0.0',
+});
+registerTools(legacyMcp);
+
+let sseTransport: SSEServerTransport | null = null;
 
 app.get('/mcp/sse', async (_req, res) => {
   console.log('[HTTP] New SSE connection established.');
-  transport = new SSEServerTransport('/mcp/messages', res);
-  // Connect the transport to the MCP server
-  await mcp.connect(transport);
+  sseTransport = new SSEServerTransport('/mcp/messages', res);
+  await legacyMcp.connect(sseTransport);
 });
 
 app.post('/mcp/messages', async (req, res) => {
-  if (!transport) {
+  if (!sseTransport) {
     res.status(400).send('SSE connection not established yet.');
     return;
   }
-  await transport.handlePostMessage(req, res);
+  await sseTransport.handlePostMessage(req, res);
 });
 
-// Note: If clients use Streamable HTTP (single endpoint /mcp),
-// they may POST/GET to the same endpoint. The @modelcontextprotocol/sdk standard
-// Express integration traditionally splits the sse and messages endpoints as above.
+// ─── Start Server ──────────────────────────────────────────────
 
 app.listen(HTTP_PORT, () => {
-  console.log(`[HTTP] MCP Server listening on http://localhost:${HTTP_PORT}`);
-  console.log(`[HTTP] SSE Endpoint: http://localhost:${HTTP_PORT}/mcp/sse`);
+  console.log(`
+╔══════════════════════════════════════════════════════╗
+║          @mobileai/mcp-server  ready! 🚀             ║
+╠══════════════════════════════════════════════════════╣
+║  MCP Streamable HTTP  →  http://localhost:${HTTP_PORT}/mcp     ║
+║  MCP Legacy SSE       →  http://localhost:${HTTP_PORT}/mcp/sse ║
+║  React Native Bridge  →  ws://localhost:${WS_PORT}          ║
+╠══════════════════════════════════════════════════════╣
+║  Waiting for your React Native app to connect...     ║
+║  Add  mcpServerUrl="ws://localhost:${WS_PORT}"  to AIAgent  ║
+╚══════════════════════════════════════════════════════╝
+  `);
 });
