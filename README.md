@@ -47,16 +47,15 @@ That's what this SDK does. It reads your app's live UI natively — every button
 
 The result: an AI that truly understands your app — and can act on it autonomously.
 
-| | MobileAI | Screenshot-based AI | Traditional Test Frameworks |
+| | This SDK | Screenshot-based AI | Build It Yourself |
 |---|---|---|---|
-| **Setup** | `<AIAgent>` — one wrapper | Vision model + custom prompts | Config files + element selectors |
-| **How it reads UI** | Native structure — real time | Screenshot → OCR pipeline | Fragile selectors |
-| **AI-driven actions** | ✅ Built-in agent loop | ❌ Build from scratch | ❌ No AI |
+| **Setup** | `<AIAgent>` — one wrapper | Vision model + custom pipeline | Months of custom code |
+| **How it reads UI** | Native structure — real time | Screenshot → OCR | Custom integration |
+| **AI agent loop** | ✅ Built-in multi-step | ❌ Build from scratch | ❌ Build from scratch |
 | **Voice mode** | ✅ Real-time bidirectional | ❌ | ❌ |
-| **Custom business logic** | ✅ `useAction` hook | ❌ Custom code | ❌ Custom code |
-| **AI editor testing (MCP)** | ✅ One command | ❌ | ❌ |
+| **Custom business logic** | ✅ `useAction` hook | Custom code | Custom code |
+| **AI editor integration (MCP)** | ✅ One command | ❌ | ❌ |
 | **Knowledge base** | ✅ Built-in retrieval | ❌ | ❌ |
-| **Self-healing** | ✅ No selectors to break | ❌ | ❌ |
 
 ---
 
