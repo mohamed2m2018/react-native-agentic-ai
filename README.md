@@ -37,13 +37,13 @@ npm install @mobileai/react-native
 
 ---
 
-## 🤔 Why MobileAI?
+## 🧠 The Approach — Structure-First AI
 
-Adding AI to a React Native app today means choosing between fragile screenshot-based OCR, complex vision model pipelines, or building custom automation from scratch. All of it is slow, brittle, and doesn't understand your app.
+What if your AI could understand your app the way a developer does — not by looking at pixels, but by reading the actual UI structure?
 
-**MobileAI takes a fundamentally different approach.**
+That's what this SDK does. It reads your app's live UI natively — every button, label, input, and screen — in real time. The AI understands your app's structure, not a screenshot of it.
 
-It reads your app's live UI structure natively — every button, label, input, and screen — in real time. No OCR. No image recognition. No annotations. No view wrappers.
+**No OCR. No image pipelines. No selectors. No annotations. No view wrappers.**
 
 The result: an AI agent that understands your app as well as a human tester, but executes in milliseconds.
 
