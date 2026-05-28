@@ -45,7 +45,7 @@ That's what this SDK does. It reads your app's live UI natively — every button
 
 **No OCR. No image pipelines. No selectors. No annotations. No view wrappers.**
 
-The result: an AI agent that understands your app as well as a human tester, but executes in milliseconds.
+The result: an AI that truly understands your app — and can act on it autonomously.
 
 | | MobileAI | Screenshot-based AI | Traditional Test Frameworks |
 |---|---|---|---|
