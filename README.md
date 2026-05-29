@@ -26,6 +26,7 @@ npm install react-native-agentic-ai
 
 [![npm](https://img.shields.io/npm/v/@mobileai/react-native?label=%40mobileai%2Freact-native)](https://www.npmjs.com/package/@mobileai/react-native)
 [![npm](https://img.shields.io/npm/v/react-native-agentic-ai?label=react-native-agentic-ai)](https://www.npmjs.com/package/react-native-agentic-ai)
+
 [![license](https://img.shields.io/npm/l/@mobileai/react-native)](https://github.com/mohamed2m2018/mobileai-react-native/blob/main/LICENSE)
 [![platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-brightgreen)]()
 [![stars](https://img.shields.io/github/stars/mohamed2m2018/react-native-agentic-ai?style=social)](https://github.com/mohamed2m2018/react-native-agentic-ai)
