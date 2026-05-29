@@ -1,6 +1,6 @@
 # AI Agent SDK for React Native & Expo
 
-> **One component. Your app gets an autonomous AI agent.** UI control, real-time voice, knowledge base, and MCP bridge to connect any AI editor — all from `<AIAgent>`.
+> **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, a built-in knowledge base, and an MCP bridge that lets any AI connect to your app — including test it in plain English.
 
 ```bash
 npm install @mobileai/react-native
@@ -12,13 +12,13 @@ npm install @mobileai/react-native
   <img src="./assets/demo.gif" alt="AI Agent autonomously controlling a React Native app UI via natural language" width="350" />
 </p>
 
-### 🧪 AI-Powered Testing via MCP
+### 🧪 AI-Powered Testing — Test Your App in English, Not Code
 
 <p align="center">
-  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — AI editor finding bugs in React Native app" width="700" />
+  <img src="./assets/mcp-testing.gif" alt="AI-Powered Testing via Model Context Protocol — finding bugs in React Native app without test code" width="700" />
 </p>
 
-> *Google Antigravity finding 5 bugs in the example app — no test code, just English.*
+> *Google Antigravity running 5 checks on the emulator and finding 5 real bugs — zero test code, zero selectors, just English.*
 
 ---
 
@@ -51,7 +51,7 @@ The result: an AI that truly understands your app — and can act on it autonomo
 | **AI agent loop** | ✅ Built-in multi-step | ❌ Build from scratch | ❌ Build from scratch |
 | **Voice mode** | ✅ Real-time bidirectional | ❌ | ❌ |
 | **Custom business logic** | ✅ `useAction` hook | Custom code | Custom code |
-| **AI editor integration (MCP)** | ✅ One command | ❌ | ❌ |
+| **MCP bridge (any AI connects)** | ✅ One command | ❌ | ❌ |
 | **Knowledge base** | ✅ Built-in retrieval | ❌ | ❌ |
 
 ---
@@ -60,7 +60,7 @@ The result: an AI that truly understands your app — and can act on it autonomo
 
 ### 🤖 Autonomous AI Agent — Natural Language UI Automation
 
-Your users (or your AI editor) describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by Google Gemini.
+Your users describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by Google Gemini.
 
 - **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors
 - **Multi-step reasoning** — navigates across screens to complete complex tasks
@@ -79,15 +79,15 @@ Full bidirectional voice AI powered by the Gemini Live API. Users speak naturall
 
 ### 🔌 MCP Bridge — Connect Any AI to Your App
 
-Your app becomes MCP-compatible with one prop. Any AI editor or agent that speaks the Model Context Protocol can remotely control your app — navigate screens, tap buttons, read content, execute tasks.
+Your app becomes MCP-compatible with one prop. Any AI that speaks the Model Context Protocol — editors, autonomous agents, CI/CD pipelines, custom scripts — can remotely control your app.
 
 ### 🧪 AI-Powered Testing via MCP
 
-One powerful use case of the MCP bridge: connect your AI editor to your running emulator and test your app in plain English. No selectors, no flakiness, self-healing by design.
+The most powerful use case: test your app without writing test code. Connect your AI (Antigravity, Claude Desktop, or any MCP client) to the emulator and describe what to check — in English. No selectors to maintain, no flaky tests, self-healing by design.
 
-**Two ways to test:**
+**Skip the test framework. Just ask:**
 
-**Direct** — ask your AI editor anything:
+**Ad-hoc** — ask your AI anything about the running app:
 > *"Is the Laptop Stand price consistent between the home screen and the product detail page?"*
 
 **YAML Test Plans** — commit reusable checks to your repo:
@@ -99,7 +99,7 @@ checks:
   - id: profile-email
     check: "Go to Profile tab. Is the email displayed under the user's name?"
 ```
-Then tell your AI editor: *"Read tests/smoke.yaml and run each check on the emulator"*
+Then tell your AI: *"Read tests/smoke.yaml and run each check on the emulator"*
 
 **Real Results — 5 bugs found autonomously:**
 
@@ -315,7 +315,7 @@ npx @mobileai/mcp-server
 />
 ```
 
-**3. Connect your AI editor:**
+**3. Connect your AI:**
 
 <details>
 <summary><b>Google Antigravity</b></summary>
@@ -373,7 +373,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCP_PORT` | `3100` | HTTP port for AI editors |
+| `MCP_PORT` | `3100` | HTTP port for MCP clients |
 | `WS_PORT` | `3101` | WebSocket port for the React Native app |
 
 ---
