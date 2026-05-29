@@ -1,6 +1,6 @@
 # AI Agent SDK for React Native & Expo
 
-> **One component. Your app gets an AI brain.** Text chat, real-time voice, and MCP bridge — all from `<AIAgent>`.
+> **One component. Your app gets an AI brain.** Autonomous UI control, real-time voice, knowledge base, and MCP bridge to connect any AI editor — all from `<AIAgent>`.
 
 ```bash
 npm install @mobileai/react-native
