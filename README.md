@@ -79,7 +79,8 @@ Full bidirectional voice AI powered by the Gemini Live API. Users speak naturall
 - **Sub-second latency** — real-time audio via WebSockets, not turn-based
 - **Full UI control** — same tap, type, navigate, custom actions as text mode — all by voice
 - **Screen-aware** — auto-detects screen changes and updates its context instantly
-- **Voice dictation fallback** — just want speech-to-text input? Install `expo-speech-recognition`
+
+> 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` and a mic button appears in the chat bar — letting users dictate messages instead of typing. This is separate from voice mode.
 
 ### 🔌 MCP Bridge — Connect Any AI to Your App
 
