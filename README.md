@@ -162,13 +162,13 @@ npx expo install react-native-view-shot
 </details>
 
 <details>
-<summary><b>🎙️ Voice Dictation</b> — speech-to-text input only</summary>
+<summary><b>🎙️ Speech-to-Text in Text Mode</b> — dictate messages instead of typing</summary>
 
 ```bash
 npx expo install expo-speech-recognition
 ```
 
-Automatically detected. No extra config needed — a mic icon appears in the chat bar.
+Automatically detected. No extra config needed — a mic icon appears in the text chat bar, letting users speak their message instead of typing. This is separate from voice mode.
 
 </details>
 
