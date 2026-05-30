@@ -2,6 +2,8 @@
 
 > **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, and a built-in knowledge base. Fully customizable, production-grade security, performant, and lightweight. Plus: an MCP bridge that lets any AI connect to and test your app.
 
+**Two names, one package — pick whichever you prefer:**
+
 ```bash
 npm install @mobileai/react-native
 # — or —
@@ -141,6 +143,8 @@ Then tell your AI: *"Read tests/smoke.yaml and run each check on the emulator"*
 ---
 
 ## 📦 Installation
+
+**Two names, one package — pick whichever you prefer:**
 
 ```bash
 npm install @mobileai/react-native
