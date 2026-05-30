@@ -510,7 +510,7 @@ const { send } = useAI({
 
 ## 🔒 Security & Production
 
-### Backend Proxy — Never Ship API Keys
+### Backend Proxy — Keep API Keys Secure
 
 ```tsx
 <AIAgent
