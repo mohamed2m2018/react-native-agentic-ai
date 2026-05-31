@@ -8,6 +8,11 @@
 // ─── Components ──────────────────────────────────────────────
 export { AIAgent } from './components/AIAgent';
 
+// ─── Providers ───────────────────────────────────────────────
+export { GeminiProvider } from './providers/GeminiProvider';
+export { OpenAIProvider } from './providers/OpenAIProvider';
+export { createProvider } from './providers/ProviderFactory';
+
 // ─── Hooks ───────────────────────────────────────────────────
 export { useAction, useAI } from './hooks/useAction';
 
@@ -35,6 +40,7 @@ export type {
   KnowledgeBaseConfig,
   ChatBarTheme,
   AIMessage,
+  AIProviderName,
 } from './core/types';
 
 export type {
