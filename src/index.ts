@@ -41,6 +41,8 @@ export type {
   ChatBarTheme,
   AIMessage,
   AIProviderName,
+  ScreenMap,
+  ScreenMapEntry,
 } from './core/types';
 
 export type {

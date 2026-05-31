@@ -1,0 +1,125 @@
+{
+  "generatedAt": "2026-03-24T09:22:53.749Z",
+  "framework": "react-navigation",
+  "screens": {
+    "Home": {
+      "title": "FoodApp",
+      "description": "+ (button), Load More Dishes (button)"
+    },
+    "Menu": {
+      "description": "Add (button)"
+    },
+    "DishDetail": {
+      "description": "Add to Favorites (switch), View Reviews & Questions (button), Add 1 to Cart - $ (button), Add 2 - $ (button)"
+    },
+    "DishReviews": {
+      "description": "Report (button), Price Drop Alerts (switch), Notify on New Reviews (switch), Type your question about this dish... (text-input), Submit Question (button), ✍️ Write a Review (button)"
+    },
+    "ReportIssue": {
+      "title": "Report Issue",
+      "description": "Describe the issue in detail... (text-input), Submit Report (button)"
+    },
+    "WriteReview": {
+      "description": "Summarize your experience (text-input), What did you like or dislike? (text-input), 👍 Yes (button), 👎 No (button), Submit Review (button)"
+    },
+    "ReviewThanks": {
+      "title": "Review Submitted",
+      "description": "View Loyalty Program (button), Back to Home (button)"
+    },
+    "LoyaltyProgram": {
+      "title": "Loyalty Program",
+      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 🎁 (button)"
+    },
+    "RedeemReward": {
+      "title": "Redeem Rewards",
+      "description": "Screen content"
+    },
+    "GiftCard": {
+      "title": "Send Gift Card",
+      "description": "friend@email.com (text-input), Add a personal note... (text-input), Send Gift Card (button)"
+    },
+    "GiftConfirmation": {
+      "title": "Gift Sent!",
+      "description": "Back to Home (button)"
+    },
+    "SettingsMain": {
+      "title": "Settings",
+      "description": "Enter your name (text-input), Enter your email (text-input), Write about yourself (text-input), Email Alerts (switch), Push Notifications (switch), Order Updates (switch), SMS Promotional Offers (switch), Manage Notification Preferences (button), Two-Factor Authentication (switch)"
+    },
+    "NotificationPrefs": {
+      "title": "Notification Preferences",
+      "description": "toggle (switch), Reset to Defaults (button)"
+    },
+    "HomeTab": {
+      "title": "Home",
+      "description": "Screen content"
+    },
+    "Search": {
+      "title": "Search",
+      "description": "Add (button), Search dishes... (text-input)"
+    },
+    "Cart": {
+      "title": "Cart",
+      "description": "✕ (button), Checkout (button)"
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "Log Out (button)"
+    },
+    "Login": {
+      "description": "Email (text-input), Password (text-input), Log In (button), Forgot Password? (button), Don't have an account? (button)"
+    },
+    "Signup": {
+      "description": "Full Name (text-input), Email (text-input), Password (text-input), Sign Up (button), Already have an account? (button)"
+    },
+    "ForgotPassword": {
+      "description": "Back to Login (button), Email address (text-input), Send Reset Link (button)"
+    }
+  },
+  "chains": [
+    [
+      "Home",
+      "Menu",
+      "DishDetail",
+      "DishReviews",
+      "WriteReview",
+      "ReviewThanks",
+      "LoyaltyProgram",
+      "RedeemReward",
+      "GiftCard",
+      "GiftConfirmation"
+    ],
+    [
+      "Home",
+      "DishDetail",
+      "DishReviews",
+      "WriteReview",
+      "ReviewThanks",
+      "LoyaltyProgram",
+      "RedeemReward",
+      "GiftCard",
+      "GiftConfirmation"
+    ],
+    [
+      "Home",
+      "Menu",
+      "DishDetail",
+      "DishReviews",
+      "ReportIssue"
+    ],
+    [
+      "Home",
+      "DishDetail",
+      "DishReviews",
+      "ReportIssue"
+    ],
+    [
+      "SettingsMain",
+      "NotificationPrefs"
+    ],
+    [
+      "Search",
+      "HomeTab"
+    ]
+  ]
+}

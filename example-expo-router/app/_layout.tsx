@@ -6,6 +6,8 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { AIAgent } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
+import screenMap from '../ai-screen-map.json';
+
 
 import { useColorScheme } from '@/components/useColorScheme';
 
@@ -55,16 +57,6 @@ const SHOP_KNOWLEDGE: KnowledgeEntry[] = [
     tags: ['warranty', 'guarantee', 'defect', 'repair'],
   },
   {
-    id: 'product-care',
-    title: 'Product Care Guide',
-    content:
-      'Headphones: avoid exposure to water, store in provided case. '
-      + 'Running Shoes: air dry only, do not machine wash. '
-      + 'Yoga Mat: wipe with damp cloth after each use. '
-      + 'Coffee Maker: descale every 3 months with white vinegar.',
-    tags: ['care', 'maintenance', 'cleaning', 'instructions'],
-  },
-  {
     id: 'store-hours',
     title: 'Customer Support Hours',
     content:
@@ -111,6 +103,8 @@ function RootLayoutNav() {
       knowledgeBase={SHOP_KNOWLEDGE}
       showChatBar={true}
       enableUIControl={true}
+      debug={true}
+      screenMap={screenMap as any}
       accentColor="#6C5CE7"
       theme={{
         backgroundColor: 'rgba(44, 30, 104, 0.95)',
@@ -124,7 +118,7 @@ function RootLayoutNav() {
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
+          <Stack.Screen name="product/[id]" options={{ title: 'Product Details', }} />
           <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
           <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
           <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
@@ -135,6 +129,11 @@ function RootLayoutNav() {
           <Stack.Screen name="about" options={{ title: 'About' }} />
           <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
           <Stack.Screen name="help" options={{ title: 'Help Center' }} />
+          <Stack.Screen name="categories" options={{ title: 'Categories' }} />
+          <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
+          <Stack.Screen name="subcategory/[id]" options={{ title: 'Subcategory' }} />
+          <Stack.Screen name="item/[id]" options={{ title: 'Item Details' }} />
+          <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
         </Stack>
       </ThemeProvider>
     </AIAgent>

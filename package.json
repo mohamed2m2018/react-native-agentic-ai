@@ -11,11 +11,17 @@
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
     },
+    "./generate-map": "./generate-map.js",
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "react-native-ai-agent": "./bin/generate-map.cjs"
   },
   "files": [
     "src",
     "lib",
+    "bin",
+    "generate-map.js",
     "android",
     "ios",
     "cpp",
@@ -41,7 +47,8 @@
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "test": "jest",
     "publish:dual": "bash scripts/publish-dual.sh",
-    "publish:dual:dry": "bash scripts/publish-dual.sh --dry-run"
+    "publish:dual:dry": "bash scripts/publish-dual.sh --dry-run",
+    "generate-map": "ts-node src/cli/generate-map.ts"
   },
   "keywords": [
     "react-native",
@@ -104,15 +111,18 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.2",
+    "@babel/traverse": "^7.29.0",
+    "@babel/types": "^7.29.0",
     "@google/genai": "^1.0.0",
-    "react-native-audio-api": "^0.11.7"
+    "react-native-audio-api": "*"
   },
   "peerDependencies": {
+    "expo-speech-recognition": "*",
     "react": "*",
     "react-native": "*",
     "react-native-audio-api": "*",
-    "react-native-view-shot": "*",
-    "expo-speech-recognition": "*"
+    "react-native-view-shot": "*"
   },
   "peerDependenciesMeta": {
     "react-native-audio-api": {

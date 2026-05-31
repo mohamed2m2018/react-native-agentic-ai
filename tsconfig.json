@@ -39,7 +39,8 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "example-react-navigation",
-    "example-expo-router"
+    "example-expo-router",
+    "src/cli"
   ],
   "extends": "expo/tsconfig.base"
 }
