@@ -219,10 +219,8 @@ function extractScreenDefinitions(
           if (t.isIdentifier(expr)) {
             componentName = expr.name;
           } else if (t.isMemberExpression(expr)) {
-            if (t.isIdentifier(expr.object)) {
-              componentName = expr.object.name; // e.g. 'StackRoute' to resolve its import
-            } else if (t.isIdentifier(expr.property)) {
-              componentName = expr.property.name;
+            if (t.isIdentifier(expr.object) && t.isIdentifier(expr.property)) {
+              componentName = `${expr.object.name}.${expr.property.name}`;
             }
           }
         }
@@ -285,10 +283,8 @@ function extractScreenDefinitions(
           if (t.isIdentifier(screenProp.value)) {
             componentName = screenProp.value.name;
           } else if (t.isMemberExpression(screenProp.value)) {
-            if (t.isIdentifier(screenProp.value.object)) {
-              componentName = screenProp.value.object.name;
-            } else if (t.isIdentifier(screenProp.value.property)) {
-              componentName = screenProp.value.property.name;
+            if (t.isIdentifier(screenProp.value.object) && t.isIdentifier(screenProp.value.property)) {
+              componentName = `${screenProp.value.object.name}.${screenProp.value.property.name}`;
             }
           }
 
@@ -340,6 +336,7 @@ function extractTitleFromOptions(optionsNode: any): string | null {
 
 /**
  * Resolve a component name to its source file path via imports.
+ * Also handles dot-notation intermediate tracing (e.g., StackRoute.Login)
  */
 function resolveComponentPath(
   componentName: string,
@@ -347,28 +344,100 @@ function resolveComponentPath(
   currentFile: string,
   _projectRoot: string
 ): string {
-  const importPath = imports.get(componentName);
-  if (!importPath) return currentFile; // Component defined in same file
+  const parts = componentName.split('.');
+  const baseComponent = parts[0];
+  const property = parts[1];
 
-  // Resolve relative import
+  const importPath = imports.get(baseComponent);
+  if (!importPath) return currentFile;
+
+  let resolvedBase = currentFile;
   if (importPath.startsWith('.')) {
     const dir = path.dirname(currentFile);
     const resolved = path.resolve(dir, importPath);
 
-    // Try common extensions
     const extensions = ['.tsx', '.ts', '.jsx', '.js'];
+    let found = false;
     for (const ext of extensions) {
-      if (fs.existsSync(resolved + ext)) return resolved + ext;
+      if (fs.existsSync(resolved + ext)) {
+        resolvedBase = resolved + ext;
+        found = true;
+        break;
+      }
     }
-    // Try index files
-    for (const ext of extensions) {
-      const indexPath = path.join(resolved, `index${ext}`);
-      if (fs.existsSync(indexPath)) return indexPath;
+    if (!found) {
+      for (const ext of extensions) {
+        const indexPath = path.join(resolved, `index${ext}`);
+        if (fs.existsSync(indexPath)) {
+          resolvedBase = indexPath;
+          found = true;
+          break;
+        }
+      }
     }
-
-    return resolved;
+    if (!found) resolvedBase = resolved;
   }
 
-  // Package import — component is from a library, skip
-  return currentFile;
+  if (!property || resolvedBase === currentFile) return resolvedBase;
+
+  return traceExportProperty(resolvedBase, baseComponent, property) || resolvedBase;
+}
+
+/**
+ * Traces an exported object property through an intermediate file to its deep source file.
+ */
+function traceExportProperty(filePath: string, objectName: string, propertyName: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  const sourceCode = fs.readFileSync(filePath, 'utf-8');
+  let ast: ReturnType<typeof parse>;
+  try {
+    ast = parse(sourceCode, { sourceType: 'module', plugins: ['jsx', 'typescript', 'decorators-legacy'] });
+  } catch { return null; }
+
+  const innerImports = new Map<string, string>();
+  let targetIdentifier: string | null = null;
+
+  traverse(ast, {
+    ImportDeclaration(nodePath: any) {
+      const source = nodePath.node.source.value;
+      for (const specifier of nodePath.node.specifiers) {
+        if (t.isImportDefaultSpecifier(specifier) || t.isImportSpecifier(specifier)) {
+          innerImports.set(specifier.local.name, source);
+        }
+      }
+    },
+    VariableDeclarator(nodePath: any) {
+      if (t.isIdentifier(nodePath.node.id) && nodePath.node.id.name === objectName) {
+        if (t.isObjectExpression(nodePath.node.init)) {
+          for (const prop of nodePath.node.init.properties) {
+            if (t.isObjectProperty(prop) && t.isIdentifier(prop.key)) {
+              const keyName = prop.key.name;
+              if (keyName === propertyName) {
+                if (t.isIdentifier(prop.value)) {
+                  targetIdentifier = prop.value.name;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!targetIdentifier) return null;
+
+  const importPath = innerImports.get(targetIdentifier);
+  if (!importPath || !importPath.startsWith('.')) return null;
+
+  const dir = path.dirname(filePath);
+  const resolved = path.resolve(dir, importPath);
+  const extensions = ['.tsx', '.ts', '.jsx', '.js'];
+  for (const ext of extensions) {
+    if (fs.existsSync(resolved + ext)) return resolved + ext;
+  }
+  for (const ext of extensions) {
+    const indexPath = path.join(resolved, `index${ext}`);
+    if (fs.existsSync(indexPath)) return indexPath;
+  }
+  return resolved;
 }
