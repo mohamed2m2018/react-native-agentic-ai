@@ -320,16 +320,26 @@ function scanReactNavigationApp(projectRoot) {
   console.log(`[generate-map] Found ${navigatorFiles.length} navigator file(s)`);
 
   const screens = [];
-  const processedFiles = new Set();
+  const processedRoutes = new Set();
+  const fileAstCache = new Map();
+
   for (const navFile of navigatorFiles) {
     const sourceCode = fs.readFileSync(navFile, 'utf-8');
     const screenDefs = extractScreenDefinitions(sourceCode, navFile, projectRoot);
     for (const def of screenDefs) {
-      if (processedFiles.has(def.filePath)) continue;
-      processedFiles.add(def.filePath);
+      if (processedRoutes.has(def.routeName)) continue;
+      processedRoutes.add(def.routeName);
+
       if (fs.existsSync(def.filePath)) {
-        const screenSource = fs.readFileSync(def.filePath, 'utf-8');
-        const extracted = extractContentFromAST(screenSource, def.filePath);
+        let extracted;
+        if (fileAstCache.has(def.filePath)) {
+          extracted = fileAstCache.get(def.filePath);
+        } else {
+          const screenSource = fs.readFileSync(def.filePath, 'utf-8');
+          extracted = extractContentFromAST(screenSource, def.filePath);
+          fileAstCache.set(def.filePath, extracted);
+        }
+
         screens.push({
           routeName: def.routeName, filePath: def.filePath, title: def.title,
           description: buildDescription(extracted), navigationLinks: extracted.navigationLinks,
