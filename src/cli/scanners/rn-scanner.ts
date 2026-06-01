@@ -192,13 +192,31 @@ function extractScreenDefinitions(
       for (const attr of nodePath.node.attributes) {
         if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue;
 
-        if (attr.name.name === 'name' && t.isStringLiteral(attr.value)) {
-          screenName = attr.value.value;
+        if (attr.name.name === 'name') {
+          if (t.isStringLiteral(attr.value)) {
+            screenName = attr.value.value;
+          } else if (t.isJSXExpressionContainer(attr.value)) {
+            const expr = attr.value.expression;
+            if (t.isStringLiteral(expr)) {
+              screenName = expr.value;
+            } else if (t.isMemberExpression(expr) && t.isIdentifier(expr.property)) {
+              screenName = expr.property.name;
+            } else if (t.isIdentifier(expr)) {
+              screenName = expr.name;
+            }
+          }
         }
 
         if (attr.name.name === 'component' && t.isJSXExpressionContainer(attr.value)) {
-          if (t.isIdentifier(attr.value.expression)) {
-            componentName = attr.value.expression.name;
+          const expr = attr.value.expression;
+          if (t.isIdentifier(expr)) {
+            componentName = expr.name;
+          } else if (t.isMemberExpression(expr)) {
+            if (t.isIdentifier(expr.object)) {
+              componentName = expr.object.name; // e.g. 'StackRoute' to resolve its import
+            } else if (t.isIdentifier(expr.property)) {
+              componentName = expr.property.name;
+            }
           }
         }
 
@@ -207,7 +225,10 @@ function extractScreenDefinitions(
         }
       }
 
+      console.log(`[DEBUG-AST-Raw] Checked Screen. screenName: ${screenName}, componentName: ${componentName}`);
+
       if (screenName && componentName) {
+        console.log(`[DEBUG-AST] Found Dynamic Screen: ${screenName} -> component: ${componentName}`);
         screens.push({
           routeName: screenName,
           componentName,
@@ -235,20 +256,33 @@ function extractScreenDefinitions(
         for (const screenProp of prop.value.properties) {
           if (!t.isObjectProperty(screenProp)) continue;
 
-          const screenName = t.isIdentifier(screenProp.key)
-            ? screenProp.key.name
-            : t.isStringLiteral(screenProp.key)
-              ? screenProp.key.value
-              : null;
+          let screenName: string | null = null;
+
+          if (!screenProp.computed) {
+            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+            else if (t.isStringLiteral(screenProp.key)) screenName = screenProp.key.value;
+          } else {
+            // Calculated key: [StackNav.Home]: HomeScreen
+            if (t.isIdentifier(screenProp.key)) screenName = screenProp.key.name;
+            else if (t.isMemberExpression(screenProp.key) && t.isIdentifier(screenProp.key.property)) {
+              screenName = screenProp.key.property.name;
+            }
+          }
 
           if (!screenName) continue;
 
           let componentName: string | null = null;
           let title: string | undefined;
 
-          // Simple: Home: HomeScreen
+          // Simple: Home: HomeScreen (or StackRoute.HomeScreen)
           if (t.isIdentifier(screenProp.value)) {
             componentName = screenProp.value.name;
+          } else if (t.isMemberExpression(screenProp.value)) {
+            if (t.isIdentifier(screenProp.value.object)) {
+              componentName = screenProp.value.object.name;
+            } else if (t.isIdentifier(screenProp.value.property)) {
+              componentName = screenProp.value.property.name;
+            }
           }
 
           // Object: Home: { screen: HomeScreen, options: { title: 'Home' } }
