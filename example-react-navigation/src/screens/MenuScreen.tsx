@@ -87,10 +87,10 @@ export default function MenuScreen({ route, navigation }: Props) {
     return (
       <View style={styles.footerLoader}>
         <ActivityIndicator size="small" color="#1a1a2e" />
-        <Text style={styles.footerText}>Loading more burgers...</Text>
+        <Text style={styles.footerText}>Loading more {category}...</Text>
       </View>
     );
-  }, [isLoadingMore]);
+  }, [isLoadingMore, category]);
 
   if (isLoading) {
     return (

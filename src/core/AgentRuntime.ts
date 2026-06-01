@@ -10,7 +10,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { walkFiberTree } from './FiberTreeWalker';
+import { walkFiberTree, findScrollableContainers } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
@@ -254,6 +254,20 @@ export class AgentRuntime {
       },
     });
 
+    // wait — explicitly wait for loading states
+    this.tools.set('wait', {
+      name: 'wait',
+      description: 'Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.',
+      parameters: {
+        seconds: { type: 'number', description: 'Number of seconds to wait (max 5)', required: true },
+      },
+      execute: async (args) => {
+        const seconds = Math.min(Number(args.seconds) || 2, 5);
+        await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+        return `⏳ Waited ${seconds} seconds for the screen to update.`;
+      },
+    });
+
     // ask_user — ask for clarification
     this.tools.set('ask_user', {
       name: 'ask_user',
@@ -284,6 +298,90 @@ export class AgentRuntime {
           return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
         }
         return '❌ Screenshot capture failed. react-native-view-shot may not be installed.';
+      },
+    });
+
+    // scroll — programmatic scroll for lazy-loaded lists and long screens
+    this.tools.set('scroll', {
+      name: 'scroll',
+      description: 'Scroll the current screen to reveal more content. Use when you need to see items that are not yet visible, e.g. in lazy-loaded lists, long forms, or paginated content. If the screen has multiple scrollable areas, specify containerIndex to target a specific one.',
+      parameters: {
+        direction: {
+          type: 'string',
+          description: "Scroll direction: 'down' or 'up'",
+          required: true,
+          enum: ['down', 'up'],
+        },
+        amount: {
+          type: 'string',
+          description: "How far to scroll: 'page' (default, ~one screenful), 'toEnd' (jump to bottom), or 'toStart' (jump to top)",
+          required: false,
+          enum: ['page', 'toEnd', 'toStart'],
+        },
+        containerIndex: {
+          type: 'number',
+          description: 'Index of the scrollable container to scroll (0-based). Use when the screen has multiple scrollable areas. Default: 0 (the main/first scrollable area).',
+          required: false,
+        },
+      },
+      execute: async (args) => {
+        const screenName = this.getCurrentScreenName();
+        const containers = findScrollableContainers(this.rootRef, screenName);
+
+        if (containers.length === 0) {
+          return `❌ No scrollable container found on screen "${screenName}". Content may still be loading — wait and try again.`;
+        }
+
+        const targetIndex = args.containerIndex ?? 0;
+        const container = containers[targetIndex];
+        if (!container) {
+          const available = containers.map(c => `[${c.index}] ${c.label} (${c.componentName})`).join(', ');
+          return `❌ Container index ${targetIndex} not found. Available on "${screenName}": ${available}`;
+        }
+
+        const direction: string = args.direction || 'down';
+        const amount: string = args.amount || 'page';
+        const scrollRef = container.stateNode;
+
+        try {
+          if (amount === 'toEnd') {
+            if (typeof scrollRef.scrollToEnd === 'function') {
+              scrollRef.scrollToEnd({ animated: true });
+            } else if (typeof scrollRef.scrollTo === 'function') {
+              scrollRef.scrollTo({ y: 999999, animated: true });
+            }
+          } else if (amount === 'toStart') {
+            if (typeof scrollRef.scrollTo === 'function') {
+              scrollRef.scrollTo({ y: 0, animated: true });
+            } else if (typeof scrollRef.scrollToOffset === 'function') {
+              scrollRef.scrollToOffset({ offset: 0, animated: true });
+            }
+          } else {
+            // Page scroll — move ~800px (roughly one screen height)
+            const PAGE_OFFSET = 800;
+
+            if (typeof scrollRef.scrollToOffset === 'function') {
+              // VirtualizedList — scrollToOffset is absolute
+              scrollRef.scrollToOffset({
+                offset: direction === 'down' ? PAGE_OFFSET : 0,
+                animated: true,
+              });
+            } else if (typeof scrollRef.scrollTo === 'function') {
+              scrollRef.scrollTo({
+                y: direction === 'down' ? PAGE_OFFSET : 0,
+                animated: true,
+              });
+            }
+          }
+
+          // Wait for scroll animation + onEndReached + lazy load + re-render
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          const amountLabel = amount === 'toEnd' ? 'to end' : amount === 'toStart' ? 'to start' : `${direction} one page`;
+          return `✅ Scrolled ${amountLabel} in ${container.label} (${container.componentName}). Check the updated screen content for newly loaded items.`;
+        } catch (error: any) {
+          return `❌ Scroll failed: ${error.message}`;
+        }
       },
     });
 
@@ -500,6 +598,10 @@ export class AgentRuntime {
         return 'Asking you a question...';
       case 'query_knowledge':
         return 'Searching knowledge base...';
+      case 'scroll':
+        return `Scrolling ${args.direction || 'down'}...`;
+      case 'wait':
+        return `Waiting for ${args.seconds || 2} seconds...`;
       default:
         return `Running ${toolName}...`;
     }
@@ -692,6 +794,7 @@ ${screen.elementsText}
     return {
       interactiveBlacklist: this.config.interactiveBlacklist,
       interactiveWhitelist: this.config.interactiveWhitelist,
+      screenName: this.getCurrentScreenName(),
     };
   }
 
@@ -753,6 +856,7 @@ ${screen.elementsText}
     contextualMessage: string,
     screenName: string,
     screenContent: string,
+    chatHistory?: { role: string; content: string }[]
   ): string {
     let prompt = '';
 
@@ -764,6 +868,17 @@ ${screen.elementsText}
     prompt += '<user_request>\n';
     prompt += `${contextualMessage}\n`;
     prompt += '</user_request>\n';
+
+    if (chatHistory && chatHistory.length > 0) {
+      prompt += '<chat_history>\n';
+      // Only include the last 10 messages to manage context length
+      const recentHistory = chatHistory.slice(-10);
+      for (const msg of recentHistory) {
+        prompt += `[${msg.role}]: ${msg.content}\n`;
+      }
+      prompt += '</chat_history>\n';
+    }
+
     prompt += '<step_info>\n';
     prompt += `Step ${step + 1} of ${maxSteps} max possible steps\n`;
     prompt += '</step_info>\n';
@@ -832,7 +947,7 @@ ${screen.elementsText}
 
   // ─── Main Execution Loop ──────────────────────────────────────
 
-  async execute(userMessage: string): Promise<ExecutionResult> {
+  async execute(userMessage: string, chatHistory?: { role: string; content: string }[]): Promise<ExecutionResult> {
     if (this.isRunning) {
       return { success: false, message: 'Agent is already running.', steps: [] };
     }
@@ -972,7 +1087,7 @@ ${screen.elementsText}
 
         // 4. Assemble structured user prompt
         const contextMessage = this.assembleUserPrompt(
-          step, maxSteps, contextualMessage, screenName, screenContent,
+          step, maxSteps, contextualMessage, screenName, screenContent, chatHistory
         );
 
         // 4.5. Capture screenshot for Gemini vision (optional)
@@ -1034,9 +1149,11 @@ ${screen.elementsText}
 
         logger.info('AgentRuntime', `Tool: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
 
-        // Dynamic status update based on tool being executed
+        // Dynamic status update based on tool being executed + Reasoning
         const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
-        this.config.onStatusUpdate?.(statusLabel);
+        // Prefer the human-readable plan over the raw tool status if available to avoid double statuses
+        const statusDisplay = reasoning.plan ? `🤔 ${reasoning.plan}` : `👆 ${statusLabel}`;
+        this.config.onStatusUpdate?.(statusDisplay);
 
         // Find and execute the tool
         const tool = this.tools.get(toolCall.name) ||

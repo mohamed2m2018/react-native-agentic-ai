@@ -17,6 +17,8 @@ export interface WalkConfig {
   interactiveBlacklist?: React.RefObject<any>[];
   /** If set, only these elements are interactive */
   interactiveWhitelist?: React.RefObject<any>[];
+  /** Optional screen name to scope interactives to the active screen */
+  screenName?: string;
 }
 
 // ─── Fiber Node Type Detection ─────────────────────────────────
@@ -350,6 +352,18 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     return { elementsText: '', interactives: [] };
   }
 
+  // Scope to active screen's subtree if screenName is provided
+  let startNode = fiber;
+  if (config?.screenName) {
+    const screenFiber = findScreenFiberNode(fiber, config.screenName);
+    if (screenFiber) {
+      startNode = screenFiber;
+      logger.debug('FiberTreeWalker', `Walk scoped to screen "${config.screenName}" (component: ${getComponentName(screenFiber)})`);
+    } else {
+      logger.debug('FiberTreeWalker', `Screen "${config.screenName}" not found in Fiber tree — searching entire tree`);
+    }
+  }
+
   const interactives: InteractiveElement[] = [];
   let currentIndex = 0;
   const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
@@ -461,7 +475,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     return childrenText;
   }
 
-  let elementsText = processNode(fiber, 0);
+  let elementsText = processNode(startNode, 0);
 
   // Clean up excessive blank lines
   elementsText = elementsText.replace(/\n{3,}/g, '\n\n');
@@ -469,3 +483,201 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   logger.info('FiberTreeWalker', `Found ${interactives.length} interactive elements`);
   return { elementsText: elementsText.trim(), interactives };
 }
+
+// ─── Scrollable Container Detection ────────────────────────────
+
+/** React Native component names that are scrollable containers */
+const SCROLLABLE_TYPES = new Set([
+  'ScrollView', 'RCTScrollView',
+  'FlatList', 'SectionList', 'VirtualizedList',
+]);
+
+export interface ScrollableContainer {
+  /** Index for identification when multiple scrollables exist */
+  index: number;
+  /** Component name (e.g., 'FlatList', 'ScrollView') */
+  componentName: string;
+  /** Contextual label — nearest custom component name or text header */
+  label: string;
+  /** The Fiber node */
+  fiberNode: any;
+  /** The native stateNode (has scrollToOffset, scrollToEnd, etc.) */
+  stateNode: any;
+}
+
+/**
+ * Find the fiber node whose component name matches the given screen name.
+ * Matches by checking if the component name starts with or equals the screen name.
+ * e.g., screenName "Menu" matches component "MenuScreen" or "Menu".
+ *
+ * Returns the first (deepest active) match found via depth-first search.
+ */
+function findScreenFiberNode(rootFiber: any, screenName: string): any | null {
+  if (!rootFiber || !screenName) return null;
+
+  const lowerScreen = screenName.toLowerCase();
+
+  function search(node: any): any | null {
+    if (!node) return null;
+
+    const name = getComponentName(node);
+    if (name) {
+      const lowerName = name.toLowerCase();
+      // Match: "MenuScreen" starts with "menu", or "Menu" equals "menu"
+      if (lowerName.startsWith(lowerScreen) || lowerScreen.startsWith(lowerName)) {
+        return node;
+      }
+    }
+
+    // Depth-first: search children first, then siblings
+    let child = node.child;
+    while (child) {
+      const found = search(child);
+      if (found) return found;
+      child = child.sibling;
+    }
+
+    return null;
+  }
+
+  return search(rootFiber);
+}
+
+/**
+ * Walk the Fiber tree to discover scrollable containers.
+ * Returns native stateNodes that expose scrollToOffset(), scrollToEnd(), scrollTo().
+ *
+ * When `screenName` is provided, the search is scoped to the matching screen's
+ * subtree — this prevents finding containers from other mounted screens
+ * (React Navigation keeps all stack screens in the tree).
+ *
+ * For FlatList: the Fiber's stateNode is a VirtualizedList instance.
+ * Its underlying scroll view can be accessed via getNativeScrollRef() or
+ * getScrollRef(), which returns the native ScrollView with scrollTo/scrollToEnd.
+ *
+ * For ScrollView: the stateNode IS the native scroll view directly.
+ */
+export function findScrollableContainers(rootRef: any, screenName?: string): ScrollableContainer[] {
+  const fiber = getFiberFromRef(rootRef);
+  if (!fiber) {
+    logger.warn('FiberTreeWalker', 'Could not access Fiber tree for scroll detection');
+    return [];
+  }
+
+  // Scope to the active screen's subtree when screenName is provided
+  let startNode = fiber;
+  if (screenName) {
+    const screenFiber = findScreenFiberNode(fiber, screenName);
+    if (screenFiber) {
+      startNode = screenFiber;
+      logger.debug('FiberTreeWalker', `Scroll scoped to screen "${screenName}" (component: ${getComponentName(screenFiber)})`);
+    } else {
+      logger.debug('FiberTreeWalker', `Screen "${screenName}" not found in Fiber tree — searching entire tree`);
+    }
+  }
+
+  const containers: ScrollableContainer[] = [];
+  let currentIndex = 0;
+
+  function walk(node: any): void {
+    if (!node) return;
+
+    const name = getComponentName(node);
+
+    if (name && SCROLLABLE_TYPES.has(name)) {
+      // Get context: nearest custom parent component name
+      const contextLabel = getNearestCustomComponentName(node) || name;
+
+      // For scrollable containers, we need the native scroll ref.
+      // FlatList Fiber stateNode may be the component instance — 
+      // we need to find the underlying native ScrollView.
+      let scrollRef = resolveNativeScrollRef(node);
+
+      if (scrollRef) {
+        containers.push({
+          index: currentIndex++,
+          componentName: name,
+          label: contextLabel,
+          fiberNode: node,
+          stateNode: scrollRef,
+        });
+      }
+    }
+
+    // Recurse into children and siblings
+    let child = node.child;
+    while (child) {
+      walk(child);
+      child = child.sibling;
+    }
+  }
+
+  walk(startNode);
+  logger.info('FiberTreeWalker', `Found ${containers.length} scrollable container(s)${screenName ? ` for screen "${screenName}"` : ''}`);
+  return containers;
+}
+
+/**
+ * Resolve the native scroll view reference from a Fiber node.
+ * 
+ * Handles multiple React Native internals:
+ * - RCTScrollView: stateNode IS the native scroll view
+ * - FlatList/VirtualizedList: stateNode is a component instance,
+ *   need to find the inner ScrollView via getNativeScrollRef() or
+ *   by walking down the Fiber tree to find the RCTScrollView child
+ */
+function resolveNativeScrollRef(fiberNode: any): any {
+  const stateNode = fiberNode.stateNode;
+
+  // Case 1: stateNode has scrollTo (native ScrollView or RCTScrollView)
+  if (stateNode && typeof stateNode.scrollTo === 'function') {
+    return stateNode;
+  }
+
+  // Case 2: stateNode has getNativeScrollRef (FlatList / VirtualizedList)
+  if (stateNode && typeof stateNode.getNativeScrollRef === 'function') {
+    try {
+      const ref = stateNode.getNativeScrollRef();
+      if (ref && typeof ref.scrollTo === 'function') return ref;
+    } catch { /* fall through */ }
+  }
+
+  // Case 3: stateNode has getScrollRef (another VirtualizedList pattern)
+  if (stateNode && typeof stateNode.getScrollRef === 'function') {
+    try {
+      const ref = stateNode.getScrollRef();
+      if (ref && typeof ref.scrollTo === 'function') return ref;
+      // getScrollRef might return another wrapper — try getNativeScrollRef on it
+      if (ref && typeof ref.getNativeScrollRef === 'function') {
+        const nativeRef = ref.getNativeScrollRef();
+        if (nativeRef && typeof nativeRef.scrollTo === 'function') return nativeRef;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Case 4: stateNode has scrollToOffset directly (VirtualizedList instance)
+  if (stateNode && typeof stateNode.scrollToOffset === 'function') {
+    return stateNode;
+  }
+
+  // Case 5: Walk down Fiber tree to find an RCTScrollView child
+  let child = fiberNode.child;
+  while (child) {
+    const childName = getComponentName(child);
+    if (childName === 'RCTScrollView' && child.stateNode) {
+      return child.stateNode;
+    }
+    // Go one level deeper for wrapper patterns
+    if (child.child) {
+      const grandchildName = getComponentName(child.child);
+      if (grandchildName === 'RCTScrollView' && child.child.stateNode) {
+        return child.child.stateNode;
+      }
+    }
+    child = child.sibling;
+  }
+
+  logger.debug('FiberTreeWalker', 'Could not resolve native scroll ref — returning stateNode as fallback');
+  return stateNode;
+}
+

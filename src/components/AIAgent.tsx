@@ -656,7 +656,7 @@ export function AIAgent({
       // Ensure we have the latest Fiber tree ref
       runtime.updateRefs(rootViewRef.current, navRef);
 
-      const result = await runtime.execute(message);
+      const result = await runtime.execute(message, messages);
 
       setLastResult(result);
       
@@ -690,7 +690,7 @@ export function AIAgent({
       setIsThinking(false);
       setStatusText('');
     }
-  }, [runtime, navRef, onResult]);
+  }, [runtime, navRef, onResult, messages, isThinking]);
 
   // ─── Context value (for useAI bridge) ─────────────────────────
 
