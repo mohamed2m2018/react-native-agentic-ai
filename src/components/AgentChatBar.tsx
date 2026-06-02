@@ -149,7 +149,9 @@ function AudioControlButton({
  */
 let SpeechModule: any = null;
 try {
-  SpeechModule = require('expo-speech-recognition');
+  // Dynamic require prevents Metro from statically resolving this optional dep
+  const speechModuleName = ['expo', 'speech', 'recognition'].join('-');
+  SpeechModule = require(speechModuleName);
 } catch {
   // Not installed — dictation button won't appear
 }

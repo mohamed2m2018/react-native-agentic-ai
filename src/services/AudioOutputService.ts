@@ -44,7 +44,8 @@ export class AudioOutputService {
     try {
       let audioApi: any;
       try {
-        audioApi = require('react-native-audio-api');
+        const audioApiModule = ['react-native', 'audio-api'].join('-');
+        audioApi = require(audioApiModule);
       } catch {
         const msg =
           'react-native-audio-api is required for audio output. Install with: npm install react-native-audio-api';
