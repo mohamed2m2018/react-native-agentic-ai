@@ -6,32 +6,31 @@
  * Scans React Native screen files and generates a JSON map
  * that the AI agent uses for intelligent navigation.
  *
+ * Pure AST — no LLM calls, no API key needed. Runs in ~2 seconds.
+ *
  * Usage:
  *   npx react-native-ai-agent generate-map
- *   npx react-native-ai-agent generate-map --ai --provider=gemini --key=YOUR_KEY
+ *   npx react-native-ai-agent generate-map --watch
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { scanExpoRouterApp } from './scanners/expo-scanner';
 import { scanReactNavigationApp } from './scanners/rn-scanner';
-import { extractFullContentWithAI } from './extractors/ai-extractor';
-import type { AIExtractorConfig } from './extractors/ai-extractor';
-import { buildNavigationGraph, extractChains } from './analyzers/chain-analyzer';
 
 interface ScreenMapEntry {
   title?: string;
   description: string;
+  navigatesTo?: string[];
 }
 
 interface ScreenMap {
   generatedAt: string;
   framework: 'expo-router' | 'react-navigation';
   screens: Record<string, ScreenMapEntry>;
-  chains: string[][];
 }
 
-async function main() {
+function main() {
   const args = parseArgs(process.argv.slice(2));
   const projectRoot = args.dir || process.cwd();
 
@@ -49,57 +48,24 @@ async function main() {
 
   console.log(`📄 Found ${scannedScreens.length} screen(s)`);
 
-  // If AI mode, enhance descriptions with LLM
-  if (args.ai && args.key) {
-    console.log(`🤖 Enhancing descriptions with AI (${args.provider})...`);
-    const aiConfig: AIExtractorConfig = {
-      provider: args.provider as 'gemini' | 'openai',
-      apiKey: args.key,
-    };
-
-    for (const screen of scannedScreens) {
-      try {
-        const sourceCode = fs.readFileSync(screen.filePath, 'utf-8');
-        const aiResult = await extractFullContentWithAI(sourceCode, screen.routeName, aiConfig);
-        screen.description = aiResult.description;
-        // Merge AI-extracted nav links with AST-extracted ones
-        if (aiResult.navigationLinks.length > 0) {
-          const merged = new Set([...screen.navigationLinks, ...aiResult.navigationLinks]);
-          screen.navigationLinks = [...merged];
-        }
-        console.log(`  ✓ ${screen.routeName}`);
-      } catch (err: any) {
-        console.warn(`  ✗ ${screen.routeName}: ${err.message}`);
-        // Keep AST description as fallback
-      }
-    }
-  }
-
-  // Build navigation chains
-  const screenLinks: Record<string, string[]> = {};
-  for (const screen of scannedScreens) {
-    screenLinks[screen.routeName] = screen.navigationLinks;
-    if (screen.navigationLinks.length > 0) {
-      console.log(`  🔗 ${screen.routeName} → ${screen.navigationLinks.join(', ')}`);
-    }
-  }
-
-  const allRoutes = scannedScreens.map(s => s.routeName);
-  const graph = buildNavigationGraph(screenLinks, allRoutes);
-  const chains = extractChains(graph, allRoutes);
-
-  // Build output
+  // Build output — per-screen navigatesTo, filtered to known routes only
+  const allRouteSet = new Set(scannedScreens.map(s => s.routeName));
   const screenMap: ScreenMap = {
     generatedAt: new Date().toISOString(),
     framework,
     screens: {},
-    chains,
   };
 
   for (const screen of scannedScreens) {
+    const validLinks = screen.navigationLinks.filter(link => allRouteSet.has(link));
+    if (screen.navigationLinks.length > 0) {
+      const noise = screen.navigationLinks.length - validLinks.length;
+      console.log(`  🔗 ${screen.routeName} → ${validLinks.join(', ')}${noise > 0 ? ` (${noise} noise filtered)` : ''}`);
+    }
     screenMap.screens[screen.routeName] = {
-      title: screen.title,
+      title: screen.title || undefined,
       description: screen.description,
+      navigatesTo: validLinks.length > 0 ? validLinks : undefined,
     };
   }
 
@@ -107,16 +73,10 @@ async function main() {
   const outputPath = path.join(projectRoot, 'ai-screen-map.json');
   fs.writeFileSync(outputPath, JSON.stringify(screenMap, null, 2));
 
+  const linkedCount = scannedScreens.filter(s => s.navigationLinks.some(l => allRouteSet.has(l))).length;
   console.log('━'.repeat(40));
   console.log(`✅ Generated ${outputPath}`);
-  console.log(`   ${Object.keys(screenMap.screens).length} screens, ${chains.length} navigation chain(s)`);
-
-  if (chains.length > 0) {
-    console.log('\n📍 Navigation chains:');
-    for (const chain of chains) {
-      console.log(`   ${chain.join(' → ')}`);
-    }
-  }
+  console.log(`   ${Object.keys(screenMap.screens).length} screens, ${linkedCount} with navigation links`);
 
   console.log('\n💡 Import in your app:');
   console.log('   import screenMap from \'./ai-screen-map.json\';');
@@ -124,12 +84,10 @@ async function main() {
 }
 
 function detectFramework(projectRoot: string): 'expo-router' | 'react-navigation' {
-  // Check for Expo Router (file-based routing)
   const srcApp = path.join(projectRoot, 'src', 'app');
   const appDir = path.join(projectRoot, 'app');
 
   if (fs.existsSync(srcApp) || fs.existsSync(appDir)) {
-    // Verify it's actually Expo Router by checking for _layout.tsx
     const layoutInSrc = path.join(srcApp, '_layout.tsx');
     const layoutInApp = path.join(appDir, '_layout.tsx');
     if (fs.existsSync(layoutInSrc) || fs.existsSync(layoutInApp)) {
@@ -141,37 +99,23 @@ function detectFramework(projectRoot: string): 'expo-router' | 'react-navigation
 }
 
 interface CLIArgs {
-  ai: boolean;
-  provider: string;
-  key: string;
   dir: string;
+  watch: boolean;
 }
 
 function parseArgs(argv: string[]): CLIArgs {
   const args: CLIArgs = {
-    ai: false,
-    provider: 'gemini',
-    key: '',
     dir: '',
+    watch: false,
   };
 
   for (const arg of argv) {
-    if (arg === '--ai') args.ai = true;
-    if (arg.startsWith('--provider=')) args.provider = arg.split('=')[1]!;
-    if (arg.startsWith('--key=')) args.key = arg.split('=')[1]!;
+    if (arg === '--watch' || arg === '-w') args.watch = true;
     if (arg.startsWith('--dir=')) args.dir = arg.split('=')[1]!;
-  }
-
-  if (args.ai && !args.key) {
-    console.error('❌ --ai requires --key=YOUR_API_KEY');
-    process.exit(1);
   }
 
   return args;
 }
 
 // Run
-main().catch(err => {
-  console.error('❌ Error:', err.message);
-  process.exit(1);
-});
+main();
