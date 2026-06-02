@@ -325,6 +325,9 @@ function getAllSourceFiles(dir) {
  * Extract import source paths from a file's AST.
  * Returns resolved absolute paths.
  */
+// Set by main() — used by extractImportPaths for module alias resolution
+let _projectRoot = '';
+
 function extractImportPaths(filePath) {
   const source = fs.readFileSync(filePath, 'utf-8');
   const importPaths = [];
@@ -334,13 +337,56 @@ function extractImportPaths(filePath) {
   let match;
   while ((match = importRegex.exec(source)) !== null) {
     const importPath = match[1] || match[2];
-    if (!importPath || !importPath.startsWith('.')) continue; // Skip non-relative (npm packages)
+    if (!importPath) continue;
 
-    const dir = path.dirname(filePath);
-    const resolved = resolveFilePath(dir, importPath);
-    if (resolved) importPaths.push(resolved);
+    if (importPath.startsWith('.')) {
+      // Relative import
+      const dir = path.dirname(filePath);
+      const resolved = resolveFilePath(dir, importPath);
+      if (resolved) importPaths.push(resolved);
+    } else if (_projectRoot && !importPath.startsWith('@') && !importPath.includes('node_modules')) {
+      // Non-relative: try module alias resolution (baseUrl patterns)
+      // Common: src/components/X, or projectRoot/components/X
+      const srcDir = path.join(_projectRoot, 'src');
+      const resolved = resolveFilePath(srcDir, importPath) || resolveFilePath(_projectRoot, importPath);
+      if (resolved) importPaths.push(resolved);
+    }
   }
   return importPaths;
+}
+
+/**
+ * BFS through the import graph to collect all transitively imported files.
+ * Capped at MAX_DEPTH hops to avoid runaway traversal.
+ */
+const _transitiveCache = new Map();
+function getTransitiveImports(filePath, maxDepth = 10) {
+  const resolved = path.resolve(filePath);
+  if (_transitiveCache.has(resolved)) return _transitiveCache.get(resolved);
+
+  const visited = new Set();
+  const queue = [{ file: resolved, depth: 0 }];
+
+  while (queue.length > 0) {
+    const { file, depth } = queue.shift();
+    if (visited.has(file) || depth > maxDepth) continue;
+    visited.add(file);
+
+    let imports;
+    try { imports = extractImportPaths(file); } catch { continue; }
+
+    for (const imp of imports) {
+      const impResolved = path.resolve(imp);
+      if (!visited.has(impResolved)) {
+        queue.push({ file: impResolved, depth: depth + 1 });
+      }
+    }
+  }
+
+  // Remove the root file itself
+  visited.delete(resolved);
+  _transitiveCache.set(resolved, visited);
+  return visited;
 }
 
 /**
@@ -385,11 +431,39 @@ function enrichScreensWithComponentNavLinks(screens, globalIndex, navigatorFiles
   for (const screen of screens) {
     if (!fs.existsSync(screen.filePath)) continue;
     const resolvedPath = path.resolve(screen.filePath);
-    // Skip screens whose file is a navigator or a shared route registry
-    if (navigatorSet.has(resolvedPath) || sharedFilePaths.has(resolvedPath)) continue;
 
-    const importedFiles = extractImportPaths(screen.filePath);
+    // Determine the file to BFS from
+    let rootFile = resolvedPath;
+    const isNavigator = navigatorSet.has(resolvedPath);
+    const isShared = sharedFilePaths.has(resolvedPath);
+
+    if (isNavigator || isShared) {
+      // Fallback: screen's filePath is a navigator (e.g. component={FadeInX} is a local wrapper).
+      // Try to find the actual component by matching routeName against the navigator's imports.
+      const navImports = extractImportPaths(resolvedPath);
+      const lowerRouteName = screen.routeName.toLowerCase();
+      const matchedImport = navImports.find(imp => {
+        const base = path.basename(imp, path.extname(imp)).toLowerCase();
+        return base === lowerRouteName || base.includes(lowerRouteName);
+      });
+      if (matchedImport) {
+        rootFile = path.resolve(matchedImport);
+      } else {
+        continue; // Can't resolve — skip
+      }
+    }
+
+    const importedFiles = getTransitiveImports(rootFile);
     const existingLinks = new Set(screen.navigationLinks);
+
+    // Also check the rootFile itself for navigation calls
+    const rootRoutes = globalIndex.get(rootFile);
+    if (rootRoutes) {
+      for (const route of rootRoutes) {
+        existingLinks.add(route);
+        totalAdded++;
+      }
+    }
 
     for (const importedFile of importedFiles) {
       // Skip navigator files and other screen files
@@ -702,6 +776,59 @@ function walkAndSearch(dir, result) {
   }
 }
 
+// Extract require() path from an arrow/function body (for getComponent lazy-loading)
+// Handles: () => require('../screens/home').default
+//          () => { X = X || require('../screens/home').default; return X; }
+function extractRequirePathFromBody(body) {
+  function findRequire(node) {
+    if (!node) return null;
+    // require('path')
+    if (t.isCallExpression(node) && t.isIdentifier(node.callee) && node.callee.name === 'require' && node.arguments[0] && t.isStringLiteral(node.arguments[0])) {
+      return node.arguments[0].value;
+    }
+    // require('path').default
+    if (t.isMemberExpression(node)) return findRequire(node.object);
+    // X || require('path').default  (logical expression)
+    if (t.isLogicalExpression(node)) return findRequire(node.right) || findRequire(node.left);
+    // Assignment: X = require('path')
+    if (t.isAssignmentExpression(node)) return findRequire(node.right);
+    return null;
+  }
+
+  // Expression body: () => require(...)
+  if (!t.isBlockStatement(body)) return findRequire(body);
+
+  // Block body: () => { ...; return X; }
+  for (const stmt of body.body) {
+    if (t.isReturnStatement(stmt)) {
+      const r = findRequire(stmt.argument);
+      if (r) return r;
+    }
+    if (t.isExpressionStatement(stmt)) {
+      const r = findRequire(stmt.expression);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+// Resolve a require() path relative to the navigator file
+function resolveRequirePath(requirePath, fromFile) {
+  if (!requirePath.startsWith('.')) return null; // skip node_modules
+  const dir = path.dirname(fromFile);
+  const resolved = path.resolve(dir, requirePath);
+  const exts = ['.tsx', '.ts', '.js', '.jsx'];
+  for (const ext of exts) {
+    if (fs.existsSync(resolved + ext)) return resolved + ext;
+  }
+  for (const ext of exts) {
+    const indexPath = path.join(resolved, `index${ext}`);
+    if (fs.existsSync(indexPath)) return indexPath;
+  }
+  if (fs.existsSync(resolved)) return resolved;
+  return null;
+}
+
 function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
   const screens = [];
   const imports = new Map();
@@ -723,7 +850,7 @@ function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
       const nameNode = nodePath.node.name;
       if (!t.isJSXMemberExpression(nameNode)) return;
       if (!t.isJSXIdentifier(nameNode.property) || nameNode.property.name !== 'Screen') return;
-      let screenName = null, componentName = null, title = null;
+      let screenName = null, componentName = null, title = null, screenFilePath = null;
       for (const attr of nodePath.node.attributes) {
         if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue;
         if (attr.name.name === 'name') {
@@ -750,12 +877,27 @@ function extractScreenDefinitions(sourceCode, filePath, projectRoot) {
             }
           }
         }
+        // getComponent={() => require('../screens/home').default} (lazy-loading)
+        if (attr.name.name === 'getComponent' && t.isJSXExpressionContainer(attr.value)) {
+          const fn = attr.value.expression;
+          if (t.isArrowFunctionExpression(fn) || t.isFunctionExpression(fn)) {
+            const requirePath = extractRequirePathFromBody(fn.body);
+            if (requirePath) {
+              const resolvedPath = resolveRequirePath(requirePath, filePath);
+              if (resolvedPath) {
+                componentName = '__getComponent__'; // sentinel — filePath override below
+                screenFilePath = resolvedPath;
+              }
+            }
+          }
+        }
         if (attr.name.name === 'options' && t.isJSXExpressionContainer(attr.value)) {
           title = extractTitleFromOptions(attr.value.expression);
         }
       }
-      if (screenName && componentName) {
-        screens.push({ routeName: screenName, componentName, filePath: resolveComponentPath(componentName, imports, filePath), title: title || undefined });
+      if (screenName && (componentName || screenFilePath)) {
+        const resolvedFile = screenFilePath || resolveComponentPath(componentName, imports, filePath);
+        screens.push({ routeName: screenName, componentName: componentName || screenName, filePath: resolvedFile, title: title || undefined });
       }
     },
     CallExpression(nodePath) {
@@ -1015,6 +1157,8 @@ function parseArgs(argv) {
 }
 
 async function generate(args, projectRoot) {
+  _projectRoot = projectRoot; // for module alias resolution in extractImportPaths
+  _transitiveCache.clear(); // reset cache for fresh scan
   const framework = detectFramework(projectRoot);
   console.log(`📱 Framework: ${framework}`);
 
@@ -1034,23 +1178,48 @@ async function generate(args, projectRoot) {
 
   // Build output — per-screen navigatesTo, filtered to known routes only
   const allRouteSet = new Set(scannedScreens.map(s => s.routeName));
+
+  // Build basename lookup for fuzzy matching (e.g. "Chat" → "screens/Chat")
+  const basenameMap = new Map(); // basename → full route (shortest path wins)
+  for (const route of allRouteSet) {
+    const base = route.includes('/') ? route.substring(route.lastIndexOf('/') + 1) : route;
+    if (!basenameMap.has(base) || route.length < basenameMap.get(base).length) {
+      basenameMap.set(base, route);
+    }
+  }
+
+  function resolveNavLink(link) {
+    // 1. Exact match
+    if (allRouteSet.has(link)) return link;
+    // 2. Strip leading slash and match
+    const stripped = link.replace(/^\/+/, '');
+    if (stripped && allRouteSet.has(stripped)) return stripped;
+    // 3. Basename match (e.g. "Chat" → "screens/Chat")
+    if (basenameMap.has(link)) return basenameMap.get(link);
+    if (basenameMap.has(stripped)) return basenameMap.get(stripped);
+    return null;
+  }
+
   const screenMap = { generatedAt: new Date().toISOString(), framework, screens: {} };
   for (const screen of scannedScreens) {
-    const validLinks = screen.navigationLinks.filter(link => allRouteSet.has(link));
+    const validLinks = screen.navigationLinks.map(link => resolveNavLink(link)).filter(Boolean);
+    // Deduplicate (two different raw links may resolve to the same route)
+    const uniqueLinks = [...new Set(validLinks)];
     if (screen.navigationLinks.length > 0) {
-      console.log(`  🔗 ${screen.routeName} → ${validLinks.join(', ')}${screen.navigationLinks.length !== validLinks.length ? ` (${screen.navigationLinks.length - validLinks.length} noise filtered)` : ''}`);
+      const noise = screen.navigationLinks.length - validLinks.length;
+      console.log(`  🔗 ${screen.routeName} → ${uniqueLinks.join(', ')}${noise > 0 ? ` (${noise} noise filtered)` : ''}`);
     }
     screenMap.screens[screen.routeName] = {
       title: screen.title || undefined,
       description: screen.description,
-      navigatesTo: validLinks.length > 0 ? validLinks : undefined,
+      navigatesTo: uniqueLinks.length > 0 ? uniqueLinks : undefined,
     };
   }
 
   const outputPath = path.join(projectRoot, 'ai-screen-map.json');
   fs.writeFileSync(outputPath, JSON.stringify(screenMap, null, 2));
 
-  const linkedCount = scannedScreens.filter(s => s.navigationLinks.some(l => allRouteSet.has(l))).length;
+  const linkedCount = scannedScreens.filter(s => s.navigationLinks.map(l => resolveNavLink(l)).some(Boolean)).length;
   console.log('━'.repeat(40));
   console.log(`✅ Generated ${outputPath}`);
   console.log(`   ${Object.keys(screenMap.screens).length} screens, ${linkedCount} with navigation links`);
