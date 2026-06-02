@@ -168,7 +168,8 @@ function extractContentFromAST(sourceCode, filePath) {
 
     CallExpression(astPath) {
       const target = extractRouteFromCall(astPath.node);
-      if (target) navigationLinks.push(target);
+      if (Array.isArray(target)) navigationLinks.push(...target);
+      else if (target) navigationLinks.push(target);
     },
   });
 
@@ -193,19 +194,52 @@ function extractRouteFromCall(node) {
   const callee = node.callee;
   if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
     const method = callee.property.name;
-    if (!['navigate', 'push', 'replace'].includes(method)) return null;
-    const firstArg = node.arguments[0];
-    return firstArg ? extractRouteFromExpression(firstArg) : null;
+
+    // navigation.navigate/push/replace('Screen')
+    if (['navigate', 'push', 'replace'].includes(method)) {
+      const firstArg = node.arguments[0];
+      return firstArg ? extractRouteFromExpression(firstArg) : null;
+    }
+
+    // navigation.reset({ routes: [{ name: 'Screen' }] })
+    if (method === 'reset') {
+      const firstArg = node.arguments[0];
+      if (t.isObjectExpression(firstArg)) {
+        for (const prop of firstArg.properties) {
+          if (t.isObjectProperty(prop) && t.isIdentifier(prop.key) && prop.key.name === 'routes' && t.isArrayExpression(prop.value)) {
+            const routes = [];
+            for (const el of prop.value.elements) {
+              if (t.isObjectExpression(el)) {
+                for (const rp of el.properties) {
+                  if (t.isObjectProperty(rp) && t.isIdentifier(rp.key) && rp.key.name === 'name') {
+                    const route = extractRouteFromExpression(rp.value);
+                    if (route) routes.push(route);
+                  }
+                }
+              }
+            }
+            return routes.length > 0 ? routes : null;
+          }
+        }
+      }
+    }
   }
   return null;
 }
 
-// Unified: extract route from any expression (StringLiteral, TemplateLiteral, ObjectExpression)
 function extractRouteFromExpression(expr) {
   if (!expr) return null;
   if (t.isStringLiteral(expr)) return expr.value;
   if (t.isTemplateLiteral(expr) && expr.quasis.length > 0) {
     return expr.quasis.map(q => q.value.raw).join('[param]');
+  }
+  // MemberExpression: StackNav.Register → 'Register'
+  if (t.isMemberExpression(expr) && t.isIdentifier(expr.property)) {
+    return expr.property.name;
+  }
+  // Identifier: navigate(screenName) → '{screenName}'
+  if (t.isIdentifier(expr)) {
+    return `{${expr.name}}`;
   }
   if (t.isObjectExpression(expr)) {
     for (const prop of expr.properties) {
@@ -218,6 +252,164 @@ function extractRouteFromExpression(expr) {
     }
   }
   return null;
+}
+
+// ─── Global Navigate Index (component-level navigation) ─────────
+
+const NAVIGATE_REGEX = /navigation\.(navigate|push|replace|reset)\s*\(|\.navigate\s*\(/;
+
+// A real UI component navigates to at most a few screens.
+// Files exceeding this are infrastructure (NavigationService, deep link handlers, routing hubs).
+const MAX_COMPONENT_NAV_TARGETS = 8;;
+
+/**
+ * Build a global index: { absoluteFilePath: [route1, route2, ...] }
+ * Fast two-pass: regex pre-filter → Babel parse only matching files.
+ */
+function buildGlobalNavigateIndex(projectRoot) {
+  const index = new Map(); // filePath → Set<route>
+  const srcDir = path.join(projectRoot, 'src');
+  const scanRoot = fs.existsSync(srcDir) ? srcDir : projectRoot;
+  const allFiles = getAllSourceFiles(scanRoot);
+
+  for (const filePath of allFiles) {
+    const source = fs.readFileSync(filePath, 'utf-8');
+    // Fast regex pre-filter — skip files without any navigate calls
+    if (!NAVIGATE_REGEX.test(source)) continue;
+
+    try {
+      const ast = parse(source, {
+        sourceType: 'module',
+        plugins: ['jsx', 'typescript', 'decorators-legacy'],
+      });
+
+      const routes = new Set();
+      traverse(ast, {
+        CallExpression(astPath) {
+          const target = extractRouteFromCall(astPath.node);
+          if (Array.isArray(target)) target.forEach(r => routes.add(r));
+          else if (target) routes.add(target);
+        },
+      });
+
+      if (routes.size > 0 && routes.size <= MAX_COMPONENT_NAV_TARGETS) {
+        index.set(filePath, routes);
+      }
+    } catch {
+      // Skip files that fail to parse
+    }
+  }
+  return index;
+}
+
+/**
+ * Recursively collect all .js/.jsx/.ts/.tsx files, skipping node_modules and dotfiles.
+ */
+function getAllSourceFiles(dir) {
+  const results = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules' ||
+        entry.name === '__tests__' || entry.name === '__mocks__') continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...getAllSourceFiles(full));
+    } else if (/\.(jsx?|tsx?)$/.test(entry.name)) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+/**
+ * Extract import source paths from a file's AST.
+ * Returns resolved absolute paths.
+ */
+function extractImportPaths(filePath) {
+  const source = fs.readFileSync(filePath, 'utf-8');
+  const importPaths = [];
+
+  // Fast regex extraction — no need for full Babel parse
+  const importRegex = /(?:import\s+.*?\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+  let match;
+  while ((match = importRegex.exec(source)) !== null) {
+    const importPath = match[1] || match[2];
+    if (!importPath || !importPath.startsWith('.')) continue; // Skip non-relative (npm packages)
+
+    const dir = path.dirname(filePath);
+    const resolved = resolveFilePath(dir, importPath);
+    if (resolved) importPaths.push(resolved);
+  }
+  return importPaths;
+}
+
+/**
+ * Resolve a relative import to an absolute file path.
+ * Tries: exact, .js, .jsx, .ts, .tsx, /index.js, /index.tsx
+ */
+function resolveFilePath(fromDir, importPath) {
+  const base = path.resolve(fromDir, importPath);
+  const extensions = ['', '.js', '.jsx', '.ts', '.tsx'];
+  for (const ext of extensions) {
+    const candidate = base + ext;
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  // Try index files
+  for (const idx of ['index.js', 'index.jsx', 'index.ts', 'index.tsx']) {
+    const candidate = path.join(base, idx);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Enrich screen navigation links by following imports into child components.
+ * For each screen → get its imports → check if any import has navigate calls → merge routes.
+ */
+function enrichScreensWithComponentNavLinks(screens, globalIndex, navigatorFiles) {
+  let totalAdded = 0;
+  const navigatorSet = new Set(navigatorFiles.map(f => path.resolve(f)));
+  // Screen files' navigate calls belong to themselves, not to screens that import them
+  const screenFileSet = new Set(screens.map(s => path.resolve(s.filePath)));
+
+  // If multiple screens share the same filePath, it's a route registry — not a real component file
+  const filePathCounts = new Map();
+  for (const s of screens) {
+    const resolved = path.resolve(s.filePath);
+    filePathCounts.set(resolved, (filePathCounts.get(resolved) || 0) + 1);
+  }
+  const sharedFilePaths = new Set(
+    [...filePathCounts.entries()].filter(([, count]) => count > 1).map(([fp]) => fp)
+  );
+
+  for (const screen of screens) {
+    if (!fs.existsSync(screen.filePath)) continue;
+    const resolvedPath = path.resolve(screen.filePath);
+    // Skip screens whose file is a navigator or a shared route registry
+    if (navigatorSet.has(resolvedPath) || sharedFilePaths.has(resolvedPath)) continue;
+
+    const importedFiles = extractImportPaths(screen.filePath);
+    const existingLinks = new Set(screen.navigationLinks);
+
+    for (const importedFile of importedFiles) {
+      // Skip navigator files and other screen files
+      if (navigatorSet.has(importedFile) || screenFileSet.has(importedFile)) continue;
+
+      const componentRoutes = globalIndex.get(importedFile);
+      if (!componentRoutes) continue;
+
+      for (const route of componentRoutes) {
+        if (!existingLinks.has(route)) {
+          existingLinks.add(route);
+          totalAdded++;
+        }
+      }
+    }
+
+    screen.navigationLinks = [...existingLinks];
+  }
+
+  return totalAdded;
 }
 
 function buildDescription(extracted) {
@@ -307,8 +499,9 @@ function extractTextRecursive(element, depth = 0) {
       const text = child.value.trim();
       if (text) return text;
     }
-    if (t.isJSXExpressionContainer(child) && t.isStringLiteral(child.expression)) {
-      return child.expression.value;
+    if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
+      const hint = extractSemanticHint(child.expression);
+      if (hint) return hint;
     }
     if (t.isJSXElement(child)) {
       const childName = getJSXElementName(child.openingElement.name);
@@ -664,8 +857,9 @@ function traceExportProperty(filePath, objectName, propertyName) {
     ast = parse(sourceCode, { sourceType: 'module', plugins: ['jsx', 'typescript', 'decorators-legacy'] });
   } catch { return null; }
 
-  const innerImports = new Map();
-  let targetIdentifier = null;
+  const innerImports = new Map(); // identifier → import path
+  const localVarInits = new Map(); // identifier → AST node (for const X = React.lazy(...))
+  let targetNode = null; // The AST node for the property value
 
   traverse(ast, {
     ImportDeclaration(nodePath) {
@@ -677,29 +871,34 @@ function traceExportProperty(filePath, objectName, propertyName) {
       }
     },
     VariableDeclarator(nodePath) {
-      if (t.isIdentifier(nodePath.node.id) && nodePath.node.id.name === objectName) {
-        if (t.isObjectExpression(nodePath.node.init)) {
-          for (const prop of nodePath.node.init.properties) {
-            if (t.isObjectProperty(prop) && t.isIdentifier(prop.key)) {
-              if (prop.key.name === propertyName) {
-                if (t.isIdentifier(prop.value)) {
-                  targetIdentifier = prop.value.name;
-                }
-              }
-            }
+      const id = nodePath.node.id;
+      const init = nodePath.node.init;
+      if (!t.isIdentifier(id)) return;
+
+      // Collect the StackRoute = { ... } object and find the target property
+      if (id.name === objectName && t.isObjectExpression(init)) {
+        for (const prop of init.properties) {
+          if (t.isObjectProperty(prop) && t.isIdentifier(prop.key) && prop.key.name === propertyName) {
+            targetNode = prop.value;
           }
         }
+      }
+
+      // Also collect all local variable assignments for later unwrapping
+      if (init) {
+        localVarInits.set(id.name, init);
       }
     }
   });
 
-  if (!targetIdentifier) return null;
+  if (!targetNode) return null;
 
-  const importPath = innerImports.get(targetIdentifier);
-  if (!importPath || !importPath.startsWith('.')) return null;
+  // Unwrap the target to find the component source
+  const ref = unwrapToComponentRef(targetNode, innerImports, localVarInits);
+  if (!ref) return null;
 
   const dir = path.dirname(filePath);
-  const resolved = path.resolve(dir, importPath);
+  const resolved = path.resolve(dir, ref);
   for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
     if (fs.existsSync(resolved + ext)) return resolved + ext;
   }
@@ -710,128 +909,67 @@ function traceExportProperty(filePath, objectName, propertyName) {
   return resolved;
 }
 
-// ─── Chain Analyzer ────────────────────────────────────────────
+/**
+ * Recursively unwrap AST nodes to find the original component import path.
+ * Handles: Identifier (import lookup), React.lazy(() => import('path')),
+ * React.memo(X), connect(mapState)(X), observer(X), withX(X), etc.
+ * Returns the relative import path string or null.
+ */
+function unwrapToComponentRef(node, imports, localVars, depth = 0) {
+  if (!node || depth > 5) return null; // safety: prevent infinite recursion
 
-function buildNavigationGraph(screenLinks, knownRoutes) {
-  const edges = new Map();
-  const routes = knownRoutes || Object.keys(screenLinks);
-  for (const [route, links] of Object.entries(screenLinks)) {
-    if (!edges.has(route)) edges.set(route, new Set());
-    for (const link of links) {
-      const resolved = resolveLink(link, route, routes);
-      if (resolved && resolved !== route) edges.get(route).add(resolved);
-    }
-  }
-  return { edges };
-}
+  // Direct identifier: look up in imports first, then local vars
+  if (t.isIdentifier(node)) {
+    const importPath = imports.get(node.name);
+    if (importPath && importPath.startsWith('.')) return importPath;
 
-// Resolve a raw nav link to a known route, handling dynamic segments
-function resolveLink(link, fromRoute, knownRoutes) {
-  let normalized = link;
-  if (normalized.startsWith('http') || normalized.startsWith('mailto')) return null;
-  // Handle relative routes
-  if (normalized.startsWith('./') || normalized.startsWith('../')) {
-    const fromDir = fromRoute.includes('/') ? fromRoute.substring(0, fromRoute.lastIndexOf('/')) : '';
-    if (normalized.startsWith('./')) {
-      normalized = fromDir ? `${fromDir}/${normalized.slice(2)}` : normalized.slice(2);
-    } else {
-      const parentDir = fromDir.includes('/') ? fromDir.substring(0, fromDir.lastIndexOf('/')) : '';
-      normalized = parentDir ? `${parentDir}/${normalized.slice(3)}` : normalized.slice(3);
-    }
+    // Check if it's a local variable (const X = React.lazy(...))
+    const localInit = localVars.get(node.name);
+    if (localInit) return unwrapToComponentRef(localInit, imports, localVars, depth + 1);
+
+    return null;
   }
-  normalized = normalized.replace(/^\/+|\/+$/g, '');
-  if (!normalized) return null;
-  // Exact match
-  if (knownRoutes.includes(normalized)) return normalized;
-  // Fuzzy match for dynamic segments: [param] matches [id], concrete values match [id]
-  const linkSegs = normalized.split('/');
-  for (const route of knownRoutes) {
-    const routeSegs = route.split('/');
-    if (routeSegs.length !== linkSegs.length) continue;
-    let ok = true;
-    for (let i = 0; i < routeSegs.length; i++) {
-      if (routeSegs[i] === linkSegs[i]) continue;
-      if (routeSegs[i].startsWith('[') && routeSegs[i].endsWith(']')) continue;
-      if (linkSegs[i].startsWith('[') && linkSegs[i].endsWith(']') && routeSegs[i].startsWith('[') && routeSegs[i].endsWith(']')) continue;
-      ok = false; break;
+
+  // CallExpression: React.lazy(), React.memo(), connect()(), observer(), withX()
+  if (t.isCallExpression(node)) {
+    // React.lazy(() => import('./path')) — extract dynamic import path
+    const callee = node.callee;
+    if (t.isMemberExpression(callee) && t.isIdentifier(callee.property, { name: 'lazy' })) {
+      const arrowFn = node.arguments[0];
+      if (t.isArrowFunctionExpression(arrowFn) || t.isFunctionExpression(arrowFn)) {
+        const body = t.isBlockStatement(arrowFn.body)
+          ? arrowFn.body.body.find(s => t.isReturnStatement(s))?.argument
+          : arrowFn.body;
+        if (body && t.isCallExpression(body) && t.isImport(body.callee)) {
+          const importArg = body.arguments[0];
+          if (t.isStringLiteral(importArg)) return importArg.value;
+        }
+      }
     }
-    if (ok) return route;
+
+    // For HOCs: React.memo(X), observer(X), withNavigation(X)
+    // The component is typically the first argument
+    if (node.arguments.length > 0) {
+      const result = unwrapToComponentRef(node.arguments[0], imports, localVars, depth + 1);
+      if (result) return result;
+    }
+
+    // Chained HOC: connect(mapState)(Component) — callee is itself a CallExpression
+    if (t.isCallExpression(callee) && node.arguments.length > 0) {
+      return unwrapToComponentRef(node.arguments[0], imports, localVars, depth + 1);
+    }
+
+    return null;
   }
+
   return null;
 }
 
-function extractChains(graph, allRoutes) {
-  const hasIncoming = new Set();
-  for (const targets of graph.edges.values()) {
-    for (const target of targets) hasIncoming.add(target);
-  }
-  const roots = allRoutes.filter(r => !hasIncoming.has(r) && graph.edges.has(r));
-  const chains = [];
-
-  function dfs(current, currentPath, visited) {
-    const neighbors = graph.edges.get(current);
-    if (!neighbors || neighbors.size === 0) {
-      if (currentPath.length > 1) chains.push([...currentPath]);
-      return;
-    }
-    for (const next of neighbors) {
-      if (!visited.has(next)) {
-        visited.add(next);
-        currentPath.push(next);
-        dfs(next, currentPath, visited);
-        currentPath.pop();
-        visited.delete(next);
-      }
-    }
-  }
-
-  for (const root of roots) dfs(root, [root], new Set([root]));
-
-  // Deduplicate — keep longest chains
-  chains.sort((a, b) => b.length - a.length);
-  const result = [];
-  for (const chain of chains) {
-    const key = chain.join(' → ');
-    const isSubset = result.some(kept => kept.join(' → ').includes(key));
-    if (!isSubset) result.push(chain);
-  }
-  return result;
-}
-
-// ─── AI Extractor ──────────────────────────────────────────────
-
-async function extractContentWithAI(sourceCode, routeName, config) {
-  const prompt = `You are analyzing a React Native screen component.
-Summarize this screen in ONE concise sentence.
-Include: the screen's purpose, all interactive elements (buttons, toggles, inputs), and key content sections.
-Route name: "${routeName}"
-Source code:
-\`\`\`tsx
-${sourceCode}
-\`\`\`
-Respond with ONLY the one-sentence description, nothing else.`;
-
-  if (config.provider === 'gemini') {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 150 } }) }
-    );
-    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'Screen content';
-  } else {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 150 })
-    });
-    if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || 'Screen content';
-  }
-}
-
 // ─── Main ──────────────────────────────────────────────────────
+
+
+
+
 
 function detectFramework(projectRoot) {
   const srcApp = path.join(projectRoot, 'src', 'app');
@@ -845,15 +983,11 @@ function detectFramework(projectRoot) {
 }
 
 function parseArgs(argv) {
-  const args = { ai: false, provider: 'gemini', key: '', dir: '', watch: false };
+  const args = { dir: '', watch: false };
   for (const arg of argv) {
-    if (arg === '--ai') args.ai = true;
     if (arg === '--watch' || arg === '-w') args.watch = true;
-    if (arg.startsWith('--provider=')) args.provider = arg.split('=')[1];
-    if (arg.startsWith('--key=')) args.key = arg.split('=')[1];
     if (arg.startsWith('--dir=')) args.dir = arg.split('=')[1];
   }
-  if (args.ai && !args.key) { console.error('❌ --ai requires --key=YOUR_API_KEY'); process.exit(1); }
   return args;
 }
 
@@ -867,48 +1001,36 @@ async function generate(args, projectRoot) {
 
   console.log(`📄 Found ${scannedScreens.length} screen(s)`);
 
-  if (args.ai && args.key) {
-    console.log(`🤖 Enhancing descriptions with AI (${args.provider})...`);
-    for (const screen of scannedScreens) {
-      try {
-        const sourceCode = fs.readFileSync(screen.filePath, 'utf-8');
-        screen.description = await extractContentWithAI(sourceCode, screen.routeName, { provider: args.provider, apiKey: args.key });
-        console.log(`  ✓ ${screen.routeName}`);
-      } catch (err) {
-        console.warn(`  ✗ ${screen.routeName}: ${err.message}`);
-      }
-    }
-  }
+  // Enrich navigation links with component-level navigation
+  console.log('🔍 Scanning components for navigation calls...');
+  const globalIndex = buildGlobalNavigateIndex(projectRoot);
+  const navigatorFiles = framework === 'react-navigation' ? findNavigatorFiles(projectRoot) : [];
+  const added = enrichScreensWithComponentNavLinks(scannedScreens, globalIndex, navigatorFiles);
+  console.log(`   Found ${globalIndex.size} component(s) with navigation, added ${added} link(s)`);
 
-  // Build navigation chains
-  const screenLinks = {};
+
+  // Build output — per-screen navigatesTo, filtered to known routes only
+  const allRouteSet = new Set(scannedScreens.map(s => s.routeName));
+  const screenMap = { generatedAt: new Date().toISOString(), framework, screens: {} };
   for (const screen of scannedScreens) {
-    screenLinks[screen.routeName] = screen.navigationLinks;
+    const validLinks = screen.navigationLinks.filter(link => allRouteSet.has(link));
     if (screen.navigationLinks.length > 0) {
-      console.log(`  🔗 ${screen.routeName} → ${screen.navigationLinks.join(', ')}`);
+      console.log(`  🔗 ${screen.routeName} → ${validLinks.join(', ')}${screen.navigationLinks.length !== validLinks.length ? ` (${screen.navigationLinks.length - validLinks.length} noise filtered)` : ''}`);
     }
-  }
-  const allRoutes = scannedScreens.map(s => s.routeName);
-  const graph = buildNavigationGraph(screenLinks, allRoutes);
-  const chains = extractChains(graph, allRoutes);
-
-  // Build output
-  const screenMap = { generatedAt: new Date().toISOString(), framework, screens: {}, chains };
-  for (const screen of scannedScreens) {
-    screenMap.screens[screen.routeName] = { title: screen.title, description: screen.description };
+    screenMap.screens[screen.routeName] = {
+      title: screen.title || undefined,
+      description: screen.description,
+      navigatesTo: validLinks.length > 0 ? validLinks : undefined,
+    };
   }
 
   const outputPath = path.join(projectRoot, 'ai-screen-map.json');
   fs.writeFileSync(outputPath, JSON.stringify(screenMap, null, 2));
 
+  const linkedCount = scannedScreens.filter(s => s.navigationLinks.some(l => allRouteSet.has(l))).length;
   console.log('━'.repeat(40));
   console.log(`✅ Generated ${outputPath}`);
-  console.log(`   ${Object.keys(screenMap.screens).length} screens, ${chains.length} navigation chain(s)`);
-
-  if (chains.length > 0) {
-    console.log('\n📍 Navigation chains:');
-    for (const chain of chains) console.log(`   ${chain.join(' → ')}`);
-  }
+  console.log(`   ${Object.keys(screenMap.screens).length} screens, ${linkedCount} with navigation links`);
 
   if (!args.watch) {
     console.log('\n💡 Import in your app:');

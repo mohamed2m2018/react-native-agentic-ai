@@ -213,9 +213,8 @@ export function extractContentFromAST(sourceCode: string, filePath: string): Ext
     // ─── Navigation link extraction from imperative calls ─────
     CallExpression(path: any) {
       const target = extractRouteFromCall(path.node);
-      if (target) {
-        navigationLinks.push(target);
-      }
+      if (Array.isArray(target)) navigationLinks.push(...target);
+      else if (target) navigationLinks.push(target);
     },
   });
 
@@ -305,18 +304,46 @@ function extractRouteFromAttribute(node: t.JSXOpeningElement, attrName: string):
  *
  * Methods matched: navigate, push, replace
  */
-function extractRouteFromCall(node: t.CallExpression): string | null {
+function extractRouteFromCall(node: t.CallExpression): string | string[] | null {
   const callee = node.callee;
 
-  // Match: something.navigate('...') / something.push('...') / something.replace('...')
   if (t.isMemberExpression(callee) && t.isIdentifier(callee.property)) {
     const method = callee.property.name;
-    if (!['navigate', 'push', 'replace'].includes(method)) return null;
 
-    const firstArg = node.arguments[0];
-    if (!firstArg) return null;
+    // navigation.navigate/push/replace('Screen')
+    if (['navigate', 'push', 'replace'].includes(method)) {
+      const firstArg = node.arguments[0];
+      if (!firstArg) return null;
+      return extractRouteFromExpression(firstArg);
+    }
 
-    return extractRouteFromExpression(firstArg);
+    // navigation.reset({ routes: [{ name: 'Screen' }] })
+    if (method === 'reset') {
+      const firstArg = node.arguments[0];
+      if (t.isObjectExpression(firstArg)) {
+        for (const prop of firstArg.properties) {
+          if (
+            t.isObjectProperty(prop) &&
+            t.isIdentifier(prop.key) &&
+            prop.key.name === 'routes' &&
+            t.isArrayExpression(prop.value)
+          ) {
+            const routes: string[] = [];
+            for (const el of prop.value.elements) {
+              if (t.isObjectExpression(el)) {
+                for (const rp of el.properties) {
+                  if (t.isObjectProperty(rp) && t.isIdentifier(rp.key) && rp.key.name === 'name') {
+                    const route = extractRouteFromExpression(rp.value);
+                    if (route) routes.push(route);
+                  }
+                }
+              }
+            }
+            return routes.length > 0 ? routes : null;
+          }
+        }
+      }
+    }
   }
 
   return null;
@@ -339,6 +366,16 @@ function extractRouteFromExpression(expr: any): string | null {
   // Template literal: `/item-reviews/${id}` → '/item-reviews/[param]'
   if (t.isTemplateLiteral(expr) && expr.quasis.length > 0) {
     return expr.quasis.map((q: any) => q.value.raw).join('[param]');
+  }
+
+  // MemberExpression: StackNav.Register → 'Register'
+  if (t.isMemberExpression(expr) && t.isIdentifier(expr.property)) {
+    return expr.property.name;
+  }
+
+  // Identifier: navigate(screenName) → '{screenName}'
+  if (t.isIdentifier(expr)) {
+    return `{${expr.name}}`;
   }
 
   // Object with pathname: { pathname: '/user/[id]', params: {...} }
@@ -492,9 +529,10 @@ function extractTextRecursive(element: t.JSXElement, depth: number = 0): string 
       if (text) return text;
     }
 
-    // String expression: {"Sign In"}
-    if (t.isJSXExpressionContainer(child) && t.isStringLiteral(child.expression)) {
-      return child.expression.value;
+    // String or dynamic expression: {"Sign In"}, {strings.editProfile}, {t('key')}
+    if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
+      const hint = extractSemanticHint(child.expression);
+      if (hint) return hint;
     }
 
     // Recurse into child JSX elements (e.g. <View><Text>Sign In</Text></View>)

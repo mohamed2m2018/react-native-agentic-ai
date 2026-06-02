@@ -311,7 +311,7 @@ Set `enableUIControl={false}` for a lightweight FAQ / support assistant. Single 
 
 ## 🗺️ Screen Mapping — Navigation Intelligence
 
-By default, the AI navigates by reading what's on screen and tapping visible elements. **Screen mapping** gives the AI a complete map of every screen and how to navigate between them — so it can plan multi-screen journeys before taking a single step.
+By default, the AI navigates by reading what's on screen and tapping visible elements. **Screen mapping** gives the AI a complete map of every screen and how they connect — via static analysis of your source code (AST). No API key needed, runs in ~2 seconds.
 
 ### Setup (one line)
 
@@ -342,7 +342,7 @@ That's it. Works with both **Expo Router** and **React Navigation** — auto-det
 |---|---|
 | AI sees only the current screen | AI knows every screen in your app |
 | Must explore to find features | Plans the full navigation path upfront |
-| Deep screens may be unreachable | Follows chains: `Home → Menu → Detail → Reviews` |
+| Deep screens may be unreachable | Knows each screen's `navigatesTo` links |
 | No knowledge of dynamic routes | Understands `item/[id]`, `category/[id]` patterns |
 
 ### Disable Without Removing
@@ -382,7 +382,6 @@ npx @mobileai/react-native generate-map --watch
 |------|-------------|
 | `--watch`, `-w` | Watch for file changes and auto-regenerate |
 | `--dir=./path` | Custom project directory |
-| `--ai --key=KEY` | Enhance screen descriptions with AI |
 
 </details>
 
