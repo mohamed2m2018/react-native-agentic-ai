@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
@@ -42,7 +42,7 @@
   "scripts": {
     "example": "yarn workspace @mobileai/react-native-example",
     "clean": "del-cli lib",
-    "prepare": "bob build",
+    "prepare": "bob build && rm -rf lib/module/cli lib/typescript/src/cli",
     "typecheck": "tsc",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "test": "jest",
@@ -90,6 +90,9 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.2",
+    "@babel/traverse": "^7.29.0",
+    "@babel/types": "^7.29.0",
     "@eslint/compat": "^1.3.2",
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "^9.35.0",
@@ -111,9 +114,6 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.2",
-    "@babel/traverse": "^7.29.0",
-    "@babel/types": "^7.29.0",
     "@google/genai": "^1.0.0",
     "react-native-audio-api": "*"
   },
