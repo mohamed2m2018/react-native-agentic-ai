@@ -21,6 +21,69 @@ const t = require('@babel/types');
 
 // ─── AST Extractor ──────────────────────────────────────────────
 
+// Component classification sets
+const LAYOUT_PRIMITIVES = new Set([
+  'View', 'SafeAreaView', 'Fragment', 'KeyboardAvoidingView',
+  'StatusBar', 'LinearGradient', 'Animated',
+]);
+
+const ICON_EXACT = new Set([
+  'Ionicons', 'MaterialIcon', 'MaterialCommunityIcons',
+  'FontAwesome', 'FontAwesome5', 'Feather', 'Entypo',
+  'AntDesign', 'EvilIcons', 'Foundation', 'Octicons',
+  'SimpleLineIcons', 'Zocial', 'MaterialIcons',
+]);
+
+const PRESSABLE_EXACT = new Set([
+  'Pressable', 'TouchableOpacity', 'TouchableHighlight',
+  'TouchableWithoutFeedback', 'TouchableNativeFeedback',
+]);
+
+const LIST_EXACT = new Set(['FlatList', 'SectionList', 'VirtualizedList']);
+const IMAGE_EXACT = new Set(['Image', 'FastImage', 'ImageBackground']);
+
+function classifyComponent(name) {
+  if (LAYOUT_PRIMITIVES.has(name)) return 'skip';
+  if (name === 'Text' || name === 'ScrollView') return 'skip';
+
+  if (name === 'TextInput') return 'input';
+  if (name === 'Switch') return 'toggle';
+  if (name === 'Button') return 'button';
+  if (name === 'Modal') return 'modal';
+  if (name === 'Link' || name === 'Redirect') return 'navigation';
+  if (PRESSABLE_EXACT.has(name)) return 'button';
+  if (LIST_EXACT.has(name)) return 'list';
+  if (IMAGE_EXACT.has(name)) return 'image';
+  if (ICON_EXACT.has(name)) return 'icon';
+
+  if (name.endsWith('Input') || name.endsWith('Field')) return 'input';
+  if (name.endsWith('Toggle')) return 'toggle';
+  if (name.endsWith('Button') || name.endsWith('Btn')) return 'button';
+  if (name.endsWith('Image') || name.endsWith('Avatar') || name.endsWith('Photo')) return 'image';
+  if (name.endsWith('List')) return 'list';
+  if (name.endsWith('Modal') || name.endsWith('Sheet') || name.endsWith('Dialog') || name.includes('BottomSheet')) return 'modal';
+  if (name.endsWith('Icon') || name.endsWith('_Dark') || name.endsWith('_Light')) return 'icon';
+
+  if (name[0] === name[0]?.toUpperCase() && name[0] !== name[0]?.toLowerCase()) return 'custom';
+  return 'skip';
+}
+
+const CATEGORY_PRIORITY = {
+  'text-input': 0, 'switch': 1, 'button': 2, 'modal': 3,
+  'list': 4, 'image': 5, 'component': 6,
+};
+const MAX_ELEMENTS = 8;
+
+function deduplicateAndPrioritize(elements) {
+  const unique = [...new Set(elements)];
+  unique.sort((a, b) => {
+    const catA = (a.match(/\(([^)]+)\)$/) || [])[1] || 'unknown';
+    const catB = (b.match(/\(([^)]+)\)$/) || [])[1] || 'unknown';
+    return (CATEGORY_PRIORITY[catA] ?? 99) - (CATEGORY_PRIORITY[catB] ?? 99);
+  });
+  return unique.slice(0, MAX_ELEMENTS);
+}
+
 function extractContentFromAST(sourceCode, filePath) {
   const elements = [];
   const navigationLinks = [];
@@ -40,39 +103,66 @@ function extractContentFromAST(sourceCode, filePath) {
     JSXOpeningElement(astPath) {
       const nameNode = astPath.node.name;
       const elementName = getJSXElementName(nameNode);
+      if (!elementName) return;
 
-      if (elementName === 'Switch') {
-        const label = findSiblingTextLabel(astPath);
-        elements.push(label ? `${label} (switch)` : 'toggle (switch)');
-      }
+      const category = classifyComponent(elementName);
 
-      if (elementName === 'TextInput') {
-        const placeholder = getStringAttribute(astPath.node, 'placeholder');
-        elements.push(placeholder ? `${placeholder} (text-input)` : 'text input (text-input)');
-      }
-
-      if (elementName === 'Button') {
-        const title = getStringAttribute(astPath.node, 'title');
-        elements.push(title ? `${title} (button)` : 'button (button)');
-        // React Navigation: <Button screen="Details" />
-        const screenTarget = getStringAttribute(astPath.node, 'screen');
-        if (screenTarget) navigationLinks.push(screenTarget);
-      }
-
-      if (['Pressable', 'TouchableOpacity', 'TouchableHighlight', 'TouchableWithoutFeedback'].includes(elementName)) {
-        const buttonLabel = findChildTextContent(astPath);
-        if (buttonLabel) {
-          elements.push(`${buttonLabel} (button)`);
+      switch (category) {
+        case 'input': {
+          const placeholder = getStringAttribute(astPath.node, 'placeholder');
+          elements.push(placeholder ? `${placeholder} (text-input)` : 'text input (text-input)');
+          break;
         }
-      }
-
-      // Expo Router: <Link href="..."> or <Redirect href="...">
-      if (elementName === 'Link' || elementName === 'Redirect') {
-        const target = extractRouteFromAttribute(astPath.node, 'href');
-        if (target) navigationLinks.push(target);
-        // React Navigation: <Link screen="Details" />
-        const screenTarget = getStringAttribute(astPath.node, 'screen');
-        if (screenTarget) navigationLinks.push(screenTarget);
+        case 'toggle': {
+          const label = findSiblingTextLabel(astPath);
+          elements.push(label ? `${label} (switch)` : 'toggle (switch)');
+          break;
+        }
+        case 'button': {
+          if (elementName === 'Button') {
+            const title = getStringAttribute(astPath.node, 'title');
+            elements.push(title ? `${title} (button)` : 'button (button)');
+            const screenTarget = getStringAttribute(astPath.node, 'screen');
+            if (screenTarget) navigationLinks.push(screenTarget);
+          } else {
+            const buttonLabel = findChildTextContentRecursive(astPath);
+            if (buttonLabel) elements.push(`${buttonLabel} (button)`);
+          }
+          break;
+        }
+        case 'image': {
+          const alt = getStringAttribute(astPath.node, 'alt')
+            || getStringAttribute(astPath.node, 'accessibilityLabel');
+          elements.push(alt ? `${alt} (image)` : `${elementName} (image)`);
+          break;
+        }
+        case 'list': {
+          elements.push(`${elementName} (list)`);
+          break;
+        }
+        case 'modal': {
+          const title = getStringAttribute(astPath.node, 'title');
+          elements.push(title ? `${title} (modal)` : `${elementName} (modal)`);
+          break;
+        }
+        case 'navigation': {
+          const target = extractRouteFromAttribute(astPath.node, 'href');
+          if (target) navigationLinks.push(target);
+          const screenTarget = getStringAttribute(astPath.node, 'screen');
+          if (screenTarget) navigationLinks.push(screenTarget);
+          break;
+        }
+        case 'custom': {
+          const label = getStringAttribute(astPath.node, 'title')
+            || getStringAttribute(astPath.node, 'label')
+            || getStringAttribute(astPath.node, 'placeholder')
+            || getStringAttribute(astPath.node, 'text');
+          elements.push(label ? `${label} (${elementName})` : `${elementName} (component)`);
+          break;
+        }
+        case 'icon':
+        case 'skip':
+          break;
       }
     },
 
@@ -83,7 +173,7 @@ function extractContentFromAST(sourceCode, filePath) {
   });
 
   return {
-    elements: [...new Set(elements)],
+    elements: deduplicateAndPrioritize(elements),
     navigationLinks: [...new Set(navigationLinks)],
   };
 }
@@ -149,12 +239,47 @@ function getStringAttribute(node, attrName) {
   for (const attr of node.attributes) {
     if (t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name) && attr.name.name === attrName) {
       if (t.isStringLiteral(attr.value)) return attr.value.value;
-      if (t.isJSXExpressionContainer(attr.value) && t.isStringLiteral(attr.value.expression)) {
-        return attr.value.expression.value;
+      if (t.isJSXExpressionContainer(attr.value)) {
+        return extractSemanticHint(attr.value.expression);
       }
     }
   }
   return null;
+}
+
+function extractSemanticHint(node, depth = 0) {
+  if (depth > 5 || !node) return null;
+  if (t.isStringLiteral(node)) return node.value;
+  if (t.isNumericLiteral(node)) return String(node.value);
+  if (t.isMemberExpression(node) && t.isIdentifier(node.property)) {
+    return camelToWords(node.property.name);
+  }
+  if (t.isConditionalExpression(node)) {
+    return extractSemanticHint(node.consequent, depth + 1)
+      || extractSemanticHint(node.alternate, depth + 1);
+  }
+  if (t.isLogicalExpression(node) && node.operator === '||') {
+    return extractSemanticHint(node.left, depth + 1)
+      || extractSemanticHint(node.right, depth + 1);
+  }
+  if (t.isLogicalExpression(node) && node.operator === '&&') {
+    return extractSemanticHint(node.right, depth + 1);
+  }
+  if (t.isTemplateLiteral(node) && node.quasis.length > 0) {
+    const staticParts = node.quasis.map(q => q.value.raw).filter(Boolean);
+    if (staticParts.length > 0) return staticParts.join('...').trim() || null;
+  }
+  if (t.isCallExpression(node) && node.arguments.length > 0) {
+    const firstArg = node.arguments[0];
+    if (t.isStringLiteral(firstArg)) return camelToWords(firstArg.value);
+  }
+  return null;
+}
+
+function camelToWords(str) {
+  if (!str) return str;
+  if (str.includes(' ') || str.includes('_') || str.includes('-')) return str;
+  return str.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 }
 
 function findSiblingTextLabel(switchPath) {
@@ -162,26 +287,21 @@ function findSiblingTextLabel(switchPath) {
   if (!parent?.node || !t.isJSXElement(parent.node)) return null;
   for (const child of parent.node.children) {
     if (t.isJSXElement(child)) {
-      const childName = getJSXElementName(child.openingElement.name);
-      if (childName === 'Text') return extractTextFromJSXElement(child);
+      const text = extractTextRecursive(child);
+      if (text) return text;
     }
   }
   return null;
 }
 
-function findChildTextContent(pressablePath) {
+function findChildTextContentRecursive(pressablePath) {
   const jsxElement = pressablePath.parent;
   if (!t.isJSXElement(jsxElement)) return null;
-  for (const child of jsxElement.children) {
-    if (t.isJSXElement(child)) {
-      const childName = getJSXElementName(child.openingElement.name);
-      if (childName === 'Text') return extractTextFromJSXElement(child);
-    }
-  }
-  return null;
+  return extractTextRecursive(jsxElement);
 }
 
-function extractTextFromJSXElement(element) {
+function extractTextRecursive(element, depth = 0) {
+  if (depth > 4) return null;
   for (const child of element.children) {
     if (t.isJSXText(child)) {
       const text = child.value.trim();
@@ -190,9 +310,17 @@ function extractTextFromJSXElement(element) {
     if (t.isJSXExpressionContainer(child) && t.isStringLiteral(child.expression)) {
       return child.expression.value;
     }
+    if (t.isJSXElement(child)) {
+      const childName = getJSXElementName(child.openingElement.name);
+      if (ICON_EXACT.has(childName) || childName.endsWith('Icon') ||
+          childName.endsWith('_Dark') || childName.endsWith('_Light')) continue;
+      const text = extractTextRecursive(child, depth + 1);
+      if (text) return text;
+    }
   }
   return null;
 }
+
 
 // ─── Expo Router Scanner ──────────────────────────────────────
 
