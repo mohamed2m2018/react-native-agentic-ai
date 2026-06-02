@@ -345,8 +345,10 @@ function resolveComponentPath(
   _projectRoot: string
 ): string {
   const parts = componentName.split('.');
-  const baseComponent = parts[0];
-  const property = parts[1];
+  const baseComponent: string | undefined = parts[0];
+  const property: string | undefined = parts[1];
+
+  if (!baseComponent) return currentFile;
 
   const importPath = imports.get(baseComponent);
   if (!importPath) return currentFile;
