@@ -221,6 +221,17 @@ export class AgentRuntime {
           }
           logger.info('AgentRuntime', `🧭 Navigate matched: "${args.screen}" → "${matchedScreen}"`);
 
+          // Safe navigation guard: reject paramless navigation to detail screens
+          // that are not currently in the active route stack (they need params from tap flow)
+          if (!params) {
+            const isInActiveStack = this.isScreenInActiveRoutes(matchedScreen);
+            if (!isInActiveStack) {
+              const errMsg = `❌ "${matchedScreen}" is a detail screen that requires parameters (e.g. an item ID). Navigate to it by tapping the relevant button in the UI instead of using navigate() directly. Use tap actions to reach detail screens through the normal app flow.`;
+              logger.warn('AgentRuntime', `🧭 Navigate REJECTED (safe nav): ${errMsg}`);
+              return errMsg;
+            }
+          }
+
           // Find the path to the screen (handles nested navigators)
           const screenPath = this.findScreenPath(matchedScreen);
           if (screenPath.length > 1) {
@@ -524,6 +535,33 @@ export class AgentRuntime {
     } catch {
       return [targetScreen];
     }
+  }
+
+  /**
+   * Check if a screen currently exists as an active (instantiated) route
+   * in the navigation state. Screens in state.routes have been visited
+   * and retain their params. Screens only in state.routeNames are declared
+   * but never visited — navigating to them without params will crash.
+   */
+  private isScreenInActiveRoutes(screenName: string): boolean {
+    try {
+      const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
+      if (!state) return false;
+      return this.searchActiveRoutes(state, screenName);
+    } catch {
+      return false;
+    }
+  }
+
+  private searchActiveRoutes(state: any, screenName: string): boolean {
+    if (!state?.routes) return false;
+    for (const route of state.routes) {
+      if (route.name === screenName) return true;
+      if (route.state && this.searchActiveRoutes(route.state, screenName)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
