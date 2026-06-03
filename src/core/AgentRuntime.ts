@@ -781,13 +781,55 @@ ${screen.elementsText}
     if (!tool) {
       return `❌ Unknown tool: ${name}`;
     }
+    return this.executeToolSafely(tool, args, name);
+  }
+
+  /**
+   * Execute a tool with global error safety.
+   * Overrides ErrorUtils.setGlobalHandler during execution to catch
+   * ALL errors (JS, native-to-JS, Fabric JSI) and prevent app crashes.
+   * This is the same pattern used by Sentry/Bugsnag crash SDKs.
+   */
+  private async executeToolSafely(
+    tool: { execute: (args: any) => Promise<string> },
+    args: any,
+    toolName: string
+  ): Promise<string> {
+    // Get the global ErrorUtils (available in all RN architectures)
+    const ErrorUtils = (global as any).ErrorUtils;
+    const originalHandler = ErrorUtils?.getGlobalHandler?.();
+    const errorRef: { error: Error | null } = { error: null };
+
+    // Install safety handler — catch errors instead of crashing
+    if (ErrorUtils?.setGlobalHandler) {
+      ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+        errorRef.error = error;
+        logger.warn(
+          'AgentRuntime',
+          `🛡️ Caught ${isFatal ? 'FATAL' : 'non-fatal'} error during "${toolName}": ${error.message}`
+        );
+        // Don't re-throw — suppress the crash
+      });
+    }
+
     try {
       const result = await tool.execute(args);
-      logger.info('AgentRuntime', `Voice tool executed: ${name} → ${result}`);
+      // Brief settle window for async side-effects (useEffect, native callbacks)
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      if (errorRef.error) {
+        logger.warn('AgentRuntime', `🛡️ Tool "${toolName}" succeeded but caused a side-effect error: ${errorRef.error.message}`);
+        return `${result} (⚠️ a background error was safely caught: ${errorRef.error.message})`;
+      }
       return result;
     } catch (error: any) {
-      logger.error('AgentRuntime', `Voice tool error: ${name} — ${error.message}`);
-      return `❌ Tool "${name}" failed: ${error.message}`;
+      logger.error('AgentRuntime', `Tool "${toolName}" threw: ${error.message}`);
+      return `❌ Tool "${toolName}" failed: ${error.message}`;
+    } finally {
+      // Restore original handler
+      if (ErrorUtils?.setGlobalHandler && originalHandler) {
+        ErrorUtils.setGlobalHandler(originalHandler);
+      }
     }
   }
 
@@ -1017,7 +1059,7 @@ ${screen.elementsText}
           for (const tc of response.toolCalls) {
             const tool = this.tools.get(tc.name);
             if (tool) {
-              const result = await tool.execute(tc.args);
+              const result = await this.executeToolSafely(tool, tc.args, tc.name);
               if (tc.name === 'done') {
                 message = result;
               } else if (tc.name === 'query_knowledge') {
@@ -1164,7 +1206,7 @@ ${screen.elementsText}
 
         let output: string;
         if (tool) {
-          output = await tool.execute(toolCall.args);
+          output = await this.executeToolSafely(tool, toolCall.args, toolCall.name);
         } else {
           output = `❌ Unknown tool: ${toolCall.name}`;
         }
