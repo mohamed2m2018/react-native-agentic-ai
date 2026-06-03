@@ -428,11 +428,21 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     const elementType = getElementType(node);
     const shouldInclude = !isInsideInteractive && (hasWhitelist ? isWhitelisted : (elementType && !isDisabled(node)));
 
-    // Process children — if this node IS interactive, children won't register as separate interactives
+    // Process children — nested interactives are only suppressed when they
+    // share the SAME onPress handler as their parent (wrapper dedup).
+    // Genuinely separate nested actions (e.g. "+" button inside a card)
+    // have their own distinct handler and are registered normally.
     let childrenText = '';
     let currentChild = node.child;
+    const parentOnPress = shouldInclude ? props.onPress : null;
     while (currentChild) {
-      childrenText += processNode(currentChild, depth + 1, isInsideInteractive || !!shouldInclude);
+      const childIsWrapper = shouldInclude && parentOnPress &&
+        currentChild.memoizedProps?.onPress === parentOnPress;
+      childrenText += processNode(
+        currentChild,
+        depth + 1,
+        isInsideInteractive || !!childIsWrapper,
+      );
       currentChild = currentChild.sibling;
     }
 
