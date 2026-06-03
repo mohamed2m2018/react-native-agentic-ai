@@ -205,7 +205,12 @@ function extractDeepTextContent(fiber: any, maxDepth: number = 10): string {
     // Text node — extract content
     if (childName && TEXT_TYPES.has(childName)) {
       const text = extractRawText(childProps.children);
-      if (text) parts.push(text);
+      // Filter out icon font glyphs (Private Use Area unicode chars U+E000–U+F8FF)
+      // Icon libraries (Ionicons, MaterialIcons, etc.) render as <Text> with
+      // single-char glyphs that look blank in output but block icon name fallback
+      if (text && !isIconGlyph(text)) {
+        parts.push(text);
+      }
     } else {
       // Recurse into ALL children, including nested interactives
       const nestedText = extractDeepTextContent(child, maxDepth - 1);
@@ -216,6 +221,22 @@ function extractDeepTextContent(fiber: any, maxDepth: number = 10): string {
   }
 
   return parts.join(' ').trim();
+}
+
+/**
+ * Check if a string is an icon font glyph character.
+ * Icon fonts use Unicode Private Use Area (PUA) characters:
+ * - Basic PUA: U+E000–U+F8FF
+ * - Supplementary PUA-A: U+F0000–U+FFFFD
+ * - Supplementary PUA-B: U+100000–U+10FFFD
+ */
+function isIconGlyph(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0 || trimmed.length > 2) return false; // Glyphs are 1-2 chars (surrogate pairs)
+  const code = trimmed.codePointAt(0) || 0;
+  return (code >= 0xE000 && code <= 0xF8FF) ||
+         (code >= 0xF0000 && code <= 0xFFFFF) ||
+         (code >= 0x100000 && code <= 0x10FFFF);
 }
 
 /**
