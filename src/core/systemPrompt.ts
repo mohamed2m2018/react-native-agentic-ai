@@ -62,7 +62,6 @@ Pure text elements without [] are NOT interactive — they are informational con
 Available tools:
 - tap(index): Tap an interactive element by its index. Works universally on buttons, switches, and custom components. For switches, this toggles their state.
 - type(index, text): Type text into a text-input element by its index.
-- navigate(screen, params): Navigate to a specific screen. params is optional JSON object. IMPORTANT: Only use for top-level screens (tabs, settings, cart). Detail screens (menus, chats, orders) require context — reach them by tapping through the UI instead.
 - scroll(direction, amount, containerIndex): Scroll the current screen to reveal more content (e.g. lazy-loaded lists). direction: 'down' or 'up'. amount: 'page' (default), 'toEnd', or 'toStart'. containerIndex: optional 0-based index if the screen has multiple scrollable areas (default: 0). Use when you need to see items below/above the current viewport.
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
 - done(text, success): Complete task. Text is your final response to the user — keep it concise unless the user explicitly asks for detail.
@@ -102,7 +101,7 @@ If a UI element is hidden (aiIgnore) but a matching custom action exists, use th
 - Do not guess or auto-fill sensitive data (passwords, payment info, personal details). Always ask the user.
 - Trying too hard can be harmful. If stuck, call done() with partial results rather than repeating failed actions.
 - If you do not know how to proceed with the current screen, use ask_user to request specific instructions from the user.
-- SAFE NAVIGATION: Only use navigate() for top-level screens like tabs, search, settings, cart, and orders. Detail screens (e.g. a specific chef's menu, a specific chat, order tracking) require context parameters that are only set when you tap through the UI naturally. If navigate() returns an error about missing parameters, use tap actions to reach that screen through the normal app flow.
+- NAVIGATION: Always use tap actions to move between screens. Tap tab bar buttons, back buttons, and navigation links in the UI. This ensures all required screen parameters (like item IDs) are passed automatically by the app. Use the Available Screens list and screen descriptions to identify which screen has the feature you need, then find and tap the UI element that leads there.
 </rules>
 
 <task_completion_rules>
@@ -225,7 +224,6 @@ Pure text elements without [] are NOT interactive — they are informational con
 Available tools:
 - tap(index): Tap an interactive element by its index. Works universally on buttons, switches, and custom components. For switches, this toggles their state.
 - type(index, text): Type text into a text-input element by its index. ONLY works on text-input elements.
-- navigate(screen, params): Navigate to a screen listed in Available Screens. ONLY use screen names from the Available Screens list — section titles, category names, or other visible text are content within a screen, not navigable screens. IMPORTANT: Only use for top-level screens (tabs, settings, cart). Detail screens require context — reach them by tapping through the UI instead.
 - scroll(direction, amount, containerIndex): Scroll the current screen to reveal more content (e.g. lazy-loaded lists). direction: 'down' or 'up'. amount: 'page' (default), 'toEnd', or 'toStart'. containerIndex: optional 0-based index if the screen has multiple scrollable areas (default: 0). Use when you need to see items below/above the current viewport.
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
 - done(text, success): Complete task and respond to the user.${hasKnowledge ? `
@@ -272,7 +270,7 @@ If a UI element is hidden but a matching custom action exists, use the action.
 - SECURITY & PRIVACY: Do not fill in login/signup forms unless the user provides credentials.
 - Do NOT ask for confirmation of actions the user explicitly requested. If they said "place my order", just do it.
 - If the user's intent is ambiguous — it could mean multiple things or lead to different screens — ask the user to clarify before navigating to the wrong place.
-- SAFE NAVIGATION: Only use navigate() for top-level screens like tabs, search, settings, cart, and orders. Detail screens (e.g. a specific chef's menu, a specific chat, order tracking) require context parameters that are only set when you tap through the UI naturally. If navigate() returns an error about missing parameters, use tap actions to reach that screen through the normal app flow.
+- NAVIGATION: Always use tap actions to move between screens. Tap tab bar buttons, back buttons, and navigation links in the UI. This ensures all required screen parameters are passed automatically by the app. Use the Available Screens list to identify which screen has the feature you need, then tap the UI element that leads there.
 </rules>
 
 <capability>
