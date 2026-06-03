@@ -30,7 +30,6 @@ import { AudioOutputService } from '../services/AudioOutputService';
 import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
 
 // ─── Context ───────────────────────────────────────────────────
-console.log('🚀 AIAgent.tsx MODULE LOADED');
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -199,7 +198,6 @@ export function AIAgent({
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
-    console.log('[AIAgent] DEBUG PROP =', debug, '— enabling logger');
     logger.setEnabled(debug);
     if (debug) {
       logger.info('AIAgent', '🔧 Debug logging enabled');
@@ -272,8 +270,6 @@ export function AIAgent({
     knowledgeMaxTokens,
     enableUIControl,
     screenMap: useScreenMap ? screenMap : undefined,
-    // TRACE: verify screenMap reaches the config
-    ...((() => { console.log('[TRACE-MAP] 2️⃣ AIAgent.tsx config: screenMap exists:', !!screenMap, 'screens:', screenMap ? Object.keys((screenMap as any).screens || {}).length : 0); return {}; })()),
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {

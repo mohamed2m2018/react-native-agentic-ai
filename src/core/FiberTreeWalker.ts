@@ -272,11 +272,9 @@ function extractIconName(fiber: any, maxDepth: number = 5): string {
       return `icon:${childProps.name}`;
     }
 
-    // Recurse into non-interactive children
-    if (!getElementType(child)) {
-      const found = extractIconName(child, maxDepth - 1);
-      if (found) return found;
-    }
+    // Recurse into ALL children (pierce through nested interactives)
+    const found = extractIconName(child, maxDepth - 1);
+    if (found) return found;
 
     child = child.sibling;
   }

@@ -52,7 +52,7 @@ export class AgentRuntime {
     this.config = config;
     this.rootRef = rootRef;
     this.navRef = navRef;
-    console.log('[TRACE-MAP] 3️⃣ AgentRuntime constructor: config.screenMap exists:', !!config.screenMap, 'type:', typeof config.screenMap);
+    logger.debug('AgentRuntime', 'constructor: config.screenMap exists:', !!config.screenMap);
 
     // Initialize knowledge base service if configured
     if (config.knowledgeBase) {
@@ -472,7 +472,7 @@ export class AgentRuntime {
       const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
       if (!state) return [];
       const names = this.collectRouteNames(state);
-      console.log('[AIAgent] DEBUG Available routes:', names.join(', '));
+      logger.debug('AgentRuntime', 'Available routes:', names.join(', '));
       return names;
     } catch {
       return [];
@@ -652,17 +652,16 @@ export class AgentRuntime {
    */
   public getScreenContext(): string {
     try {
-      console.log('[DEBUG-MAP] getScreenContext called');
-      console.log('[DEBUG-MAP] config.screenMap exists:', !!this.config.screenMap);
+      logger.debug('AgentRuntime', 'getScreenContext called');
+      logger.debug('AgentRuntime', 'config.screenMap exists:', !!this.config.screenMap);
       if (this.config.screenMap) {
-        console.log('[DEBUG-MAP] screenMap keys:', Object.keys(this.config.screenMap));
-        console.log('[DEBUG-MAP] screenMap.screens count:', Object.keys(this.config.screenMap.screens).length);
-        console.log('[DEBUG-MAP] screenMap.chains count:', this.config.screenMap.chains?.length);
+        logger.debug('AgentRuntime', 'screenMap.screens count:', Object.keys(this.config.screenMap.screens).length);
+        logger.debug('AgentRuntime', 'screenMap.chains count:', this.config.screenMap.chains?.length);
       }
 
       const walkResult = walkFiberTree(this.rootRef, this.getWalkConfig());
       const screenName = this.getCurrentScreenName();
-      console.log('[DEBUG-MAP] current screen:', screenName);
+      logger.debug('AgentRuntime', 'current screen:', screenName);
 
       const screen = dehydrateScreen(
         screenName,
@@ -672,23 +671,23 @@ export class AgentRuntime {
       );
 
       const routeNames = this.getRouteNames();
-      console.log('[DEBUG-MAP] routeNames:', routeNames);
+      logger.debug('AgentRuntime', 'routeNames:', routeNames);
       let availableScreensText: string;
       let appMapText = '';
 
       if (this.config.screenMap) {
         const map = this.config.screenMap;
-        console.log('[DEBUG-MAP] USING SCREEN MAP - enriching context');
+        logger.debug('AgentRuntime', 'USING SCREEN MAP - enriching context');
 
         const screenLines = routeNames.map(name => {
           const entry = map.screens[name];
           if (entry) {
             const title = entry.title ? ` (${entry.title})` : '';
             const line = `- ${name}${title}: ${entry.description}`;
-            console.log('[DEBUG-MAP] matched:', line);
+            logger.debug('AgentRuntime', 'matched:', line);
             return line;
           }
-          console.log('[DEBUG-MAP] NO MATCH for route:', name);
+          logger.debug('AgentRuntime', 'NO MATCH for route:', name);
           return `- ${name}`;
         });
         availableScreensText = `Available Screens:\n${screenLines.join('\n')}`;
@@ -696,12 +695,12 @@ export class AgentRuntime {
         if (map.chains && map.chains.length > 0) {
           const chainLines = map.chains.map(chain => `  ${chain.join(' → ')}`);
           appMapText = `\nNavigation Chains:\n${chainLines.join('\n')}`;
-          console.log('[DEBUG-MAP] chains:', chainLines.length);
+          logger.debug('AgentRuntime', 'chains:', chainLines.length);
         }
 
         this.detectStaleMap(routeNames, map);
       } else {
-        console.log('[DEBUG-MAP] NO SCREEN MAP - using flat list');
+        logger.debug('AgentRuntime', 'NO SCREEN MAP - using flat list');
         availableScreensText = `Available Screens: ${routeNames.join(', ')}`;
       }
 
@@ -711,10 +710,10 @@ ${availableScreensText}${appMapText}
 
 ${screen.elementsText}
 </screen_update>`;
-      console.log('[DEBUG-MAP] FULL CONTEXT:', context.substring(0, 500));
+      logger.debug('AgentRuntime', 'FULL CONTEXT:', context.substring(0, 500));
       return context;
     } catch (error: any) {
-      console.log('[DEBUG-MAP] ERROR:', error.message);
+      logger.debug('AgentRuntime', 'getScreenContext ERROR:', error.message);
       logger.error('AgentRuntime', `getScreenContext failed: ${error.message}`);
       return '<screen_update>Error reading screen</screen_update>';
     }
@@ -910,7 +909,7 @@ ${screen.elementsText}
     prompt += '</agent_history>\n\n';
 
     // 4. <screen_state> — dehydrated screen content + screen map enrichment
-    console.log('[TRACE-MAP] 4️⃣ assembleUserPrompt: this.config.screenMap exists:', !!this.config.screenMap, 'type:', typeof this.config.screenMap, 'value:', JSON.stringify(this.config.screenMap)?.substring(0, 200));
+    logger.debug('AgentRuntime', 'assembleUserPrompt: screenMap exists:', !!this.config.screenMap);
     prompt += '<screen_state>\n';
     prompt += `Current Screen: ${screenName}\n`;
 
@@ -918,7 +917,7 @@ ${screen.elementsText}
     if (this.config.screenMap) {
       const map = this.config.screenMap;
       const routeNames = this.getRouteNames();
-      console.log('[DEBUG-MAP] ENRICHING prompt with screenMap for screen:', screenName);
+      logger.debug('AgentRuntime', 'ENRICHING prompt with screenMap for screen:', screenName);
 
       // Build enriched screen list with descriptions
       const screenLines = routeNames.map(name => {
@@ -1103,8 +1102,8 @@ ${screen.elementsText}
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
-        console.log('[DEBUG-PROMPT] System prompt length:', systemPrompt.length);
-        console.log('[DEBUG-PROMPT] User context message:\n', contextMessage);
+        logger.debug('AgentRuntime', 'System prompt length:', systemPrompt.length);
+        logger.debug('AgentRuntime', 'User context message:', contextMessage.substring(0, 300));
 
         const response = await this.provider.generateContent(
           systemPrompt,
