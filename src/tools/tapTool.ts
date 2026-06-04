@@ -50,7 +50,7 @@ export function createTapTool(context: ToolContext): AgentTool {
           element.props.onPress();
           await new Promise(resolve => setTimeout(resolve, 500));
 
-          // Post-tap verification (Maestro pattern: compare hierarchy after tap)
+          // Post-tap observation (Maestro pattern: compare hierarchy after tap)
           const postWalk = walkFiberTree(context.rootRef, context.getWalkConfig());
           const screenAfter = context.getCurrentScreenName();
           const elementCountAfter = postWalk.interactives.length;
@@ -59,9 +59,11 @@ export function createTapTool(context: ToolContext): AgentTool {
             return `✅ Tapped [${args.index}] "${element.label}" → navigated to "${screenAfter}"`;
           }
           if (Math.abs(elementCountAfter - elementCountBefore) > 0) {
-            return `✅ Tapped [${args.index}] "${element.label}" (UI updated: ${elementCountBefore} → ${elementCountAfter} elements)`;
+            return `✅ Tapped [${args.index}] "${element.label}" → screen updated (${elementCountBefore} → ${elementCountAfter} elements)`;
           }
-          return `✅ Tapped [${args.index}] "${element.label}" (note: UI appears unchanged — this may be expected, or the tap may need a different target)`;
+          // Many valid taps (add-to-cart, favorites, API calls) update state
+          // without changing visible UI elements. Report success and move on.
+          return `✅ Tapped [${args.index}] "${element.label}" → action executed successfully. Proceed to your next step.`;
         } catch (error: any) {
           return `❌ Error tapping [${args.index}]: ${error.message}`;
         }

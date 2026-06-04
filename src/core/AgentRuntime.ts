@@ -140,10 +140,10 @@ export class AgentRuntime {
     // navigate — navigate to a screen (supports React Navigation + Expo Router)
     this.tools.set('navigate', {
       name: 'navigate',
-      description: 'Navigate to a specific screen in the app.',
+      description: 'Navigate to a top-level screen by name. ONLY use this for top-level screens that do NOT require route params (e.g. Login, Settings, Cart, TabBar). NEVER use this for parameterized screens that require an ID or selection (e.g. DishDetail, SelectCategory, ProfileDetail, OrderDetails) — those screens will crash without required params. For parameterized screens, always navigate by TAPPING the relevant item in the parent screen instead.',
       parameters: {
-        screen: { type: 'string', description: 'Screen name or path to navigate to', required: true },
-        params: { type: 'string', description: 'Optional JSON params object', required: false },
+        screen: { type: 'string', description: 'Top-level screen name to navigate to (must not require route params)', required: true },
+        params: { type: 'string', description: 'Optional JSON params object for screens that accept them', required: false },
       },
       execute: async (args) => {
         // Expo Router path: use router.push()
@@ -471,11 +471,11 @@ export class AgentRuntime {
   private getToolStatusLabel(toolName: string, args: Record<string, any>): string {
     switch (toolName) {
       case 'tap':
-        return `Tapping element ${args.index ?? ''}...`;
+        return 'Tapping a button...';
       case 'type':
-        return `Typing into field...`;
+        return 'Typing into a field...';
       case 'navigate':
-        return `Navigating to ${args.screen || 'screen'}...`;
+        return `Navigating to ${args.screen || 'another screen'}...`;
       case 'done':
         return 'Wrapping up...';
       case 'ask_user':
@@ -485,13 +485,13 @@ export class AgentRuntime {
       case 'scroll':
         return `Scrolling ${args.direction || 'down'}...`;
       case 'wait':
-        return `Waiting for ${args.seconds || 2} seconds...`;
+        return 'Waiting for the screen to load...';
       case 'long_press':
-        return `Long-pressing element ${args.index ?? ''}...`;
+        return 'Long-pressing an element...';
       case 'adjust_slider':
         return `Adjusting slider to ${Math.round((args.value ?? 0) * 100)}%...`;
       case 'select_picker':
-        return `Selecting "${args.value || ''}" from picker...`;
+        return `Selecting "${args.value || ''}" from a dropdown...`;
       case 'set_date':
         return `Setting date to ${args.date || ''}...`;
       case 'dismiss_keyboard':
