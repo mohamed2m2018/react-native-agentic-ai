@@ -67,7 +67,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(ref);
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('pressable');
+      expect(result.interactives[0]!.type).toBe('pressable');
     });
 
     it('detects TouchableOpacity as pressable type', () => {
@@ -77,7 +77,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('pressable');
+      expect(result.interactives[0]!.type).toBe('pressable');
     });
 
     it('detects TextInput by component name', () => {
@@ -87,7 +87,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('text-input');
+      expect(result.interactives[0]!.type).toBe('text-input');
     });
 
     it('detects element with onChangeText prop as text-input', () => {
@@ -97,7 +97,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('text-input');
+      expect(result.interactives[0]!.type).toBe('text-input');
     });
 
     it('detects Switch by component name', () => {
@@ -107,7 +107,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('switch');
+      expect(result.interactives[0]!.type).toBe('switch');
     });
 
     it('detects switch by accessibilityRole', () => {
@@ -120,7 +120,7 @@ describe('FiberTreeWalker', () => {
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(1);
-      expect(result.interactives[0].type).toBe('switch');
+      expect(result.interactives[0]!.type).toBe('switch');
     });
   });
 
@@ -132,7 +132,7 @@ describe('FiberTreeWalker', () => {
 
       const result = walkFiberTree(createFiberRoot(root));
 
-      expect(result.interactives[0].label).toBe('Add to Cart');
+      expect(result.interactives[0]!.label).toBe('Add to Cart');
     });
 
     it('prefers accessibilityLabel over text content', () => {
@@ -145,7 +145,7 @@ describe('FiberTreeWalker', () => {
 
       const result = walkFiberTree(createFiberRoot(root));
 
-      expect(result.interactives[0].label).toBe('Submit Order');
+      expect(result.interactives[0]!.label).toBe('Submit Order');
     });
 
     it('falls back to placeholder for TextInput', () => {
@@ -157,7 +157,7 @@ describe('FiberTreeWalker', () => {
 
       const result = walkFiberTree(createFiberRoot(root));
 
-      expect(result.interactives[0].label).toBe('Enter email...');
+      expect(result.interactives[0]!.label).toBe('Enter email...');
     });
 
     it('falls back to testID when no text or label available', () => {
@@ -169,7 +169,7 @@ describe('FiberTreeWalker', () => {
 
       const result = walkFiberTree(createFiberRoot(root));
 
-      expect(result.interactives[0].label).toBe('submit-button');
+      expect(result.interactives[0]!.label).toBe('submit-button');
     });
   });
 

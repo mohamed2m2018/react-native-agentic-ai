@@ -155,8 +155,8 @@ describe('GeminiProvider', () => {
       const result = await provider.generateContent('sys', 'msg', sampleTools, []);
 
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.toolCalls[0].name).toBe('tap');
-      expect(result.toolCalls[0].args).toEqual({ index: 3 });
+      expect(result.toolCalls[0]!.name).toBe('tap');
+      expect(result.toolCalls[0]!.args).toEqual({ index: 3 });
 
       expect(result.reasoning.plan).toBe('Tap the pizza button');
       expect(result.reasoning.previousGoalEval).toBe('Success');
@@ -169,8 +169,8 @@ describe('GeminiProvider', () => {
       const provider = createProvider();
       const result = await provider.generateContent('sys', 'msg', sampleTools, []);
 
-      expect(result.toolCalls[0].name).toBe('done');
-      expect(result.toolCalls[0].args.success).toBe(false);
+      expect(result.toolCalls[0]!.name).toBe('done');
+      expect(result.toolCalls[0]!.args.success).toBe(false);
     });
 
     it('falls back to done when no function call in response', async () => {
@@ -181,7 +181,7 @@ describe('GeminiProvider', () => {
       const provider = createProvider();
       const result = await provider.generateContent('sys', 'msg', sampleTools, []);
 
-      expect(result.toolCalls[0].name).toBe('done');
+      expect(result.toolCalls[0]!.name).toBe('done');
       expect(result.text).toBe('Some text response');
     });
   });
