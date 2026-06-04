@@ -35,6 +35,9 @@ const PRESSABLE_TYPES = new Set([
 
 const TEXT_INPUT_TYPES = new Set(['TextInput', 'RCTSinglelineTextInputView', 'RCTMultilineTextInputView']);
 const SWITCH_TYPES = new Set(['Switch', 'RCTSwitch']);
+const SLIDER_TYPES = new Set(['Slider', 'RNCSlider', 'RCTSlider']);
+const PICKER_TYPES = new Set(['Picker', 'RNCPicker', 'RNPickerSelect', 'DropDownPicker', 'SelectDropdown']);
+const DATE_PICKER_TYPES = new Set(['DateTimePicker', 'RNDateTimePicker', 'DatePicker', 'RNDatePicker']);
 const TEXT_TYPES = new Set(['Text', 'RCTText']);
 
 // Media component types for Component-Context Media Inference
@@ -155,10 +158,14 @@ function getElementType(fiber: any): ElementType | null {
   if (name && PRESSABLE_TYPES.has(name)) return 'pressable';
   if (name && TEXT_INPUT_TYPES.has(name)) return 'text-input';
   if (name && SWITCH_TYPES.has(name)) return 'switch';
+  if (name && SLIDER_TYPES.has(name)) return 'slider';
+  if (name && PICKER_TYPES.has(name)) return 'picker';
+  if (name && DATE_PICKER_TYPES.has(name)) return 'date-picker';
 
   // Check by accessibilityRole (covers custom components with proper ARIA)
   const role = props.accessibilityRole || props.role;
   if (role === 'switch') return 'switch';
+  if (role === 'adjustable') return 'slider';
   if (role === 'button' || role === 'link' || role === 'checkbox' || role === 'radio') {
     return 'pressable';
   }
@@ -169,7 +176,16 @@ function getElementType(fiber: any): ElementType | null {
   // TextInput detection by props
   if (props.onChangeText && typeof props.onChangeText === 'function') return 'text-input';
 
-  // Switch detection by props (custom switches with onValueChange)
+  // Slider detection by props (has both onValueChange AND min/max values)
+  if (props.onSlidingComplete && typeof props.onSlidingComplete === 'function') return 'slider';
+  if (props.onValueChange && typeof props.onValueChange === 'function' &&
+      (props.minimumValue !== undefined || props.maximumValue !== undefined)) return 'slider';
+
+  // DatePicker detection by props
+  if (props.onChange && typeof props.onChange === 'function' &&
+      (props.mode === 'date' || props.mode === 'time' || props.mode === 'datetime')) return 'date-picker';
+
+  // Switch detection by props (custom switches with onValueChange — no min/max)
   if (props.onValueChange && typeof props.onValueChange === 'function') return 'switch';
 
   return null;

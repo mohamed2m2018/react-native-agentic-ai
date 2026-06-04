@@ -12,7 +12,8 @@ export type AIProviderName = 'gemini' | 'openai';
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
 
-export type ElementType = 'pressable' | 'text-input' | 'switch' | 'scrollable';
+export type ElementType = 'pressable' | 'text-input' | 'switch' | 'scrollable'
+  | 'slider' | 'picker' | 'date-picker';
 
 export interface InteractiveElement {
   /** Unique index assigned during tree walk */
@@ -23,18 +24,16 @@ export interface InteractiveElement {
   label: string;
   /** Reference to the Fiber node for execution */
   fiberNode: any;
-  /** Key props snapshot */
-  props: {
-    onPress?: (...args: any[]) => void;
-    onChangeText?: (text: string) => void;
-    onValueChange?: (value: boolean) => void;
-    value?: string | boolean;
-    placeholder?: string;
-    checked?: boolean;
-    disabled?: boolean;
-    accessibilityLabel?: string;
-    accessibilityRole?: string;
-  };
+  /**
+   * Props snapshot from the fiber node.
+   * Record<string, any> because RN components have diverse props:
+   * - Pressable: onPress, onLongPress
+   * - Slider: onValueChange, onSlidingComplete, minimumValue, maximumValue
+   * - Picker: onValueChange, items, selectedValue
+   * - DatePicker: onChange, onDateChange, mode
+   * - Switch: onValueChange, value
+   */
+  props: Record<string, any>;
 }
 
 // ─── Dehydrated Screen State ──────────────────────────────────
