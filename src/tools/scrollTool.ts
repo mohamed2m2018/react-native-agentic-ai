@@ -37,7 +37,7 @@ export function createScrollTool(context: ToolContext): AgentTool {
     },
     execute: async (args) => {
       const screenName = context.getCurrentScreenName();
-      const containers = findScrollableContainers(context.rootRef, screenName);
+      const containers = findScrollableContainers(context.getRootRef(), screenName);
 
       if (containers.length === 0) {
         return `❌ No scrollable container found on screen "${screenName}". Content may still be loading — wait and try again.`;

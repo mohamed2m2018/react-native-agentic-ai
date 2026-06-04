@@ -16,7 +16,7 @@ const mockWalkFiberTree = walkFiberTree as jest.MockedFunction<typeof walkFiberT
 
 function createMockContext(): ToolContext {
   return {
-    rootRef: {},
+    getRootRef: () => ({}),
     getWalkConfig: () => ({}),
     getCurrentScreenName: () => 'TestScreen',
   };

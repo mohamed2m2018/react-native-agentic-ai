@@ -20,7 +20,7 @@ export function createLongPressTool(context: ToolContext): AgentTool {
       index: { type: 'number', description: 'The index of the element to long-press', required: true },
     },
     execute: async (args) => {
-      const { interactives: elements } = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const { interactives: elements } = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const element = elements.find(el => el.index === args.index);
       if (!element) {
         return `❌ Element with index ${args.index} not found. Available indexes: ${elements.map(e => e.index).join(', ')}`;

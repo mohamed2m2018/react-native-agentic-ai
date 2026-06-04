@@ -109,10 +109,10 @@ export class AgentRuntime {
   private registerBuiltInTools(): void {
     // ── Tool Context — shared dependencies for modular tools ──
     const toolContext: ToolContext = {
-      rootRef: this.rootRef,
+      getRootRef: () => this.rootRef,
       getWalkConfig: () => this.getWalkConfig(),
       getCurrentScreenName: () => this.getCurrentScreenName(),
-      navRef: this.navRef,
+      getNavRef: () => this.navRef,
       routerRef: this.config.router,
       getRouteNames: () => this.getRouteNames(),
       findScreenPath: (name: string) => this.findScreenPath(name),

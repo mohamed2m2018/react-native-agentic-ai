@@ -22,7 +22,7 @@ export function createTapTool(context: ToolContext): AgentTool {
       index: { type: 'number', description: 'The index of the element to tap', required: true },
     },
     execute: async (args) => {
-      const walkResult = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const walkResult = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const elements = walkResult.interactives;
       const element = elements.find(el => el.index === args.index);
       if (!element) {
@@ -51,7 +51,7 @@ export function createTapTool(context: ToolContext): AgentTool {
           await new Promise(resolve => setTimeout(resolve, 500));
 
           // Post-tap observation (Maestro pattern: compare hierarchy after tap)
-          const postWalk = walkFiberTree(context.rootRef, context.getWalkConfig());
+          const postWalk = walkFiberTree(context.getRootRef(), context.getWalkConfig());
           const screenAfter = context.getCurrentScreenName();
           const elementCountAfter = postWalk.interactives.length;
 

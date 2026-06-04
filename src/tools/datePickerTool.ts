@@ -19,7 +19,7 @@ export function createDatePickerTool(context: ToolContext): AgentTool {
       date: { type: 'string', description: 'Date in ISO 8601 format, e.g., "2025-03-25" or "2025-03-25T14:30:00"', required: true },
     },
     execute: async (args) => {
-      const { interactives: elements } = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const { interactives: elements } = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const element = elements.find(el => el.index === args.index);
       if (!element) {
         return `❌ Element with index ${args.index} not found.`;

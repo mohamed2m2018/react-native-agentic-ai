@@ -21,7 +21,7 @@ export function createSliderTool(context: ToolContext): AgentTool {
       value: { type: 'number', description: 'Target position from 0.0 (min) to 1.0 (max)', required: true },
     },
     execute: async (args) => {
-      const { interactives: elements } = walkFiberTree(context.rootRef, context.getWalkConfig());
+      const { interactives: elements } = walkFiberTree(context.getRootRef(), context.getWalkConfig());
       const element = elements.find(el => el.index === args.index);
       if (!element) {
         return `❌ Element with index ${args.index} not found.`;
