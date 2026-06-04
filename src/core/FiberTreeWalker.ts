@@ -48,6 +48,20 @@ const VIDEO_TYPES = new Set([
   'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer', 'VideoView',
 ]);
 
+// Overlay component names — these render ABOVE the active screen's subtree
+// (as siblings of the navigation container), so the screen-scoped walker misses them.
+// We detect these by name and walk them in a second pass.
+const OVERLAY_COMPONENT_NAMES = new Set([
+  // Toast libraries
+  'Toast', 'ToastContainer', 'ToastRender', 'FlashMessage', 'DropdownAlert',
+  'SnackBar', 'Snackbar', 'NotificationContainer',
+  // Dialog/Alert libraries
+  'Dialog', 'DialogContainer', 'AlertDialog',
+  // Modal/BottomSheet
+  'BottomSheet', 'ActionSheet', 'RBSheet', 'BottomSheetModal',
+  'Popup', 'PopupContainer', 'Tooltip',
+]);
+
 // Known RN internal component names to skip when walking up for context
 const RN_INTERNAL_NAMES = new Set([
   'View', 'RCTView', 'Pressable', 'TouchableOpacity', 'TouchableHighlight',
@@ -412,6 +426,71 @@ export interface WalkResult {
   interactives: InteractiveElement[];
 }
 
+// ─── Overlay Detection ─────────────────────────────────────────
+
+/**
+ * Scan the root fiber tree for visible overlay nodes (toasts, dialogs, modals)
+ * that render OUTSIDE the active screen's subtree.
+ *
+ * Toast/dialog libraries (react-native-alert-notification, react-native-flash-message, etc.)
+ * typically render their overlay as a SIBLING of the navigation container:
+ *   <Root>
+ *     {children}       ← navigation tree (contains screens)
+ *     <Toast ... />     ← overlay (outside screen subtree)
+ *   </Root>
+ *
+ * This function finds those overlay nodes so the main walker can include them.
+ */
+function findOverlayNodes(rootFiber: any, screenSubtree: any): any[] {
+  const overlays: any[] = [];
+
+  function scan(node: any): void {
+    if (!node) return;
+
+    // Skip the screen subtree itself (already walked by main pass)
+    if (node === screenSubtree) {
+      // Don't scan children, but DO scan siblings
+      if (node.sibling) scan(node.sibling);
+      return;
+    }
+
+    const name = getComponentName(node);
+    const props = node.memoizedProps || {};
+    const style = props.style || {};
+    // Flatten array styles (StyleSheet.flatten equivalent)
+    const flatStyle = Array.isArray(style)
+      ? Object.assign({}, ...style.filter(Boolean))
+      : style;
+
+    // Detection: known overlay component name
+    const isOverlayByName = name && OVERLAY_COMPONENT_NAMES.has(name);
+
+    // Detection: position absolute with content (likely a floating overlay)
+    const isOverlayByStyle = flatStyle.position === 'absolute' &&
+      (flatStyle.zIndex > 100 || flatStyle.elevation > 10);
+
+    if (isOverlayByName || isOverlayByStyle) {
+      // Only include if the overlay has visible content (not empty/hidden)
+      const hasChildren = !!node.child;
+      const isHidden = flatStyle.opacity === 0 || flatStyle.display === 'none';
+      if (hasChildren && !isHidden) {
+        logger.debug('FiberTreeWalker', `Found overlay: ${name || 'unnamed'} (byName=${isOverlayByName}, byStyle=${isOverlayByStyle})`);
+        overlays.push(node);
+        // Don't scan children of found overlays (the main walker will handle them)
+        if (node.sibling) scan(node.sibling);
+        return;
+      }
+    }
+
+    // Continue scanning children and siblings
+    if (node.child) scan(node.child);
+    if (node.sibling) scan(node.sibling);
+  }
+
+  scan(rootFiber);
+  return overlays;
+}
+
 // ─── Main Tree Walker ──────────────────────────────────────────
 
 /**
@@ -436,6 +515,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       logger.debug('FiberTreeWalker', `Screen "${config.screenName}" not found in Fiber tree — searching entire tree`);
     }
   }
+
+  // Collect overlay nodes (toasts, dialogs, modals) that render outside the screen subtree.
+  // These are siblings of the navigation container at the root fiber level.
+  const overlayNodes = config?.screenName ? findOverlayNodes(fiber, startNode) : [];
 
   const interactives: InteractiveElement[] = [];
   let currentIndex = 0;
@@ -586,6 +669,21 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   }
 
   let elementsText = processNode(startNode, 0);
+
+  // Second pass: walk overlay nodes (toasts, dialogs, modals)
+  // These render outside the screen subtree — detected by findOverlayNodes()
+  if (overlayNodes.length > 0) {
+    let overlayText = '';
+    for (const overlay of overlayNodes) {
+      const name = getComponentName(overlay);
+      overlayText += `\n--- ${name || 'Overlay'} ---\n`;
+      overlayText += processNode(overlay, 0);
+    }
+    if (overlayText.trim()) {
+      elementsText += '\n' + overlayText;
+      logger.info('FiberTreeWalker', `Included ${overlayNodes.length} overlay(s) in screen context`);
+    }
+  }
 
   // Clean up excessive blank lines
   elementsText = elementsText.replace(/\n{3,}/g, '\n\n');

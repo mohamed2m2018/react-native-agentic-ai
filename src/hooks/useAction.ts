@@ -25,6 +25,8 @@ export interface AgentContextValue {
   messages: AIMessage[];
   /** Clear the conversation history. */
   clearMessages: () => void;
+  /** Cancel the currently running task. */
+  cancel: () => void;
 }
 
 const DEFAULT_CONTEXT: AgentContextValue = {
@@ -35,6 +37,7 @@ const DEFAULT_CONTEXT: AgentContextValue = {
   lastResult: null,
   messages: [],
   clearMessages: () => {},
+  cancel: () => {},
 };
 
 export const AgentContext = createContext<AgentContextValue>(DEFAULT_CONTEXT);
@@ -132,5 +135,7 @@ export function useAI(options?: {
     messages: ctx.messages,
     /** Clear the conversation history. */
     clearMessages: ctx.clearMessages,
+    /** Cancel the currently running task. The current step will complete before stopping. */
+    cancel: ctx.cancel,
   };
 }

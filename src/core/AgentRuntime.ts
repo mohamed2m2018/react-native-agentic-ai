@@ -49,16 +49,19 @@ export class AgentRuntime {
   private actions: Map<string, ActionDefinition> = new Map();
   private history: AgentStep[] = [];
   private isRunning = false;
+  private isCancelRequested = false;
   private lastAskUserQuestion: string | null = null;
   private knowledgeService: KnowledgeBaseService | null = null;
   private uiControlOverride?: boolean;
 
   // ─── Task-scoped error suppression ──────────────────────────
-  // Installed once at execute() start, removed at execute() finally.
+  // Installed once at execute() start, removed after grace period.
   // Catches ALL async errors (useEffect, native callbacks, PagerView)
   // that would otherwise crash the host app during agent execution.
   private originalErrorHandler: ((error: Error, isFatal?: boolean) => void) | null = null;
   private lastSuppressedError: Error | null = null;
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private originalReportErrorsAsExceptions: boolean | undefined = undefined;
 
   constructor(
     provider: AIProvider,
@@ -673,6 +676,82 @@ ${screen.elementsText}
     }
     return this.executeToolSafely(tool, args, name);
   }
+  /**
+   * Start 3-layer error suppression for the agent task lifecycle.
+   *
+   * Layer 1 — ErrorUtils: Catches non-React async errors (setTimeout, fetch, native callbacks).
+   * Layer 2 — console.reportErrorsAsExceptions: React Native dev-mode flag. When false,
+   *           console.error calls don't trigger ExceptionsManager.handleException(),
+   *           preventing the red "Render Error" screen for errors that React surfaces
+   *           via console.error (useEffect, lifecycle, invariant violations).
+   * Layer 3 — Grace period (in _stopErrorSuppression): Keeps suppression active
+   *           for N ms after task completion, covering delayed useEffect effects.
+   *
+   * Same compound approach used by Sentry React Native SDK (ErrorUtils + ExceptionsManager override).
+   */
+  private _startErrorSuppression(): void {
+    // Cancel any pending grace timer from a previous task
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
+
+    // Layer 1: ErrorUtils global handler
+    const ErrorUtils = (global as any).ErrorUtils;
+    if (ErrorUtils?.setGlobalHandler) {
+      this.originalErrorHandler = ErrorUtils.getGlobalHandler?.() ?? null;
+      this.lastSuppressedError = null;
+      ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
+        this.lastSuppressedError = error;
+        logger.warn(
+          'AgentRuntime',
+          `🛡️ Suppressed ${isFatal ? 'FATAL' : 'non-fatal'} error during agent task: ${error.message}`
+        );
+        // Don't re-throw — suppress the crash entirely.
+      });
+    }
+
+    // Layer 2: Suppress dev-mode red screen
+    // In RN dev mode, useEffect errors trigger console.error → ExceptionsManager → red screen.
+    // This flag is the official RN mechanism to disable that pipeline.
+    const consoleAny = console as any;
+    if (consoleAny.reportErrorsAsExceptions !== undefined) {
+      this.originalReportErrorsAsExceptions = consoleAny.reportErrorsAsExceptions;
+      consoleAny.reportErrorsAsExceptions = false;
+    }
+  }
+
+  /**
+   * Stop error suppression after a grace period.
+   * The grace period covers delayed React side-effects (useEffect, PagerView onPageSelected,
+   * scrollToIndex) that can fire AFTER execute() returns.
+   */
+  private _stopErrorSuppression(gracePeriodMs: number = 0): void {
+    const restore = () => {
+      // Restore Layer 1: ErrorUtils
+      const ErrorUtils = (global as any).ErrorUtils;
+      if (ErrorUtils?.setGlobalHandler && this.originalErrorHandler) {
+        ErrorUtils.setGlobalHandler(this.originalErrorHandler);
+        this.originalErrorHandler = null;
+      }
+      this.lastSuppressedError = null;
+
+      // Restore Layer 2: console.reportErrorsAsExceptions
+      const consoleAny = console as any;
+      if (this.originalReportErrorsAsExceptions !== undefined) {
+        consoleAny.reportErrorsAsExceptions = this.originalReportErrorsAsExceptions;
+        this.originalReportErrorsAsExceptions = undefined;
+      }
+
+      this.graceTimer = null;
+    };
+
+    if (gracePeriodMs > 0) {
+      this.graceTimer = setTimeout(restore, gracePeriodMs);
+    } else {
+      restore();
+    }
+  }
 
   /**
    * Execute a tool with safety checks.
@@ -911,6 +990,7 @@ ${screen.elementsText}
     }
 
     this.isRunning = true;
+    this.isCancelRequested = false;
     this.history = [];
     this.observations = [];
     this.lastScreenName = '';
@@ -938,27 +1018,8 @@ ${screen.elementsText}
     await this.config.onBeforeTask?.();
 
     try {
-      // ── Task-scoped error suppression ──────────────────────────
-      // Install global error handler for the ENTIRE task lifecycle.
-      // This catches ALL async errors (useEffect, native callbacks,
-      // PagerView onPageSelected, scrollToIndex) — not just errors
-      // during direct tool execution.
-      // Pattern: Same as Sentry/Bugsnag — intercept ErrorUtils globally.
-      const ErrorUtils = (global as any).ErrorUtils;
-      if (ErrorUtils?.setGlobalHandler) {
-        this.originalErrorHandler = ErrorUtils.getGlobalHandler?.() ?? null;
-        this.lastSuppressedError = null;
-        ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
-          this.lastSuppressedError = error;
-          logger.warn(
-            'AgentRuntime',
-            `🛡️ Suppressed ${isFatal ? 'FATAL' : 'non-fatal'} error during agent task: ${error.message}`
-          );
-          // Don't re-throw — suppress the crash entirely.
-          // The error message will be included in the next tool result
-          // so the AI knows something went wrong and can adjust.
-        });
-      }
+      // ── Start error suppression (3 layers) ──────────────────
+      this._startErrorSuppression();
 
       // ─── Knowledge-only fast path ─────────────────────────────────
       // Skip fiber walk, dehydration, screenshots, and multi-step loop.
@@ -1038,6 +1099,18 @@ ${screen.elementsText}
 
       // ─── Full agent loop (UI control enabled) ─────────────────────
       for (let step = 0; step < maxSteps; step++) {
+        // ── Cancel check ──
+        if (this.isCancelRequested) {
+          logger.info('AgentRuntime', `Task cancelled by user at step ${step + 1}`);
+          const cancelResult: ExecutionResult = {
+            success: false,
+            message: 'Task was cancelled.',
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          await this.config.onAfterTask?.(cancelResult);
+          return cancelResult;
+        }
         logger.info('AgentRuntime', `===== Step ${step + 1}/${maxSteps} =====`);
 
         // Lifecycle: onBeforeStep
@@ -1213,16 +1286,10 @@ ${screen.elementsText}
       return result;
     } finally {
       this.isRunning = false;
-      // ── Restore original error handler ────────────────────────
-      // Only now — after the entire task is done — do we remove
-      // the safety net. This ensures the handler covers ALL async
-      // side-effects from every tool call in the task.
-      const ErrorUtils = (global as any).ErrorUtils;
-      if (ErrorUtils?.setGlobalHandler && this.originalErrorHandler) {
-        ErrorUtils.setGlobalHandler(this.originalErrorHandler);
-        this.originalErrorHandler = null;
-      }
-      this.lastSuppressedError = null;
+      // ── Grace period: keep error suppression for delayed side-effects ──
+      // useEffect callbacks, PagerView onPageSelected, scrollToIndex, etc.
+      // can fire AFTER execute() returns. Keep suppression active for 10s.
+      this._stopErrorSuppression(10000);
     }
   }
 
@@ -1235,5 +1302,17 @@ ${screen.elementsText}
   /** Check if agent is currently executing */
   getIsRunning(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Cancel the currently running task.
+   * The agent loop checks this flag at the start of each step,
+   * so the current step will complete before the task stops.
+   */
+  cancel(): void {
+    if (this.isRunning) {
+      this.isCancelRequested = true;
+      logger.info('AgentRuntime', 'Cancel requested — will stop after current step completes');
+    }
   }
 }
