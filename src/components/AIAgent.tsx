@@ -147,6 +147,16 @@ interface AIAgentProps {
    * Gives the AI knowledge of all screens, their content, and navigation chains.
    */
   screenMap?: ScreenMap;
+  /**
+   * Maximum total tokens (prompt + completion) allowed per task.
+   * The agent loop auto-stops when this budget is exceeded.
+   */
+  maxTokenBudget?: number;
+  /**
+   * Maximum estimated cost (USD) allowed per task.
+   * The agent loop auto-stops when this budget is exceeded.
+   */
+  maxCostUSD?: number;
 
   /**
    * Whether to include the screen map in the AI prompt.
@@ -196,6 +206,8 @@ export function AIAgent({
   theme,
   screenMap,
   useScreenMap = true,
+  maxTokenBudget,
+  maxCostUSD,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -272,6 +284,8 @@ export function AIAgent({
     knowledgeMaxTokens,
     enableUIControl,
     screenMap: useScreenMap ? screenMap : undefined,
+    maxTokenBudget,
+    maxCostUSD,
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
@@ -289,6 +303,7 @@ export function AIAgent({
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
     knowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
+    maxTokenBudget, maxCostUSD,
   ]);
 
   const provider = useMemo(

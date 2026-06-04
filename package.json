@@ -43,9 +43,10 @@
     "example": "yarn workspace @mobileai/react-native-example",
     "clean": "del-cli lib",
     "prepare": "bob build && rm -rf lib/module/cli lib/typescript/src/cli",
-    "typecheck": "tsc",
+    "typecheck": "tsc -p tsconfig.build.json",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "test": "jest",
+    "test:coverage": "jest --coverage",
     "publish:dual": "bash scripts/publish-dual.sh",
     "publish:dual:dry": "bash scripts/publish-dual.sh --dry-run",
     "generate-map": "ts-node src/cli/generate-map.ts"
@@ -168,6 +169,12 @@
     "modulePathIgnorePatterns": [
       "<rootDir>/example-react-navigation/node_modules",
       "<rootDir>/lib/"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.{ts,tsx}",
+      "!src/**/*.d.ts",
+      "!src/__tests__/**",
+      "!src/index.ts"
     ]
   },
   "create-react-native-library": {

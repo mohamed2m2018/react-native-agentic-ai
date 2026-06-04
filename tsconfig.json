@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "rootDir": ".",
+    "types": ["jest", "react", "react-native"],
     "paths": {
       "@mobileai/react-native": [
         "./src/index"
@@ -35,9 +36,6 @@
   },
   "exclude": [
     "lib",
-    "**/__tests__",
-    "**/*.test.ts",
-    "**/*.test.tsx",
     "example-react-navigation",
     "example-expo-router",
     "src/cli"

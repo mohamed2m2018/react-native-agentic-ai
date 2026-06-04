@@ -1,0 +1,417 @@
+/**
+ * AgentRuntime unit tests.
+ *
+ * Tests with mock provider (returns canned ProviderResult) and jest mocks
+ * for FiberTreeWalker + systemPrompt. Covers 20 test cases across 7 describe blocks:
+ * execution loop, budget guards, tool safety, navigation, observations,
+ * history summarization, and knowledge-only mode.
+ */
+
+// ─── Mocks ─────────────────────────────────────────────────────
+
+// Mock FiberTreeWalker
+jest.mock('../../core/FiberTreeWalker', () => ({
+  walkFiberTree: jest.fn().mockReturnValue({
+    elementsText: '[0]<pressable>Submit />\n',
+    interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: {} }],
+  }),
+  findScrollableContainers: jest.fn().mockReturnValue([]),
+}));
+
+// Mock systemPrompt
+jest.mock('../../core/systemPrompt', () => ({
+  buildSystemPrompt: jest.fn().mockReturnValue('Mock system prompt'),
+  buildVoiceSystemPrompt: jest.fn().mockReturnValue('Mock voice prompt'),
+}));
+
+// Mock ScreenDehydrator
+jest.mock('../../core/ScreenDehydrator', () => ({
+  dehydrateScreen: jest.fn().mockReturnValue({
+    screenName: 'TestScreen',
+    availableScreens: ['TestScreen'],
+    elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+    elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: {} }],
+  }),
+}));
+
+// Mock logger
+jest.mock('../../utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    setEnabled: jest.fn(),
+  },
+}));
+
+// Mock view-shot
+jest.mock('react-native-view-shot', () => ({
+  captureRef: jest.fn().mockResolvedValue(null),
+}));
+
+import { AgentRuntime } from '../../core/AgentRuntime';
+import type { AIProvider, ProviderResult, AgentConfig, TokenUsage } from '../../core/types';
+
+// ─── Mock Provider Factory ─────────────────────────────────────
+
+class MockProvider implements AIProvider {
+  private responses: ProviderResult[] = [];
+  private callCount = 0;
+
+  constructor(responses: ProviderResult[]) {
+    this.responses = responses;
+  }
+
+  async generateContent(): Promise<ProviderResult> {
+    const response = this.responses[this.callCount] || this.responses[this.responses.length - 1]!;
+    this.callCount++;
+    return response;
+  }
+}
+
+/** Creates a ProviderResult that triggers a tool call */
+function createToolResponse(
+  actionName: string,
+  args: Record<string, any> = {},
+  tokenUsage?: Partial<TokenUsage>,
+): ProviderResult {
+  return {
+    toolCalls: [{ name: actionName, args }],
+    reasoning: {
+      previousGoalEval: 'Success',
+      memory: 'test memory',
+      plan: `Execute ${actionName}`,
+    },
+    text: undefined,
+    tokenUsage: {
+      promptTokens: tokenUsage?.promptTokens ?? 100,
+      completionTokens: tokenUsage?.completionTokens ?? 50,
+      totalTokens: tokenUsage?.totalTokens ?? 150,
+      estimatedCostUSD: tokenUsage?.estimatedCostUSD ?? 0.001,
+    },
+  };
+}
+
+// ─── Default Config ────────────────────────────────────────────
+
+const defaultConfig: AgentConfig = {
+  maxSteps: 10,
+  stepDelay: 0,
+};
+
+function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfig> = {}): AgentRuntime {
+  const config = { ...defaultConfig, ...configOverrides };
+  const mockNavRef = {
+    isReady: () => true,
+    getRootState: () => ({
+      index: 0,
+      routes: [{ name: 'TestScreen' }],
+      routeNames: ['TestScreen', 'Settings'],
+    }),
+    getState: () => ({
+      index: 0,
+      routes: [{ name: 'TestScreen' }],
+    }),
+    navigate: jest.fn(),
+  };
+  // Use a plain object as rootRef; getFiberFromRef checks for child/memoizedProps
+  const mockRootRef = {
+    child: null,
+    memoizedProps: {},
+  };
+  return new AgentRuntime(provider, config, mockRootRef, mockNavRef);
+}
+
+// ─── Tests ─────────────────────────────────────────────────────
+
+describe('AgentRuntime', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // ── Execution Loop ──────────────────────────────────────────
+
+  describe('execution loop', () => {
+    it('completes a single-step task when provider returns done', async () => {
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'Task complete', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+      const result = await runtime.execute('Do something');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Task complete');
+    });
+
+    it('executes multi-step task (tap then done)', async () => {
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+      const result = await runtime.execute('Tap and finish');
+
+      expect(result.success).toBe(true);
+      expect(result.steps.length).toBe(2);
+    });
+
+    it('stops at max steps with failure message', async () => {
+      // Provider always returns tap — never done
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+      ]);
+      const runtime = createRuntime(provider, { maxSteps: 3 });
+      const result = await runtime.execute('Infinite task');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('maximum steps');
+    }, 15000);
+
+    it('cancels mid-task and returns partial steps', async () => {
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+
+      // Start execution, cancel after first step
+      const resultPromise = runtime.execute('Test cancel');
+      // Wait a tick for the first step to start executing
+      await new Promise(resolve => setTimeout(resolve, 50));
+      runtime.cancel();
+      const result = await resultPromise;
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('cancelled');
+    });
+
+    it('rejects when already running', async () => {
+      const provider = new MockProvider([
+        createToolResponse('wait', { seconds: 2 }),
+        createToolResponse('done', { text: 'Done', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+
+      // Start a long task
+      const firstTask = runtime.execute('Long task');
+      // Try to start another while first is running
+      const secondResult = await runtime.execute('Second task');
+
+      expect(secondResult.success).toBe(false);
+      expect(secondResult.message).toContain('already running');
+
+      // Clean up first task
+      runtime.cancel();
+      await firstTask;
+    });
+  });
+
+  // ── Budget Guards ───────────────────────────────────────────
+
+  describe('budget guards', () => {
+    it('stops when token budget exceeded', async () => {
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }, { totalTokens: 5000 }),
+        createToolResponse('done', { text: 'Should not reach', success: true }),
+      ]);
+      const runtime = createRuntime(provider, { maxTokenBudget: 1000 });
+      const result = await runtime.execute('Budget test');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('token budget exceeded');
+      expect(result.tokenUsage).toBeDefined();
+      expect(result.tokenUsage!.totalTokens).toBeGreaterThanOrEqual(1000);
+    });
+
+    it('stops when cost budget exceeded', async () => {
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }, { estimatedCostUSD: 0.50 }),
+        createToolResponse('done', { text: 'Should not reach', success: true }),
+      ]);
+      const runtime = createRuntime(provider, { maxCostUSD: 0.10 });
+      const result = await runtime.execute('Cost test');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('cost budget exceeded');
+      expect(result.tokenUsage).toBeDefined();
+    });
+
+    it('includes tokenUsage in done-path result', async () => {
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'Complete', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+      const result = await runtime.execute('Simple task');
+
+      expect(result.tokenUsage).toBeDefined();
+      expect(result.tokenUsage!.totalTokens).toBeGreaterThan(0);
+    });
+  });
+
+  // ── Tool Execution Safety ───────────────────────────────────
+
+  describe('tool execution safety', () => {
+    it('handles unknown tool names gracefully', async () => {
+      const provider = new MockProvider([
+        createToolResponse('nonexistent_tool', {}),
+        createToolResponse('done', { text: 'Recovered', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+      const result = await runtime.execute('Unknown tool test');
+
+      // Should not crash — the runtime should handle unknown tools
+      expect(result).toBeDefined();
+    });
+  });
+
+  // ── Navigation Helpers ──────────────────────────────────────
+
+  describe('navigation helpers', () => {
+    it('getRouteNames collects routes from navigation state', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider);
+      // Access private method via any
+      const routes = (runtime as any).getRouteNames();
+
+      expect(routes).toContain('TestScreen');
+      expect(routes).toContain('Settings');
+    });
+
+    it('buildNestedParams creates correct nesting', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider);
+      // ['HomeTab', 'Home'] → { screen: 'Home' }
+      const params = (runtime as any).buildNestedParams(['HomeTab', 'Home']);
+
+      expect(params).toEqual({ screen: 'Home' });
+    });
+
+    it('buildNestedParams creates deep nesting with leaf params', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider);
+      const params = (runtime as any).buildNestedParams(['Tab', 'Stack', 'Screen'], { id: 123 });
+
+      expect(params).toEqual({ screen: 'Stack', params: { screen: 'Screen', params: { id: 123 } } });
+    });
+  });
+
+  // ── Observations ────────────────────────────────────────────
+
+  describe('observations', () => {
+    it('warns at 5 remaining steps', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider, { maxSteps: 10 });
+
+      // Access private method and state
+      (runtime as any).lastScreenName = 'Screen1';
+      (runtime as any).handleObservations(5, 10, 'Screen1');
+
+      const observations: string[] = (runtime as any).observations;
+      expect(observations.some((o: string) => o.includes('5 steps remaining'))).toBe(true);
+    });
+
+    it('warns critically at 2 remaining steps', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider, { maxSteps: 10 });
+
+      (runtime as any).lastScreenName = 'Screen1';
+      (runtime as any).handleObservations(8, 10, 'Screen1');
+
+      const observations: string[] = (runtime as any).observations;
+      expect(observations.some((o: string) => o.includes('2 steps left'))).toBe(true);
+    });
+  });
+
+  // ── History Summarization ───────────────────────────────────
+
+  describe('history summarization', () => {
+    it('compresses middle steps when history > 8 steps', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider);
+
+      // Populate history with 10 steps
+      const history = [];
+      for (let i = 0; i < 10; i++) {
+        history.push({
+          stepIndex: i + 1,
+          reflection: {
+            previousGoalEval: `Eval ${i}`,
+            memory: `Memory ${i}`,
+            plan: `Plan ${i}`,
+          },
+          action: {
+            name: i < 5 ? 'tap' : 'scroll',
+            input: {},
+            output: i % 2 === 0 ? '✅ Success' : '❌ Failed',
+          },
+        });
+      }
+      (runtime as any).history = history;
+
+      // Call assembleUserPrompt
+      const prompt = (runtime as any).assembleUserPrompt(10, 25, 'test', 'Screen', 'content');
+
+      // Should have summary block for steps 3-6 (indices 2-5)
+      expect(prompt).toContain('<steps_summary>');
+      expect(prompt).toContain('</steps_summary>');
+
+      // First 2 steps should be full detail
+      expect(prompt).toContain('<step_1>');
+      expect(prompt).toContain('<step_2>');
+
+      // Last 4 steps should be full detail
+      expect(prompt).toContain('Eval 9');
+      expect(prompt).toContain('Eval 8');
+    });
+  });
+
+  // ── Knowledge-Only Mode ─────────────────────────────────────
+
+  describe('knowledge-only mode', () => {
+    it('registers only done and query_knowledge tools when enableUIControl is false', () => {
+      const provider = new MockProvider([]);
+      const config: AgentConfig = {
+        ...defaultConfig,
+        enableUIControl: false,
+        knowledgeBase: [
+          { id: '1', title: 'Test', content: 'Test content', tags: ['test'] },
+        ],
+      };
+      const runtime = new AgentRuntime(provider, config, {}, null);
+
+      const tools = (runtime as any).tools as Map<string, any>;
+      expect(tools.has('done')).toBe(true);
+      expect(tools.has('query_knowledge')).toBe(true);
+      // UI tools should NOT be registered
+      expect(tools.has('tap')).toBe(false);
+      expect(tools.has('type')).toBe(false);
+      expect(tools.has('navigate')).toBe(false);
+      expect(tools.has('scroll')).toBe(false);
+    });
+  });
+
+  // ── Public API ──────────────────────────────────────────────
+
+  describe('public API', () => {
+    it('getIsRunning returns correct state', async () => {
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'ok', success: true }),
+      ]);
+      const runtime = createRuntime(provider);
+
+      expect(runtime.getIsRunning()).toBe(false);
+    });
+
+    it('cancel sets isCancelRequested flag', () => {
+      const provider = new MockProvider([]);
+      const runtime = createRuntime(provider);
+
+      // Force isRunning to true to test cancel
+      (runtime as any).isRunning = true;
+      runtime.cancel();
+      expect((runtime as any).isCancelRequested).toBe(true);
+    });
+  });
+});

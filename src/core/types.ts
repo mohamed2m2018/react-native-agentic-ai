@@ -246,6 +246,21 @@ export interface AgentConfig {
   /** Max tokens for knowledge retrieval results (~4 chars per token). Default: 2000 */
   knowledgeMaxTokens?: number;
 
+  // ─── Budget Guards ──────────────────────────────────────────────────────
+
+  /**
+   * Maximum total tokens (prompt + completion) allowed per task.
+   * The agent loop auto-stops when this budget is exceeded, returning partial results.
+   */
+  maxTokenBudget?: number;
+
+  /**
+   * Maximum estimated cost (USD) allowed per task.
+   * The agent loop auto-stops when this budget is exceeded, returning partial results.
+   * Cost is estimated based on the provider's pricing (see provider source for rates).
+   */
+  maxCostUSD?: number;
+
   // ─── MCP Bridge Integration ──────────────────────────────────────────────
 
   /**
