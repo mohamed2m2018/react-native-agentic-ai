@@ -12,7 +12,9 @@ import type { ToolDefinition } from '../core/types';
 import type { EscalationConfig, EscalationContext } from './types';
 import { EscalationSocket } from './EscalationSocket';
 
-const MOBILEAI_HOST = 'https://api.mobileai.dev';
+import { ENDPOINTS } from '../config/endpoints';
+
+const MOBILEAI_HOST = ENDPOINTS.escalation;
 
 export interface EscalationToolDeps {
   config: EscalationConfig;

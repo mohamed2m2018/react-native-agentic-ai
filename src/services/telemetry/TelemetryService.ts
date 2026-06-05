@@ -10,6 +10,7 @@
 
 import { AppState, Platform } from 'react-native';
 import { logger } from '../../utils/logger';
+import { ENDPOINTS } from '../../config/endpoints';
 import type {
   TelemetryEvent,
   TelemetryBatch,
@@ -29,7 +30,7 @@ try {
 
 // ─── Constants ─────────────────────────────────────────────────
 
-const CLOUD_API_URL = 'https://api.maiagent.dev/v1/events';
+const CLOUD_API_URL = ENDPOINTS.telemetryIngest;
 const STORAGE_KEY = '@mobileai/telemetry_queue';
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_BATCH_SIZE = 50;
@@ -79,7 +80,7 @@ export class TelemetryService {
     this.sessionId = generateSessionId();
     
     // Extract base URL for flags API (e.g. drop /v1/events)
-    let baseUrl = 'https://api.maiagent.dev';
+    let baseUrl = new URL(ENDPOINTS.escalation).origin;
     try {
       if (config.analyticsProxyUrl) {
         baseUrl = new URL(config.analyticsProxyUrl).origin;
