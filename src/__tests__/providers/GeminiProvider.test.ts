@@ -224,7 +224,7 @@ describe('GeminiProvider', () => {
       const provider = createProvider();
       await expect(
         provider.generateContent('sys', 'msg', sampleTools, [])
-      ).rejects.toThrow('Gemini API error 429');
+      ).rejects.toThrow('Too many requests. Please wait a moment and try again.');
     });
 
     it('throws on network failure', async () => {

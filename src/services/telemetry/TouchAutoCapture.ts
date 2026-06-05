@@ -13,6 +13,33 @@
  */
 
 // React Native imports not needed — we use Fiber internals directly
+import type { TelemetryService } from './TelemetryService';
+
+const recentTaps: { label: string; ts: number }[] = [];
+const RAGE_WINDOW_MS = 2000;
+const RAGE_THRESHOLD = 3;
+
+/**
+ * Checks if the user is repeatedly tapping the same element in frustration.
+ * If rage click detected, emits 'rage_click' event to telemetry.
+ */
+export function checkRageClick(label: string, telemetry: TelemetryService): void {
+  const now = Date.now();
+  recentTaps.push({ label, ts: now });
+  
+  // Keep buffer unbounded size of 5
+  if (recentTaps.length > 5) recentTaps.shift();
+
+  const recent = recentTaps.filter(t => t.label === label && now - t.ts < RAGE_WINDOW_MS);
+  if (recent.length >= RAGE_THRESHOLD) {
+    telemetry.track('rage_click', { 
+      label, 
+      count: recent.length, 
+      screen: telemetry.screen 
+    });
+    recentTaps.length = 0; // reset buffer after emitting to avoid spam
+  }
+}
 
 /**
  * Extract a label from a GestureResponderEvent's native target.

@@ -16,7 +16,9 @@ import {
   Platform,
   StyleSheet,
 } from 'react-native';
+// import { useAI, type AIMessage } from 'experimental-stuff'; // old
 import { useAI, type AIMessage } from '@mobileai/react-native';
+
 import { useRouter } from 'expo-router';
 
 export default function ChatScreen() {

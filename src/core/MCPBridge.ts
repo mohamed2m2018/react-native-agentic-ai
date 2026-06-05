@@ -41,23 +41,76 @@ export class MCPBridge {
     this.ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'request' && data.command && data.requestId) {
-          logger.info('MCPBridge', `Received task from MCP: "${data.command}"`);
-          
-          if (this.runtime.getIsRunning()) {
-            this.sendResponse(data.requestId, {
-              success: false,
-              message: 'Agent is already running a task. Please wait.',
-              steps: [],
-            });
-            return;
+        const serverMode = this.runtime.getConfig().mcpServerMode ?? 'auto';
+        const serverEnabled = serverMode === 'enabled' || (serverMode !== 'disabled' && __DEV__);
+
+        switch (data.type) {
+          case 'request': {
+            if (!data.command || !data.requestId) return;
+            logger.info('MCPBridge', `Received task from MCP: "${data.command}"`);
+            
+            if (this.runtime.getIsRunning()) {
+              this.sendResponse(data.requestId, {
+                success: false,
+                message: 'Agent is already running a task. Please wait.',
+                steps: [],
+              });
+              return;
+            }
+
+            // Execute the task using the SDK's existing runtime loop
+            const result = await this.runtime.execute(data.command);
+            
+            // Send result back to MCP server
+            this.sendResponse(data.requestId, result);
+            break;
           }
 
-          // Execute the task using the SDK's existing runtime loop
-          const result = await this.runtime.execute(data.command);
-          
-          // Send result back to MCP server
-          this.sendResponse(data.requestId, result);
+          case 'tools/list': {
+            if (!serverEnabled) {
+              this.sendResponse(data.requestId, { error: 'MCP server mode is disabled.' });
+              break;
+            }
+            
+            const tools = this.runtime.getTools().map(t => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: {
+                type: 'object',
+                properties: t.parameters || {},
+                required: Object.entries(t.parameters || {})
+                  .filter(([_, p]: [string, any]) => p.required !== false)
+                  .map(([k]) => k),
+              }
+            }));
+            
+            this.sendResponse(data.requestId, { tools });
+            break;
+          }
+
+          case 'tools/call': {
+            if (!serverEnabled) {
+              this.sendResponse(data.requestId, { error: 'MCP server mode is disabled.' });
+              break;
+            }
+            try {
+              const result = await this.runtime.executeTool(data.name, data.arguments || {});
+              this.sendResponse(data.requestId, { result });
+            } catch (err: any) {
+              this.sendResponse(data.requestId, { error: err.message });
+            }
+            break;
+          }
+
+          case 'screen/state': {
+            if (!serverEnabled) {
+              this.sendResponse(data.requestId, { error: 'MCP server mode is disabled.' });
+              break;
+            }
+            const screen = this.runtime.getScreenContext();
+            this.sendResponse(data.requestId, { screen });
+            break;
+          }
         }
       } catch (err) {
         logger.error('MCPBridge', 'Error handling message:', err);

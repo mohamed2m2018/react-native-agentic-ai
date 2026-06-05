@@ -52,7 +52,7 @@ describe('typeTool', () => {
     const result = await tool.execute({ index: 0, text: 'hello' });
 
     expect(result).toContain('❌');
-    expect(result).toContain('not a text input');
+    expect(result).toContain('not a typeable text input');
   });
 
   it('returns error when element index not found', async () => {

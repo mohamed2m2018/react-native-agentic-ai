@@ -15,6 +15,8 @@ import type {
   TelemetryBatch,
   TelemetryConfig,
 } from './types';
+import { scrubPII } from './PiiScrubber';
+import { FlagService } from '../flags/FlagService';
 
 // Optional: AsyncStorage for offline event persistence
 // SDK works without it — just loses crash recovery for queued events
@@ -40,16 +42,7 @@ function generateSessionId(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function getDeviceId(): string {
-  // Simple hash from platform info — not PII
-  const raw = `${Platform.OS}_${Platform.Version}`;
-  let hash = 0;
-  for (let i = 0; i < raw.length; i++) {
-    hash = (hash << 5) - hash + raw.charCodeAt(i);
-    hash |= 0;
-  }
-  return `dev_${Math.abs(hash).toString(36)}`;
-}
+import { getDeviceId } from './device';
 
 // ─── Service ───────────────────────────────────────────────────
 
@@ -62,12 +55,19 @@ export class TelemetryService {
   private isFlushing = false;
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
 
+  /** Public getter for the current screen, used by auto-capture utilities */
+  get screen(): string {
+    return this.currentScreen;
+  }
+
   /**
    * True while the AI agent is executing a tool (tap, type, navigate, etc.).
    * The touch interceptor checks this flag to avoid double-counting AI actions
    * as human interactions. Agent steps are already tracked as agent_step events.
    */
   isAgentActing = false;
+  
+  public flags: FlagService;
 
   /** Set by AgentRuntime before/after each tool execution. */
   setAgentActing(active: boolean): void {
@@ -77,6 +77,15 @@ export class TelemetryService {
   constructor(config: TelemetryConfig) {
     this.config = config;
     this.sessionId = generateSessionId();
+    
+    // Extract base URL for flags API (e.g. drop /v1/events)
+    let baseUrl = 'https://api.maiagent.dev';
+    try {
+      if (config.analyticsProxyUrl) {
+        baseUrl = new URL(config.analyticsProxyUrl).origin;
+      }
+    } catch {}
+    this.flags = new FlagService(baseUrl);
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────
@@ -90,6 +99,13 @@ export class TelemetryService {
 
     // Restore queued events from previous session
     await this.restoreQueue();
+
+    // Fetch feature flags asynchronously (do not block startup)
+    if (this.config.analyticsKey) {
+      this.flags.fetch(this.config.analyticsKey).catch((e) => 
+        logger.warn(LOG_TAG, `Could not sync flags: ${e.message}`)
+      );
+    }
 
     // Start periodic flush
     const interval = this.config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -146,9 +162,20 @@ export class TelemetryService {
   track(type: string, data: Record<string, unknown> = {}): void {
     if (!this.isEnabled()) return;
 
+    // Sanitize any string values in the data payload to remove PII
+    const sanitizedData = Object.fromEntries(
+      Object.entries(data).map(([k, v]) => [
+        k,
+        typeof v === 'string' ? scrubPII(v) : v,
+      ])
+    );
+
+    // Auto-append active feature flags
+    sanitizedData.$flags = this.flags.getAllFlags();
+
     const event: TelemetryEvent = {
       type,
-      data,
+      data: sanitizedData,
       timestamp: new Date().toISOString(),
       screen: this.currentScreen,
       sessionId: this.sessionId,

@@ -65,10 +65,18 @@ export interface QuickReply {
 
 export interface EscalationConfig {
   /**
-   * Callback when user requests human support.
+   * Where to route the escalation.
+   * - 'mobileai' (default when analyticsKey is set): ticket goes to MobileAI
+   *   dashboard inbox via POST /api/v1/escalations + WebSocket reply delivery.
+   * - 'custom': fires the onEscalate callback — wire to Intercom, Zendesk, etc.
+   */
+  provider?: 'mobileai' | 'custom';
+
+  /**
+   * Callback when user requests human support (required when provider='custom').
    * Use this to open a live chat widget, send email, etc.
    */
-  onEscalate: (context: EscalationContext) => void;
+  onEscalate?: (context: EscalationContext) => void;
 
   /** Label for the escalate button. Default: "Talk to a human" */
   buttonLabel?: string;

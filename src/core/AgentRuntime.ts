@@ -24,6 +24,9 @@ import {
   createPickerTool,
   createDatePickerTool,
   createKeyboardTool,
+  createGuideTool,
+  createSimplifyTool,
+  createRestoreTool,
 } from '../tools';
 import type { ToolContext } from '../tools';
 import type {
@@ -32,9 +35,9 @@ import type {
   AgentStep,
   ExecutionResult,
   ToolDefinition,
-  ActionDefinition,
   TokenUsage,
 } from './types';
+import { actionRegistry } from './ActionRegistry';
 
 const DEFAULT_MAX_STEPS = 25;
 
@@ -46,13 +49,13 @@ export class AgentRuntime {
   private rootRef: any;
   private navRef: any;
   private tools: Map<string, ToolDefinition> = new Map();
-  private actions: Map<string, ActionDefinition> = new Map();
   private history: AgentStep[] = [];
   private isRunning = false;
   private isCancelRequested = false;
   private lastAskUserQuestion: string | null = null;
   private knowledgeService: KnowledgeBaseService | null = null;
   private uiControlOverride?: boolean;
+  private lastDehydratedRoot: any = null;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -62,6 +65,10 @@ export class AgentRuntime {
   private lastSuppressedError: Error | null = null;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private originalReportErrorsAsExceptions: boolean | undefined = undefined;
+
+  public getConfig(): AgentConfig {
+    return this.config;
+  }
 
   constructor(
     provider: AIProvider,
@@ -118,6 +125,7 @@ export class AgentRuntime {
       findScreenPath: (name: string) => this.findScreenPath(name),
       buildNestedParams: (path: string[], params?: any) => this.buildNestedParams(path, params),
       captureScreenshot: async () => (await this.captureScreenshot()) ?? null,
+      getLastDehydratedRoot: () => this.lastDehydratedRoot,
     };
 
     // ── Register modular tools (extracted to src/tools/) ──
@@ -130,6 +138,9 @@ export class AgentRuntime {
       createPickerTool(toolContext),
       createDatePickerTool(toolContext),
       createKeyboardTool(),
+      createGuideTool(toolContext),
+      createSimplifyTool(),
+      createRestoreTool(),
     ];
 
     for (const tool of modularTools) {
@@ -330,17 +341,6 @@ export class AgentRuntime {
         },
       });
     }
-  }
-
-  // ─── Action Registration (useAction hook) ──────────────────
-
-  registerAction(action: ActionDefinition): void {
-    this.actions.set(action.name, action);
-    logger.info('AgentRuntime', `Registered action: ${action.name}`);
-  }
-
-  unregisterAction(name: string): void {
-    this.actions.delete(name);
   }
 
   // ─── Navigation Helpers ────────────────────────────────────
@@ -637,16 +637,25 @@ ${screen.elementsText}
     const allTools = [...this.tools.values()];
 
     // Add registered actions as tools
-    for (const action of this.actions.values()) {
+    for (const action of actionRegistry.getAll()) {
+      const toolParams: Record<string, any> = {};
+      for (const [key, val] of Object.entries(action.parameters)) {
+        if (typeof val === 'string') {
+          toolParams[key] = { type: 'string', description: val, required: true };
+        } else {
+          toolParams[key] = { 
+            type: val.type, 
+            description: val.description, 
+            required: val.required !== false, 
+            enum: val.enum 
+          };
+        }
+      }
+
       allTools.push({
         name: action.name,
         description: action.description,
-        parameters: Object.fromEntries(
-          Object.entries(action.parameters).map(([key, typeStr]) => [
-            key,
-            { type: typeStr as any, description: key, required: true },
-          ]),
-        ),
+        parameters: toolParams,
         execute: async (args) => {
           try {
             const result = await action.handler(args);
@@ -1157,6 +1166,9 @@ ${screen.elementsText}
           walkResult.elementsText,
           walkResult.interactives,
         );
+
+        // Store root for tooling access (e.g., GuideTool measuring)
+        this.lastDehydratedRoot = screen;
 
         logger.info('AgentRuntime', `Screen: ${screen.screenName}`);
         logger.debug('AgentRuntime', `Dehydrated:\n${screen.elementsText}`);

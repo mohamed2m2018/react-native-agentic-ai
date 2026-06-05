@@ -1,18 +1,19 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack, useNavigationContainerRef, useRouter } from 'expo-router';
+import { Stack, useNavigationContainerRef } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+// import { AIAgent, MobileAI } from 'experimental-stuff'; // old
+// import { buildSupportPrompt, createEscalateTool } from 'experimental-stuff'; // old
+// import type { KnowledgeEntry } from 'experimental-stuff'; // old
 import { AIAgent } from '@mobileai/react-native';
+import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
 import screenMap from '../ai-screen-map.json';
-
-
 import { useColorScheme } from '@/components/useColorScheme';
 
 export {
-  // Catch any errors thrown by the Layout component.
   ErrorBoundary,
 } from 'expo-router';
 
@@ -20,11 +21,9 @@ export const unstable_settings = {
   initialRouteName: '(tabs)',
 };
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-// ─── Fake Knowledge Base ─────────────────────────────────────
-// In production, this would come from a CMS, database, or API.
+// ─── Knowledge Base ─────────────────────────────────────────
 const SHOP_KNOWLEDGE: KnowledgeEntry[] = [
   {
     id: 'return-policy',
@@ -73,27 +72,41 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
+  useEffect(() => { if (error) throw error; }, [error]);
+  useEffect(() => { if (loaded) SplashScreen.hideAsync(); }, [loaded]);
 
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
+  if (!loaded) return null;
   return <RootLayoutNav />;
 }
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const navRef = useNavigationContainerRef();
-  const router = useRouter();
+
+  // 🔹 Feature flag sync on mount (requires api.mobileai.dev — coming soon)
+  // useEffect(() => {
+  //   const chatEnabled = MobileAI.getFlag('chat_enabled', 'control');
+  //   console.log('[FeatureFlag] chat_enabled =', chatEnabled);
+  // }, []);
+
+  // 🔹 Support mode
+  const supportSystem = buildSupportPrompt({
+    enabled: true,
+    systemContext: 'You are a support agent for ShopApp. Help with returns, shipping, and warranty.',
+    autoEscalateTopics: ['billing dispute', 'account deletion', 'fraud'],
+  });
+
+  const escalateTool = createEscalateTool(
+    {
+      onEscalate: (ctx) => console.log('[Support] Escalating:', ctx.conversationSummary),
+      escalationMessage: 'Connecting you to a live agent...',
+    },
+    () => ({
+      currentScreen: 'unknown',
+      originalQuery: '',
+      stepsBeforeEscalation: 0,
+    })
+  );
 
   return (
     <AIAgent
@@ -106,19 +119,33 @@ function RootLayoutNav() {
       debug={true}
       screenMap={screenMap as any}
       accentColor="#6C5CE7"
+      // 🔹 Analytics telemetry
+      analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
+      // 🔹 Budget guard (realistic for a multi-step task)
+      maxTokenBudget={50000}
+      maxCostUSD={0.50}
+      // 🔹 Proactive hint — pulse after 1 min, badge after 2 mins
+      proactiveHelp={{
+        enabled: true,
+        pulseAfterMinutes: 1,
+        badgeAfterMinutes: 2,
+        badgeText: 'Need help browsing? Tap to ask!',
+      }}
       theme={{
         backgroundColor: 'rgba(44, 30, 104, 0.95)',
         inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
       }}
       instructions={{
-        system: 'You are ShopApp\'s AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app.',
+        system: `You are ShopApp's AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app. ${supportSystem}`,
       }}
+      // 🔹 Escalate tool for support mode
+      customTools={{ escalate: escalateTool }}
     >
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="product/[id]" options={{ title: 'Product Details', }} />
+          <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
           <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
           <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
           <Stack.Screen name="order-history" options={{ title: 'Order History' }} />

@@ -53,4 +53,6 @@ export interface ToolContext {
   buildNestedParams?: (path: string[], params?: any) => any;
   /** Capture screenshot (optional) */
   captureScreenshot?: () => Promise<string | null>;
+  /** Get the most recently dehydrated screen (with layout coords) */
+  getLastDehydratedRoot?: () => any;
 }

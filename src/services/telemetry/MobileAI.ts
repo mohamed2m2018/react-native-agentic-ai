@@ -42,6 +42,19 @@ export const MobileAI = {
     }
     service.track('identify', { user_id: userId, ...traits });
   },
+
+  /**
+   * Get an assigned feature flag variation for the current device.
+   * Deterministic via murmurhash. Call after MobileAI has initialized.
+   * @param key Flag key
+   * @param defaultValue Fallback if not assigned
+   */
+  getFlag(key: string, defaultValue?: string): string {
+    if (!service) {
+      return defaultValue ?? '';
+    }
+    return service.flags.getFlag(key, defaultValue);
+  },
 };
 
 /**

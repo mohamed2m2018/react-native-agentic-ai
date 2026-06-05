@@ -8,6 +8,8 @@ import { z } from 'zod';
 
 const HTTP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT) : 3100;
 const WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT) : 3101;
+const MOBILEAI_HOST = process.env.MOBILEAI_HOST || 'http://localhost:3000';
+const MOBILEAI_SECRET_KEY = process.env.MOBILEAI_SECRET_KEY;
 
 // ─── WebSocket Server (Bridge to React Native) ─────────────────
 
@@ -130,6 +132,61 @@ function registerTools(mcp: McpServer) {
           },
         ],
       };
+    }
+  );
+
+  mcp.tool(
+    'query_analytics',
+    'Answer a business analytics question about the React Native app. Use natural language. (e.g. "How many users completed checkout yesterday?")',
+    {
+      question: z.string().describe('The natural language question to ask the data copilot'),
+    },
+    async ({ question }) => {
+      if (!MOBILEAI_SECRET_KEY) throw new Error('MOBILEAI_SECRET_KEY is not configured in the MCP server environment.');
+      const res = await fetch(`${MOBILEAI_HOST}/api/v1/mcp/copilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${MOBILEAI_SECRET_KEY}` },
+        body: JSON.stringify({ question })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  mcp.tool(
+    'get_funnel',
+    'Get conversion drop-off for a sequence of screens',
+    {
+      steps: z.array(z.string()).describe('An ordered array of screen names representing the funnel steps'),
+    },
+    async ({ steps }) => {
+      if (!MOBILEAI_SECRET_KEY) throw new Error('MOBILEAI_SECRET_KEY is not configured in the MCP server environment.');
+      const res = await fetch(`${MOBILEAI_HOST}/api/v1/mcp/funnels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${MOBILEAI_SECRET_KEY}` },
+        body: JSON.stringify({ steps })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  mcp.tool(
+    'get_heatmap',
+    'Get the top-tapped coordinate hotspots for a given screen to identify user frustration or UI bottlenecks.',
+    {
+      screen: z.string().describe('The precise screen name to visualize heatmaps for'),
+    },
+    async ({ screen }) => {
+      if (!MOBILEAI_SECRET_KEY) throw new Error('MOBILEAI_SECRET_KEY is not configured in the MCP server environment.');
+      const res = await fetch(`${MOBILEAI_HOST}/api/v1/mcp/heatmaps?screen=${encodeURIComponent(screen)}`, {
+        headers: { Authorization: `Bearer ${MOBILEAI_SECRET_KEY}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
     }
   );
 }
