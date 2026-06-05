@@ -510,11 +510,8 @@ export class AgentRuntime {
    */
   private async captureScreenshot(): Promise<string | undefined> {
     try {
-      // Use variable to prevent Metro from statically resolving this optional dep.
-      // A bare `require('react-native-view-shot')` is traced at bundle time
-      // and crashes with "unknown module" when the package isn't installed.
-      const moduleName = ['react-native', 'view-shot'].join('-');
-      const viewShot = require(moduleName);
+      // Static require — Metro needs a literal string; the try/catch handles MODULE_NOT_FOUND.
+      const viewShot = require('react-native-view-shot');
       const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
       if (!captureRef || !this.rootRef) return undefined;
 

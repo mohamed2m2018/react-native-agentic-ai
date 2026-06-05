@@ -28,8 +28,7 @@ export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
 
 // ─── Analytics ───────────────────────────────────────────────
-// Requires api.mobileai.dev — hidden until backend is live
-// export { MobileAI } from './services/telemetry';
+export { MobileAI } from './services/telemetry';
 
 // ─── Utilities ───────────────────────────────────────────────
 export { logger } from './utils/logger';
@@ -60,17 +59,16 @@ export type {
   VoiceStatus,
 } from './services/VoiceService';
 
-// Requires api.mobileai.dev — hidden until backend is live
-// export type {
-//   TelemetryConfig,
-//   TelemetryEvent,
-// } from './services/telemetry';
+export type {
+  TelemetryConfig,
+  TelemetryEvent,
+} from './services/telemetry';
 
 // ─── Support Mode ────────────────────────────────────────────
 // SupportGreeting, CSATSurvey, buildSupportPrompt work standalone (no backend)
 // createEscalateTool works with provider='custom' (no backend)
-// EscalationSocket and provider='mobileai' require api.mobileai.dev — hidden
-export { SupportGreeting, CSATSurvey, buildSupportPrompt, createEscalateTool } from './support';
+// EscalationSocket and provider='mobileai' require api.mobileai.dev
+export { SupportGreeting, CSATSurvey, buildSupportPrompt, createEscalateTool, EscalationSocket } from './support';
 
 export type {
   SupportModeConfig,

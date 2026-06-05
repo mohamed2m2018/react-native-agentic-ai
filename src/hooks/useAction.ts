@@ -5,7 +5,7 @@
  * Both hooks consume AgentContext, which is provided by <AIAgent>.
  */
 
-import { useEffect, useContext, createContext, useCallback, useRef } from 'react';
+import React, { useEffect, useContext, createContext, useCallback, useRef } from 'react';
 import type { AgentRuntime } from '../core/AgentRuntime';
 import type { ExecutionResult, AIMessage } from '../core/types';
 
@@ -45,28 +45,70 @@ export const AgentContext = createContext<AgentContextValue>(DEFAULT_CONTEXT);
 import { actionRegistry } from '../core/ActionRegistry';
 import type { ActionParameterDef } from '../core/types';
 
-// ─── useAction ────────────────────────────────────────────────
-
+/**
+ * Register a non-UI action that the AI agent can call by name.
+ *
+ * The handler is always kept fresh via an internal ref — no stale closure bugs,
+ * even when it captures mutable state like cart contents or form values.
+ *
+ * The optional `deps` array controls when the action is *re-registered* (i.e. when
+ * `name`, `description`, or `parameters` need to change at runtime). You rarely
+ * need this — the handler is always up-to-date regardless.
+ *
+ * @example Basic (handler always fresh — no deps needed)
+ * ```tsx
+ * const { cart } = useCart();
+ * useAction('checkout', 'Place the order', {}, async () => {
+ *   if (cart.length === 0) return { success: false, message: 'Cart is empty' };
+ *   // cart is always current — no stale closure
+ * });
+ * ```
+ *
+ * @example Dynamic description (re-register when item count changes)
+ * ```tsx
+ * useAction(
+ *   'checkout',
+ *   `Place the order (${cart.length} items in cart)`,
+ *   {},
+ *   handler,
+ *   [cart.length],   // re-register so the AI sees the updated description
+ * );
+ * ```
+ */
 export function useAction(
   name: string,
   description: string,
   parameters: Record<string, string | ActionParameterDef>,
   handler: (args: Record<string, any>) => any,
+  deps?: React.DependencyList,
 ): void {
+  // Keep a ref to the latest handler so the registered action always calls
+  // the current closure — even without re-registering the action.
+  // This is the canonical React pattern for "always-fresh callbacks"
+  // (used by react-use, ahooks, TanStack Query internally).
+  const handlerRef = useRef(handler);
+  useEffect(() => {
+    handlerRef.current = handler;
+  });
+
+  // Registration effect — only re-runs when name/description/parameters change,
+  // OR when the consumer explicitly passes deps (e.g. for a dynamic description).
   useEffect(() => {
     actionRegistry.register({
       name,
       description,
       parameters,
-      handler,
+      // Delegate to the ref — always calls the latest handler.
+      handler: (args) => handlerRef.current(args),
     });
 
     return () => {
       actionRegistry.unregister(name);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, description]);
+  }, deps ? [name, description, ...deps] : [name, description]);
 }
+
 
 // ─── useAI ────────────────────────────────────────────────────
 
