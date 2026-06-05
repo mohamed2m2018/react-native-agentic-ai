@@ -28,6 +28,7 @@ import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
+import { extractTouchLabel } from '../services/telemetry/TouchAutoCapture';
 import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 
@@ -823,7 +824,27 @@ export function AIAgent({
     <AgentContext.Provider value={contextValue}>
       <View style={styles.root}>
         {/* App content — rootViewRef captures Fiber tree for element detection */}
-        <View ref={rootViewRef} style={styles.root} collapsable={false}>
+        <View
+          ref={rootViewRef}
+          style={styles.root}
+          collapsable={false}
+          onStartShouldSetResponderCapture={(event) => {
+            // Auto-capture every tap for analytics (zero-config)
+            if (telemetryRef.current) {
+              const label = extractTouchLabel(event.nativeEvent);
+              if (label !== 'Unknown Element') {
+                telemetryRef.current.track('user_interaction', {
+                  type: 'tap',
+                  label,
+                  x: Math.round(event.nativeEvent.pageX),
+                  y: Math.round(event.nativeEvent.pageY),
+                });
+              }
+            }
+            // IMPORTANT: return false so we don't steal the touch from the actual button
+            return false;
+          }}
+        >
           <AgentErrorBoundary
             onError={(error, componentStack) => {
               const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
