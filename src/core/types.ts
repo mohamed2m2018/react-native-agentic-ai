@@ -216,6 +216,14 @@ export interface AgentConfig {
    */
   onAskUser?: (question: string) => Promise<string>;
 
+  /**
+   * Called immediately before and after each agent tool execution.
+   * Used by AIAgent to toggle isAgentActing on TelemetryService so that
+   * AI-driven taps are not double-counted as user interactions.
+   * @param active - true = agent is acting, false = agent finished acting
+   */
+  onToolExecute?: (active: boolean) => void;
+
   // ─── Expo Router Support ─────────────────────────────────────────────────
 
   /**

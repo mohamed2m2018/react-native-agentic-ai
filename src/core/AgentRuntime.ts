@@ -768,6 +768,10 @@ ${screen.elementsText}
     // Clear any previous suppressed error before this tool
     this.lastSuppressedError = null;
 
+    // Signal analytics that the AGENT is acting (not the user).
+    // This prevents AI-driven taps from being tracked as user_interaction events.
+    this.config.onToolExecute?.(true);
+
     try {
       // ── Argument Validation (Pattern from Detox/Appium: typeof checks before native dispatch) ──
       const validationError = this.validateToolArgs(args, toolName);
@@ -792,6 +796,9 @@ ${screen.elementsText}
     } catch (error: any) {
       logger.error('AgentRuntime', `Tool "${toolName}" threw: ${error.message}`);
       return `❌ Tool "${toolName}" failed: ${error.message}`;
+    } finally {
+      // Always restore the flag — even on error or validation rejection
+      this.config.onToolExecute?.(false);
     }
   }
 
