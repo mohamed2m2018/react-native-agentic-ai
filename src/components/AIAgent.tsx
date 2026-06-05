@@ -27,6 +27,7 @@ import { MCPBridge } from '../core/MCPBridge';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
+import { TelemetryService, bindTelemetryService } from '../services/telemetry';
 import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 
@@ -164,6 +165,23 @@ interface AIAgentProps {
    * @default true
    */
   useScreenMap?: boolean;
+
+  // ── Analytics (opt-in) ──────────────
+
+  /**
+   * Publishable analytics key (mobileai_pub_xxx).
+   * Enables telemetry to MobileAI Cloud. Write-only — cannot read data.
+   */
+  analyticsKey?: string;
+  /**
+   * Proxy URL for enterprise customers — routes events through your backend.
+   * Replaces direct MobileAI Cloud API.
+   */
+  analyticsProxyUrl?: string;
+  /**
+   * Custom headers for analyticsProxyUrl (e.g., auth tokens).
+   */
+  analyticsProxyHeaders?: Record<string, string>;
 }
 
 // ─── Component ─────────────────────────────────────────────────
@@ -208,6 +226,9 @@ export function AIAgent({
   useScreenMap = true,
   maxTokenBudget,
   maxCostUSD,
+  analyticsKey,
+  analyticsProxyUrl,
+  analyticsProxyHeaders,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -321,6 +342,47 @@ export function AIAgent({
   useEffect(() => {
     runtime.updateRefs(rootViewRef.current, navRef);
   }, [runtime, navRef]);
+
+  // ─── Telemetry ─────────────────────────────────────────────
+
+  const telemetryRef = useRef<TelemetryService | null>(null);
+
+  useEffect(() => {
+    if (!analyticsKey && !analyticsProxyUrl) {
+      bindTelemetryService(null);
+      return;
+    }
+
+    const telemetry = new TelemetryService({
+      analyticsKey,
+      analyticsProxyUrl,
+      analyticsProxyHeaders,
+      debug,
+    });
+    telemetryRef.current = telemetry;
+    bindTelemetryService(telemetry);
+    telemetry.start();
+
+    return () => {
+      telemetry.stop();
+      telemetryRef.current = null;
+      bindTelemetryService(null);
+    };
+  }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, debug]);
+
+  // Track screen changes via navRef
+  useEffect(() => {
+    if (!navRef?.addListener || !telemetryRef.current) return;
+
+    const unsubscribe = navRef.addListener('state', () => {
+      const currentRoute = navRef.getCurrentRoute?.();
+      if (currentRoute?.name) {
+        telemetryRef.current?.setScreen(currentRoute.name);
+      }
+    });
+
+    return () => unsubscribe?.();
+  }, [navRef]);
 
   // ─── MCP Bridge ──────────────────────────────────────────────
 
@@ -665,11 +727,35 @@ export function AIAgent({
     setStatusText('Thinking...');
     setLastResult(null);
 
+    // Telemetry: track agent request
+    telemetryRef.current?.track('agent_request', {
+      query: message.trim(),
+    });
+
     try {
       // Ensure we have the latest Fiber tree ref
       runtime.updateRefs(rootViewRef.current, navRef);
 
       const result = await runtime.execute(message, messages);
+
+      // Telemetry: track agent completion and per-step details
+      if (telemetryRef.current) {
+        for (const step of result.steps ?? []) {
+          telemetryRef.current.track('agent_step', {
+            tool: step.action.name,
+            args: step.action.input,
+            result: typeof step.action.output === 'string'
+              ? step.action.output.substring(0, 200)
+              : String(step.action.output),
+          });
+        }
+        telemetryRef.current.track('agent_complete', {
+          success: result.success,
+          steps: result.steps?.length ?? 0,
+          tokens: result.tokenUsage?.totalTokens ?? 0,
+          cost: result.tokenUsage?.estimatedCostUSD ?? 0,
+        });
+      }
 
       setLastResult(result);
 
@@ -694,6 +780,13 @@ export function AIAgent({
       logger.info('AIAgent', `Result: ${result.success ? '✅' : '❌'} ${result.message}`);
     } catch (error: any) {
       logger.error('AIAgent', 'Execution failed:', error);
+
+      // Telemetry: track agent failure
+      telemetryRef.current?.track('agent_complete', {
+        success: false,
+        error: error.message,
+      });
+
       setLastResult({
         success: false,
         message: `Error: ${error.message}`,
