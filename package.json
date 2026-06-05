@@ -1,6 +1,6 @@
 {
   "name": "react-native-agentic-ai",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",

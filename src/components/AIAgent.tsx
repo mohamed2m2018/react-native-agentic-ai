@@ -637,7 +637,7 @@ export function AIAgent({
     if (!message.trim() || isThinking) return;
 
     logger.info('AIAgent', `User message: "${message}"`);
-    
+
     // Append user message
     setMessages((prev) => [
       ...prev,
@@ -672,7 +672,7 @@ export function AIAgent({
       const result = await runtime.execute(message, messages);
 
       setLastResult(result);
-      
+
       // Append assistant message
       setMessages((prev) => [
         ...prev,
@@ -728,71 +728,79 @@ export function AIAgent({
 
   return (
     <AgentContext.Provider value={contextValue}>
-      <View ref={rootViewRef} style={styles.root} collapsable={false}>
-        <AgentErrorBoundary
-          onError={(error, componentStack) => {
-            const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
-            lastAgentErrorRef.current = errorMsg;
-            logger.warn('AIAgent', `🛡️ Error caught by boundary: ${error.message}\n${componentStack || ''}`);
-          }}
-        >
-          {children}
-        </AgentErrorBoundary>
-
-        {/* Overlay (shown while thinking) */}
-        <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
-
-        {/* Chat bar */}
-        {showChatBar && (
-          <AgentChatBar
-            onSend={handleSend}
-            isThinking={isThinking}
-            lastResult={lastResult}
-            language={'en'}
-            onDismiss={() => setLastResult(null)}
-            theme={accentColor || theme ? {
-              ...(accentColor ? { primaryColor: accentColor } : {}),
-              ...theme,
-            } : undefined}
-            availableModes={availableModes}
-            mode={mode}
-            onModeChange={(newMode) => {
-              logger.info('AIAgent', `Mode change: ${mode} → ${newMode}`);
-              setMode(newMode);
+      <View style={styles.root}>
+        {/* App content — rootViewRef captures Fiber tree for element detection */}
+        <View ref={rootViewRef} style={styles.root} collapsable={false}>
+          <AgentErrorBoundary
+            onError={(error, componentStack) => {
+              const errorMsg = `⚠️ A rendering error occurred: ${error.message}`;
+              lastAgentErrorRef.current = errorMsg;
+              logger.warn('AIAgent', `🛡️ Error caught by boundary: ${error.message}\n${componentStack || ''}`);
             }}
-            isMicActive={isMicActive}
-            isSpeakerMuted={isSpeakerMuted}
-            isAISpeaking={isAISpeaking}
-            onStopSession={stopVoiceSession}
-            isVoiceConnected={isVoiceConnected}
-            onMicToggle={(active) => {
-              if (active && !isVoiceConnected) {
-                logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
-                return;
-              }
-              logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
-              setIsMicActive(active);
-              if (active) {
-                logger.info('AIAgent', 'Starting AudioInput...');
-                audioInputRef.current?.start().then((ok) => {
-                  logger.info('AIAgent', `AudioInput start result: ${ok}`);
-                });
-              } else {
-                logger.info('AIAgent', 'Stopping AudioInput...');
-                audioInputRef.current?.stop();
-              }
-            }}
-            onSpeakerToggle={(muted) => {
-              logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
-              setIsSpeakerMuted(muted);
-              if (muted) {
-                audioOutputRef.current?.mute();
-              } else {
-                audioOutputRef.current?.unmute();
-              }
-            }}
+          >
+            {children}
+          </AgentErrorBoundary>
+        </View>
 
-          />
+        {/* Floating UI — absolute-positioned View that passes touches through */}
+        {(showChatBar || isThinking) && (
+          <View style={styles.floatingLayer} pointerEvents="box-none">
+            {/* Overlay (shown while thinking) */}
+            <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
+
+            {/* Chat bar */}
+            {showChatBar && (
+              <AgentChatBar
+                onSend={handleSend}
+                isThinking={isThinking}
+                lastResult={lastResult}
+                language={'en'}
+                onDismiss={() => setLastResult(null)}
+                theme={accentColor || theme ? {
+                  ...(accentColor ? { primaryColor: accentColor } : {}),
+                  ...theme,
+                } : undefined}
+                availableModes={availableModes}
+                mode={mode}
+                onModeChange={(newMode) => {
+                  logger.info('AIAgent', `Mode change: ${mode} → ${newMode}`);
+                  setMode(newMode);
+                }}
+                isMicActive={isMicActive}
+                isSpeakerMuted={isSpeakerMuted}
+                isAISpeaking={isAISpeaking}
+                onStopSession={stopVoiceSession}
+                isVoiceConnected={isVoiceConnected}
+                onMicToggle={(active) => {
+                  if (active && !isVoiceConnected) {
+                    logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
+                    return;
+                  }
+                  logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
+                  setIsMicActive(active);
+                  if (active) {
+                    logger.info('AIAgent', 'Starting AudioInput...');
+                    audioInputRef.current?.start().then((ok) => {
+                      logger.info('AIAgent', `AudioInput start result: ${ok}`);
+                    });
+                  } else {
+                    logger.info('AIAgent', 'Stopping AudioInput...');
+                    audioInputRef.current?.stop();
+                  }
+                }}
+                onSpeakerToggle={(muted) => {
+                  logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
+                  setIsSpeakerMuted(muted);
+                  if (muted) {
+                    audioOutputRef.current?.mute();
+                  } else {
+                    audioOutputRef.current?.unmute();
+                  }
+                }}
+
+              />
+            )}
+          </View>
         )}
       </View>
     </AgentContext.Provider>
@@ -803,5 +811,13 @@ export function AIAgent({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  floatingLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 99999,
   },
 });
