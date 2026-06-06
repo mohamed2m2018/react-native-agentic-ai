@@ -14,12 +14,13 @@
  * - Auto-reconnect on unexpected close (max 3 attempts, exponential backoff)
  */
 
-export type SocketReplyHandler = (reply: string) => void;
+export type SocketReplyHandler = (reply: string, ticketId?: string) => void;
 
 interface EscalationSocketOptions {
   onReply: SocketReplyHandler;
   onError?: (error: Event) => void;
   onTypingChange?: (isTyping: boolean) => void;
+  onTicketClosed?: (ticketId?: string) => void;
   maxReconnectAttempts?: number;
 }
 
@@ -33,12 +34,14 @@ export class EscalationSocket {
   private readonly onReply: SocketReplyHandler;
   private readonly onError?: (error: Event) => void;
   private readonly onTypingChange?: (isTyping: boolean) => void;
+  private readonly onTicketClosed?: (ticketId?: string) => void;
   private readonly maxReconnectAttempts: number;
 
   constructor(options: EscalationSocketOptions) {
     this.onReply = options.onReply;
     this.onError = options.onError;
     this.onTypingChange = options.onTypingChange;
+    this.onTicketClosed = options.onTicketClosed;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 3;
   }
 
@@ -103,11 +106,17 @@ export class EscalationSocket {
         if (msg.type === 'reply' && msg.reply) {
           console.log('[EscalationSocket] Human reply received:', msg.reply);
           this.onTypingChange?.(false);
-          this.onReply(msg.reply);
+          this.onReply(msg.reply, msg.ticketId);
         } else if (msg.type === 'typing_start') {
           this.onTypingChange?.(true);
         } else if (msg.type === 'typing_stop') {
           this.onTypingChange?.(false);
+        } else if (msg.type === 'ticket_closed') {
+          console.log('[EscalationSocket] Ticket closed by agent');
+          this.onTypingChange?.(false);
+          this.onTicketClosed?.(msg.ticketId);
+          this.intentionalClose = true;
+          this.ws?.close();
         }
       } catch {
         // Non-JSON message — ignore

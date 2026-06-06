@@ -13,6 +13,8 @@ import type { EscalationConfig, EscalationContext } from './types';
 import { EscalationSocket } from './EscalationSocket';
 
 import { ENDPOINTS } from '../config/endpoints';
+import { getDeviceId } from '../services/telemetry/device';
+import { logger } from '../utils/logger';
 
 const MOBILEAI_HOST = ENDPOINTS.escalation;
 
@@ -21,9 +23,10 @@ export interface EscalationToolDeps {
   analyticsKey?: string;
   getContext: () => Omit<EscalationContext, 'conversationSummary'>;
   getHistory: () => Array<{ role: string; content: string }>;
-  onHumanReply?: (reply: string) => void;
+  onHumanReply?: (reply: string, ticketId?: string) => void;
   onEscalationStarted?: (ticketId: string, socket: EscalationSocket) => void;
   onTypingChange?: (isTyping: boolean) => void;
+  onTicketClosed?: (ticketId?: string) => void;
   userContext?: {
     userId?: string;
     name?: string;
@@ -58,7 +61,7 @@ export function createEscalateTool(
     deps = depsOrConfig as EscalationToolDeps;
   }
 
-  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, userContext, pushToken, pushTokenType } = deps;
+  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, onTicketClosed, userContext, pushToken, pushTokenType } = deps;
 
   // Determine effective provider
   const provider = config.provider ?? (analyticsKey ? 'mobileai' : 'custom');
@@ -86,10 +89,11 @@ export function createEscalateTool(
 
       if (provider === 'mobileai') {
         if (!analyticsKey) {
-          console.warn('[Escalation] provider=mobileai but no analyticsKey — falling back to custom');
+          logger.warn('Escalation', 'provider=mobileai but no analyticsKey — falling back to custom');
         } else {
           try {
             const history = getHistory().slice(-20); // last 20 messages for context
+            logger.info('Escalation', '★★★ Creating ticket — reason:', reason, '| deviceId:', getDeviceId());
             const res = await fetch(`${MOBILEAI_HOST}/api/v1/escalations`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -102,35 +106,45 @@ export function createEscalateTool(
                 userContext,
                 pushToken,
                 pushTokenType,
+                deviceId: getDeviceId(),
               }),
             });
 
             if (res.ok) {
               const { ticketId, wsUrl } = await res.json();
-              console.log(`[Escalation] Ticket created: ${ticketId}`);
+              logger.info('Escalation', '★★★ Ticket created:', ticketId, '| wsUrl:', wsUrl);
 
               // Connect WebSocket for real-time reply
               socket?.disconnect();
               socket = new EscalationSocket({
-                onReply: (reply) => {
-                  console.log(`[Escalation] Human reply received for ticket ${ticketId}`);
-                  onHumanReply?.(reply);
-                  // We do NOT disconnect the socket anymore so multi-turn can continue
+                onReply: (reply, replyTicketId) => {
+                  logger.info('Escalation', '★★★ Human reply for ticket', ticketId, ':', reply.substring(0, 80));
+                  onHumanReply?.(reply, replyTicketId || ticketId);
                 },
-                onTypingChange,
+                onTypingChange: (v) => {
+                  logger.info('Escalation', '★★★ Agent typing:', v);
+                  onTypingChange?.(v);
+                },
+                onTicketClosed: (closedTicketId) => {
+                  logger.info('Escalation', '★★★ Ticket closed:', ticketId);
+                  onTicketClosed?.(closedTicketId || ticketId);
+                },
                 onError: (err) => {
-                  console.error('[Escalation] WebSocket error:', err);
+                  logger.error('Escalation', '★★★ WebSocket error:', err);
                 },
               });
               socket.connect(wsUrl);
-              
+              logger.info('Escalation', '★★★ WebSocket connecting...');
+
               // Pass the socket to UI
+              logger.info('Escalation', '★★★ Calling onEscalationStarted for ticket:', ticketId);
               onEscalationStarted?.(ticketId, socket);
+              logger.info('Escalation', '★★★ onEscalationStarted DONE');
             } else {
-              console.error('[Escalation] Failed to create ticket:', res.status);
+              logger.error('Escalation', 'Failed to create ticket:', res.status);
             }
           } catch (err) {
-            console.error('[Escalation] Network error:', (err as Error).message);
+            logger.error('Escalation', 'Network error:', (err as Error).message);
           }
 
           const message = config.escalationMessage ?? 'Connecting you to a human agent...';

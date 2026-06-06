@@ -139,3 +139,17 @@ export interface BusinessHoursConfig {
   /** Message shown outside business hours */
   offlineMessage?: string;
 }
+
+// ─── Support Ticket ───────────────────────────────────────
+
+export interface SupportTicket {
+  id: string;
+  reason: string;
+  screen: string;
+  status: string;
+  history: Array<{ role: string; content: string; timestamp?: string }>;
+  createdAt: string;
+  wsUrl: string;
+  /** Number of unread messages (computed by backend = history.length - readMessageCount) */
+  unreadCount?: number;
+}

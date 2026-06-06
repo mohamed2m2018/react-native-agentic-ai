@@ -122,6 +122,7 @@
     "react-native-audio-api": "*"
   },
   "peerDependencies": {
+    "@react-native-async-storage/async-storage": "*",
     "expo-speech-recognition": "*",
     "react": "*",
     "react-native": "*",
@@ -129,6 +130,9 @@
     "react-native-view-shot": "*"
   },
   "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
     "react-native-audio-api": {
       "optional": true
     },

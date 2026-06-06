@@ -198,6 +198,17 @@ Then rebuild: `npx expo prebuild && npx expo run:android` (or `run:ios`)
 
 </details>
 
+<details>
+<summary><b>💬 Human Support</b> — persist tickets and restore them across sessions</summary>
+
+```bash
+npx expo install @react-native-async-storage/async-storage
+```
+
+**Optional** but recommended when using human escalation support. Without it, support tickets are only visible during the current app session and won't be restored after the app restarts.
+
+</details>
+
 ---
 
 ## 🚀 Quick Start

@@ -11,6 +11,7 @@ export type {
   CSATConfig,
   CSATRating,
   BusinessHoursConfig,
+  SupportTicket,
 } from './types';
 
 // Prompt injection

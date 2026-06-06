@@ -25,15 +25,17 @@ config.resolver.extraNodeModules = {
   [pkg.name]: monorepoRoot,
 };
 
-// resolveRequest disabled — testing published npm package
-// config.resolver.resolveRequest = (context, moduleName, platform) => {
-//   if (moduleName === pkg.name || moduleName.startsWith(pkg.name + '/')) {
-//     const subPath = moduleName.replace(pkg.name, '');
-//     const srcPath = path.resolve(monorepoRoot, 'src', subPath || 'index');
-//     return context.resolveRequest(context, srcPath, platform);
-//   }
-//   return context.resolveRequest(context, moduleName, platform);
-// };
+// Resolve @mobileai/react-native directly from src/ — no rebuild needed on change
+const SDK_NAMES = [pkg.name, '@mobileai/react-native'];
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const matched = SDK_NAMES.find(n => moduleName === n || moduleName.startsWith(n + '/'));
+  if (matched) {
+    const subPath = moduleName.replace(matched, '');
+    const srcPath = path.resolve(monorepoRoot, 'src', subPath || 'index');
+    return context.resolveRequest(context, srcPath, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 // Block the parent's node_modules versions of react/react-native
 // from being resolved via watchFolders

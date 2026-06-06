@@ -4,7 +4,7 @@
 
 // ─── Agent Modes ──────────────────────────────────────────────
 
-export type AgentMode = 'text' | 'voice';
+export type AgentMode = 'text' | 'voice' | 'human';
 
 // ─── Provider Names ──────────────────────────────────────────
 

@@ -21,11 +21,35 @@ import { FlagService } from '../flags/FlagService';
 
 // Optional: AsyncStorage for offline event persistence
 // SDK works without it — just loses crash recovery for queued events
-let AsyncStorageModule: any = null;
-try {
-  AsyncStorageModule = require('@react-native-async-storage/async-storage').default;
-} catch {
-  // Not installed — offline queue persistence disabled
+let _asyncStorage: any = null;
+let _asyncStorageLoaded = false;
+
+function loadAsyncStorage(): any {
+  if (_asyncStorageLoaded) return _asyncStorage;
+  _asyncStorageLoaded = true;
+  try {
+    // Suppress the RN red box that AsyncStorage triggers when its native module
+    // isn't linked ("NativeModule: AsyncStorage is null").
+    const origError = console.error;
+    console.error = (...args: unknown[]) => {
+      const msg = args[0];
+      if (typeof msg === 'string' && msg.includes('AsyncStorage')) return;
+      origError.apply(console, args);
+    };
+    try {
+      const mod = require('@react-native-async-storage/async-storage');
+      _asyncStorage = mod.default ?? mod;
+    } finally {
+      console.error = origError;
+    }
+    // Verify the native module actually works by checking for the native bridge
+    if (!_asyncStorage || typeof _asyncStorage.getItem !== 'function') {
+      _asyncStorage = null;
+    }
+  } catch {
+    // Not installed — offline queue persistence disabled
+  }
+  return _asyncStorage;
 }
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -228,7 +252,7 @@ export class TelemetryService {
       const batch: TelemetryBatch = {
         analyticsKey: this.config.analyticsKey ?? '',
         appId: Platform.OS, // Consumer can override via config later
-        deviceId: getDeviceId(),
+        deviceId: getDeviceId() ?? 'unknown',
         sdkVersion: SDK_VERSION,
         events: eventsToSend,
       };
@@ -259,9 +283,10 @@ export class TelemetryService {
 
   /** Save queued events to AsyncStorage for crash/restart recovery */
   private async persistQueue(): Promise<void> {
-    if (!AsyncStorageModule) return;
+    const storage = loadAsyncStorage();
+    if (!storage) return;
     try {
-      await AsyncStorageModule.setItem(STORAGE_KEY, JSON.stringify(this.queue));
+      await storage.setItem(STORAGE_KEY, JSON.stringify(this.queue));
     } catch {
       // AsyncStorage may not be available in all environments
     }
@@ -269,13 +294,14 @@ export class TelemetryService {
 
   /** Restore queued events from previous session */
   private async restoreQueue(): Promise<void> {
-    if (!AsyncStorageModule) return;
+    const storage = loadAsyncStorage();
+    if (!storage) return;
     try {
-      const stored = await AsyncStorageModule.getItem(STORAGE_KEY);
+      const stored = await storage.getItem(STORAGE_KEY);
       if (stored) {
         const events: TelemetryEvent[] = JSON.parse(stored);
         this.queue = [...events, ...this.queue];
-        await AsyncStorageModule.removeItem(STORAGE_KEY);
+        await storage.removeItem(STORAGE_KEY);
         logger.info(LOG_TAG, `Restored ${events.length} events from previous session`);
       }
     } catch {

@@ -110,7 +110,7 @@ export class FlagService {
   }
 
   private assignAll(flags: FeatureFlagPayload[], userId?: string) {
-    const identifier = userId || getDeviceId();
+    const identifier = userId || getDeviceId() || 'unknown';
     
     const newAssignments: Record<string, string> = {};
     for (const flag of flags) {
