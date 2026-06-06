@@ -35,6 +35,8 @@ import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
 import { ProactiveHint } from './ProactiveHint';
 import { createEscalateTool } from '../support/escalateTool';
+import type { EscalationSocket } from '../support/EscalationSocket';
+import { ENDPOINTS } from '../config/endpoints';
 
 // ─── Context ───────────────────────────────────────────────────
 
@@ -190,6 +192,34 @@ interface AIAgentProps {
    * Proactive agent configuration (detects user hesitation)
    */
   proactiveHelp?: ProactiveHelpConfig;
+
+  // ── Support Configuration ────────────
+
+  /**
+   * Identity of the logged-in user.
+   * If provided, this enforces "one ticket per user" and shows the user profile
+   * in the Dashboard (name, email, plan, etc.).
+   */
+  userContext?: {
+    userId?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    plan?: string;
+    custom?: Record<string, string | number | boolean>;
+  };
+
+  /**
+   * Device push token for offline support replies.
+   * Use '@react-native-firebase/messaging' or 'expo-notifications' to get this.
+   */
+  pushToken?: string;
+
+  /**
+   * The type of push token provided.
+   * "fcm" is recommended for universal bare/Expo support.
+   */
+  pushTokenType?: 'fcm' | 'expo' | 'apns';
 }
 
 
@@ -239,6 +269,9 @@ export function AIAgent({
   analyticsProxyUrl,
   analyticsProxyHeaders,
   proactiveHelp,
+  userContext,
+  pushToken,
+  pushTokenType,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -253,6 +286,11 @@ export function AIAgent({
   const [statusText, setStatusText] = useState('');
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
+
+  // ── Support Modal State ──
+  const [supportTicketId, setSupportTicketId] = useState<string | null>(null);
+  const [supportSocket, setSupportSocket] = useState<EscalationSocket | null>(null);
+  const [isLiveAgentTyping, setIsLiveAgentTyping] = useState(false);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -276,20 +314,112 @@ export function AIAgent({
       }),
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.content })),
+      userContext,
+      pushToken,
+      pushTokenType,
+      onEscalationStarted: (ticketId, socket) => {
+        setSupportTicketId(ticketId);
+        setSupportSocket(socket);
+        setMode('text'); // Ensure we stay in text mode for seamless intercom-style chat
+      },
       onHumanReply: (reply: string) => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `human-${Date.now()}`,
-            role: 'assistant' as const,
-            content: `👤 Human Agent: ${reply}`,
-            timestamp: Date.now(),
-          },
-        ]);
+        const humanMsg: AIMessage = {
+          id: `human-${Date.now()}`,
+          role: 'live_agent' as any,
+          content: reply,
+          timestamp: Date.now(),
+        };
+        // Add to main AI conversation thread
+        setMessages((prev) => [...prev, humanMsg]);
+        
+        // Show immediately in the AgentChatBar bubble
+        setLastResult({
+          success: true,
+          message: `👤 ${reply}`,
+          steps: [],
+        });
+      },
+      onTypingChange: (isTyping: boolean) => {
+        setIsLiveAgentTyping(isTyping);
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analyticsKey, navRef, customTools]);
+
+  // ─── Restore pending ticket on app start ──────────────────────
+  // If the user had an open ticket when the app was last closed, reopen it.
+  useEffect(() => {
+    if (!analyticsKey || (!userContext?.userId && !pushToken)) return;
+
+    void (async () => {
+      try {
+        const query = new URLSearchParams({ analyticsKey });
+        if (userContext?.userId) query.append('userId', userContext.userId);
+        if (pushToken) query.append('pushToken', pushToken);
+
+        const res = await fetch(`${ENDPOINTS.escalation}/api/v1/escalations/active?${query.toString()}`);
+        
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (!data.active || !data.ticket) return;
+
+        const { ticket } = data;
+        console.log('[AIAgent] Restoring pending ticket from backend:', ticket.id);
+
+        // The API returns the whole ticket including history.
+        // We restore it directly into the main AI context thread so it's seamless.
+        if (ticket.history?.length) {
+          const restored: AIMessage[] = ticket.history.map(
+            (entry: { role: string; content: string; timestamp?: string }, i: number) => ({
+              id: `restored-${i}`,
+              role: entry.role === 'live_agent' ? 'assistant' : entry.role as any,
+              content: entry.content,
+              timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+            })
+          );
+          setMessages((prev) => {
+            // Uniquify by ID in a simplistic way
+            if (prev.find(m => m.id === restored[0]?.id)) return prev;
+            return [...prev, ...restored];
+          });
+        }
+
+        setSupportTicketId(ticket.id);
+        setMode('text'); // Stay in text mode for seamless integration
+
+        // Reconnect WebSocket
+        const { EscalationSocket: ESClass } = await import('../support/EscalationSocket');
+        const socket = new ESClass({
+          onReply: (reply: string) => {
+            const msg: AIMessage = {
+              id: `human-${Date.now()}`,
+              role: 'assistant', // Map live_agent to assistant for seamless rendering
+              content: reply,
+              timestamp: Date.now(),
+            };
+            setMessages((prev) => [...prev, msg]);
+            setLastResult({
+              success: true,
+              message: `👤 ${reply}`,
+              steps: [],
+            });
+          },
+          onTypingChange: (isTyping: boolean) => {
+            setIsLiveAgentTyping(isTyping);
+          },
+          onError: (err) => console.error('[AIAgent] Restored socket error:', err),
+        });
+        socket.connect(ticket.wsUrl);
+        setSupportSocket(socket);
+
+        console.log('[AIAgent] Ticket restored successfully:', ticket.id);
+      } catch (err) {
+        console.error('[AIAgent] Failed to restore ticket:', err);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsKey]);
 
   const mergedCustomTools = useMemo(() => {
     if (!autoEscalateTool) return customTools;
@@ -312,7 +442,6 @@ export function AIAgent({
   const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAgentErrorRef = useRef<string | null>(null);
 
-  // Compute available modes from props
   const availableModes: AgentMode[] = useMemo(() => {
     const modes: AgentMode[] = ['text'];
     if (enableVoice) modes.push('voice');
@@ -501,10 +630,10 @@ export function AIAgent({
 
   // ─── Voice/Live Service Initialization ──────────────────────
 
-  // Initialize voice services when mode changes to voice or live
+  // Initialize voice services when mode changes to voice
   useEffect(() => {
-    if (mode === 'text') {
-      logger.info('AIAgent', 'Text mode — skipping voice service init');
+    if (mode !== 'voice') {
+      logger.info('AIAgent', `Mode ${mode} — skipping voice service init`);
       return;
     }
 
@@ -802,7 +931,32 @@ export function AIAgent({
 
     logger.info('AIAgent', `User message: "${message}"`);
 
-    // Append user message
+    // Intercom-style transparent intercept: 
+    // If we're connected to a human agent, all text input goes directly to them.
+    if (supportTicketId && supportSocket) {
+      if (supportSocket.sendText(message)) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `user-${Date.now()}`, role: 'user', content: message.trim(), timestamp: Date.now() },
+        ]);
+        
+        setIsThinking(true);
+        setStatusText('Sent to support...');
+        setTimeout(() => {
+          setIsThinking(false);
+          setStatusText('');
+        }, 1200);
+      } else {
+        setLastResult({
+          success: false,
+          message: 'Failed to send message to support agent. Connection lost.',
+          steps: [],
+        });
+      }
+      return;
+    }
+
+    // Append user message to AI thread
     setMessages((prev) => [
       ...prev,
       {
@@ -1005,6 +1159,7 @@ export function AIAgent({
                 isMicActive={isMicActive}
                 isSpeakerMuted={isSpeakerMuted}
                 isAISpeaking={isAISpeaking}
+                isAgentTyping={isLiveAgentTyping}
                 onStopSession={stopVoiceSession}
                 isVoiceConnected={isVoiceConnected}
                 onMicToggle={(active) => {

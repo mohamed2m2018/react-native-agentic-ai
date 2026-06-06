@@ -43,7 +43,7 @@ export type HomeStackParamList = {
   Menu: { category: string };
   DishDetail: { dish: MenuItem };
   DishReviews: { dishName: string };
-  ReportIssue: { dishName: string; reviewId: number };
+  ReportIssue: { itemName?: string; itemId?: string } | undefined;
   WriteReview: { dishName: string };
   ReviewThanks: { dishName: string };
   LoyaltyProgram: undefined;
@@ -262,6 +262,14 @@ export default function App() {
           maxSteps={25}
           enableVoice
           debug
+          userContext={{
+            userId: 'usr_abc123',
+            name: 'Demo User',
+            email: 'demo@example.com',
+            plan: 'Premium',
+          }}
+          pushToken="dummy_fcm_token_123"
+          pushTokenType="fcm"
           instructions={{
             system: 'You are a helpful food delivery assistant. Always be polite.',
             getScreenInstructions: (screenName: string) => {
