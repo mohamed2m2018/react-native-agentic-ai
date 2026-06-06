@@ -6,6 +6,15 @@
 
 export type AgentMode = 'text' | 'voice' | 'human';
 
+/**
+ * Controls how the agent handles irreversible actions.
+ * 'copilot' (default): AI pauses before final commit actions (place order, delete, submit).
+ *   The prompt instructs the AI to ask_user before the final irreversible step.
+ *   Elements with aiConfirm={true} also trigger a code-level confirmation gate.
+ * 'autopilot': Full autonomy — all actions execute without confirmation.
+ */
+export type InteractionMode = 'copilot' | 'autopilot';
+
 // ─── Provider Names ──────────────────────────────────────────
 
 export type AIProviderName = 'gemini' | 'openai';
@@ -38,6 +47,11 @@ export interface InteractiveElement {
    * - Switch: onValueChange, value
    */
   props: Record<string, any>;
+  /**
+   * If true, AI interaction with this element requires user confirmation (copilot safety net).
+   * Set automatically by the FiberTreeWalker when the element has aiConfirm={true} prop.
+   */
+  requiresConfirmation?: boolean;
 }
 
 // ─── Dehydrated Screen State ──────────────────────────────────
@@ -118,6 +132,13 @@ export interface AgentConfig {
   
   /** Maximum steps per task */
   maxSteps?: number;
+
+  /**
+   * Controls how the agent handles irreversible actions.
+   * 'copilot' (default): AI pauses before final commit actions.
+   * 'autopilot': Full autonomy, no pauses.
+   */
+  interactionMode?: InteractionMode;
 
   /**
    * MCP server mode — controls whether external agents can discover and invoke actions.

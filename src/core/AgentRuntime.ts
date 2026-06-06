@@ -786,6 +786,15 @@ ${screen.elementsText}
         return validationError;
       }
 
+      // ── Copilot aiConfirm gate ──────────────────────────────────
+      // In copilot mode, elements marked with aiConfirm={true} require
+      // user confirmation before execution. This is the code-level safety net
+      // complementing the prompt-level copilot instructions.
+      if (this.config.interactionMode !== 'autopilot') {
+        const confirmResult = await this.checkCopilotConfirmation(toolName, args);
+        if (confirmResult) return confirmResult;
+      }
+
       const result = await tool.execute(args);
 
       // Settle window for async side-effects (useEffect, native callbacks)
@@ -833,6 +842,74 @@ ${screen.elementsText}
           return `❌ Argument "${key}" must be a finite number for tool "${toolName}", got ${typeof val}: ${val}`;
         }
       }
+    }
+
+    return null;
+  }
+
+  // ─── Copilot Confirmation ─────────────────────────────────────
+
+  /** Write tools that can mutate state — only these are checked for aiConfirm */
+  private static readonly WRITE_TOOLS = new Set([
+    'tap', 'type', 'long_press', 'adjust_slider', 'select_picker', 'set_date',
+  ]);
+
+  /**
+   * Check if a tool call targets an aiConfirm element and request user confirmation.
+   * Returns null if the action should proceed, or an error string if rejected.
+   */
+  private async checkCopilotConfirmation(
+    toolName: string,
+    args: Record<string, any>,
+  ): Promise<string | null> {
+    // Only gate write tools
+    if (!AgentRuntime.WRITE_TOOLS.has(toolName)) return null;
+
+    // Look up the target element by index
+    const index = args.index;
+    if (typeof index !== 'number') return null;
+
+    const screen = this.lastDehydratedRoot as import('./types').DehydratedScreen | null;
+    if (!screen?.elements) return null;
+
+    const element = screen.elements.find(e => e.index === index);
+    if (!element?.requiresConfirmation) return null;
+
+    // Element has aiConfirm — request user confirmation
+    const label = element.label || `[${element.type}]`;
+    const description = this.getToolStatusLabel(toolName, args);
+    const question = `I'm about to ${description} on "${label}". Should I proceed?`;
+
+    logger.info('AgentRuntime', `🛡️ Copilot: aiConfirm gate triggered for "${toolName}" on "${label}"`);
+
+    // Use onAskUser if available (integrated into chat UI), otherwise Alert.alert
+    if (this.config.onAskUser) {
+      const response = await this.config.onAskUser(question);
+      const approved = /^(yes|ok|sure|go|proceed|confirm|y)/i.test(response.trim());
+      if (!approved) {
+        logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
+        return `❌ User rejected "${toolName}" action on "${label}". Ask what they would like to do instead.`;
+      }
+      return null;
+    }
+
+    // Fallback: React Native Alert
+    const { Alert } = require('react-native');
+    const approved = await new Promise<boolean>(resolve => {
+      Alert.alert(
+        'Confirm Action',
+        question,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continue', onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    });
+
+    if (!approved) {
+      logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
+      return `❌ User rejected "${toolName}" action on "${label}". Ask what they would like to do instead.`;
     }
 
     return null;
@@ -1190,7 +1267,8 @@ ${screen.elementsText}
         // 5. Send to AI provider
         this.config.onStatusUpdate?.('Analyzing screen...');
         const hasKnowledge = !!this.knowledgeService;
-        const systemPrompt = buildSystemPrompt('en', hasKnowledge);
+        const isCopilot = this.config.interactionMode !== 'autopilot';
+        const systemPrompt = buildSystemPrompt('en', hasKnowledge, isCopilot);
         const tools = this.buildToolsForProvider();
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
@@ -1339,6 +1417,14 @@ ${screen.elementsText}
         steps: this.history,
         tokenUsage: sessionUsage,
       };
+
+      // Dev warning: remind developers to add aiConfirm for extra safety
+      if (__DEV__ && this.config.interactionMode !== 'autopilot') {
+        logger.info('AgentRuntime',
+          'ℹ️ Copilot mode active. Tip: Add aiConfirm={true} to critical buttons (e.g. "Place Order", "Delete") for extra safety.'
+        );
+      }
+
       await this.config.onAfterTask?.(result);
       return result;
     } catch (error: any) {

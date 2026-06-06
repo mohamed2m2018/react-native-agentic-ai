@@ -617,6 +617,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         zoneId: currentZoneId,
         fiberNode: node,
         props: { ...props },
+        requiresConfirmation: props.aiConfirm === true,
       });
 
       // Build output tag with state attributes
@@ -625,6 +626,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (props.aiPriority) {
         attrStr += ` aiPriority="${props.aiPriority}"`;
         if (currentZoneId) attrStr += ` zoneId="${currentZoneId}"`;
+      }
+      
+      if (props.aiConfirm === true) {
+        attrStr += ' aiConfirm';
       }
       
       const textContent = label || '';

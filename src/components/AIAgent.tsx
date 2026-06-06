@@ -30,7 +30,7 @@ import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
 import { extractTouchLabel, checkRageClick } from '../services/telemetry/TouchAutoCapture';
 import { initDeviceId, getDeviceId } from '../services/telemetry/device';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
@@ -42,6 +42,30 @@ import { SupportChatModal } from '../support/SupportChatModal';
 import { ENDPOINTS } from '../config/endpoints';
 
 // ─── Context ───────────────────────────────────────────────────
+
+// ─── AsyncStorage Helper (same pattern as TicketStore) ─────────
+
+/** Try to load AsyncStorage for tooltip persistence. Optional peer dep. */
+function getTooltipStorage(): any | null {
+  try {
+    const origError = console.error;
+    console.error = (...args: unknown[]) => {
+      const msg = args[0];
+      if (typeof msg === 'string' && msg.includes('AsyncStorage')) return;
+      origError.apply(console, args);
+    };
+    try {
+      const mod = require('@react-native-async-storage/async-storage');
+      const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
+      if (candidate && typeof candidate.getItem === 'function') return candidate;
+      return null;
+    } finally {
+      console.error = origError;
+    }
+  } catch {
+    return null;
+  }
+}
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -223,6 +247,24 @@ interface AIAgentProps {
    * "fcm" is recommended for universal bare/Expo support.
    */
   pushTokenType?: 'fcm' | 'expo' | 'apns';
+
+  /**
+   * Controls how the agent handles irreversible UI actions.
+   * 'copilot' (default): AI pauses before final commit actions (place order, delete, submit).
+   * 'autopilot': Full autonomy — all actions execute without confirmation.
+   *
+   * In copilot mode, the AI works silently (navigates, fills forms, scrolls) and
+   * pauses ONCE before the final irreversible action. Elements with aiConfirm={true}
+   * also trigger a code-level confirmation gate as a safety net.
+   */
+  interactionMode?: InteractionMode;
+
+  /**
+   * Show a one-time discovery tooltip above the chat FAB.
+   * Tells new users the AI can navigate and interact with the app.
+   * Default: true (shows once, then remembered via AsyncStorage)
+   */
+  showDiscoveryTooltip?: boolean;
 }
 
 
@@ -275,6 +317,8 @@ export function AIAgent({
   userContext,
   pushToken,
   pushTokenType,
+  interactionMode,
+  showDiscoveryTooltip: showDiscoveryTooltipProp = true,
 }: AIAgentProps) {
   // Configure logger based on debug prop
   React.useEffect(() => {
@@ -318,6 +362,33 @@ export function AIAgent({
   const sseRef = useRef<Map<string, EscalationEventSource>>(new Map());
 
   const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
+
+  // ── Discovery Tooltip (one-time) ──────────────────────────
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  useEffect(() => {
+    if (!showDiscoveryTooltipProp) return;
+    void (async () => {
+      try {
+        const AS = getTooltipStorage();
+        if (!AS) { setTooltipVisible(true); return; }
+        const seen = await AS.getItem('@mobileai_tooltip_seen');
+        if (!seen) setTooltipVisible(true);
+      } catch {
+        setTooltipVisible(true);
+      }
+    })();
+  }, [showDiscoveryTooltipProp]);
+
+  const handleTooltipDismiss = useCallback(() => {
+    setTooltipVisible(false);
+    void (async () => {
+      try {
+        const AS = getTooltipStorage();
+        await AS?.setItem('@mobileai_tooltip_seen', 'true');
+      } catch { /* graceful */ }
+    })();
+  }, []);
 
   // CRITICAL: clearSupport uses REFS and functional setters — never closure values.
   // This function is captured by long-lived callbacks (escalation sockets, restored
@@ -870,6 +941,7 @@ export function AIAgent({
     screenMap: useScreenMap ? screenMap : undefined,
     maxTokenBudget,
     maxCostUSD,
+    interactionMode,
     // Block the agent loop until user responds
     onAskUser: mode === 'voice' ? undefined : ((question: string) => {
       return new Promise<string>((resolve) => {
@@ -1605,6 +1677,8 @@ export function AIAgent({
                 autoExpandTrigger={autoExpandTrigger}
                 unreadCounts={unreadCounts}
                 totalUnread={totalUnread}
+                showDiscoveryTooltip={tooltipVisible}
+                onTooltipDismiss={handleTooltipDismiss}
               />
             </ProactiveHint>
           )}

@@ -30,6 +30,7 @@ import {
 } from './Icons';
 import type { SupportTicket } from '../support/types';
 import { logger } from '../utils/logger';
+import { DiscoveryTooltip } from './DiscoveryTooltip';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -78,6 +79,10 @@ interface AgentChatBarProps {
   unreadCounts?: Record<string, number>;
   /** Total unread messages across all tickets */
   totalUnread?: number;
+  /** Show first-use discovery tooltip above FAB */
+  showDiscoveryTooltip?: boolean;
+  /** Called when discovery tooltip is dismissed */
+  onTooltipDismiss?: () => void;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -445,6 +450,8 @@ export function AgentChatBar({
   lastUserMessage,
   unreadCounts = {},
   totalUnread = 0,
+  showDiscoveryTooltip = false,
+  onTooltipDismiss,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -531,11 +538,22 @@ export function AgentChatBar({
       >
         <Pressable
           style={[styles.fab, theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined]}
-          onPress={() => setIsExpanded(true)}
+          onPress={() => {
+            onTooltipDismiss?.();
+            setIsExpanded(true);
+          }}
           accessibilityLabel={totalUnread > 0 ? `Open AI Agent Chat - ${totalUnread} unread messages` : 'Open AI Agent Chat'}
         >
           {isThinking ? <LoadingDots size={28} color={theme?.textColor || '#fff'} /> : <AIBadge size={28} />}
         </Pressable>
+        {/* Discovery tooltip — shows above FAB on first use */}
+        {showDiscoveryTooltip && (
+          <DiscoveryTooltip
+            language={language}
+            primaryColor={theme?.primaryColor}
+            onDismiss={() => onTooltipDismiss?.()}
+          />
+        )}
         {/* Unread badge on collapsed FAB */}
         {totalUnread > 0 && (
           <View style={styles.fabUnreadBadge} pointerEvents="none">
