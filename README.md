@@ -1,6 +1,6 @@
-# Agentic AI for React Native
+# AI Support That Resolves — Not Deflects
 
-> **Add an autonomous AI agent to any React Native app — no rewrite needed.** Wrap your app with `<AIAgent>` and get: natural language UI control, real-time voice conversations, and a built-in knowledge base. Fully customizable, production-grade security, performant, and lightweight. Plus: an MCP bridge that lets any AI connect to and test your app.
+> **Drop in one React Native component and your app gets AI support that answers questions, navigates users to the right screen, fills forms, and resolves issues end-to-end — with live human backup when needed. No backend integration required.**
 
 **Two names, one package — pick whichever you prefer:**
 
@@ -10,10 +10,10 @@ npm install @mobileai/react-native
 npm install react-native-agentic-ai
 ```
 
-### 🤖 AI Agent — Autonomous UI Control
+### 🤖 AI Support Agent — Answers, Acts, and Resolves Inside Your App
 
 <p align="center">
-  <img src="./assets/demo.gif" alt="AI Agent autonomously controlling a React Native app UI via natural language" width="350" />
+  <img src="./assets/demo.gif" alt="AI Support Agent navigating the app and resolving user issues end-to-end" width="350" />
 </p>
 
 ### 🧪 AI-Powered Testing — Test Your App in English, Not Code
@@ -40,63 +40,184 @@ npm install react-native-agentic-ai
 
 ---
 
-## 🧠 How It Works — Structure-First Agentic AI
+## 💡 The Problem With Every Support Tool Today
 
-What if your AI could understand your app the way a real user does — not by looking at pixels, but by reading the actual UI structure?
+Intercom, Zendesk, and every chat widget all do the same thing: send the user instructions in a chat bubble.
 
-That's what this SDK does. It reads your app's live UI natively — every button, label, input, and screen — in real time. The AI understands your app's structure, not a screenshot of it.
+*"To cancel your order, go to Orders, tap the order, then tap Cancel."*
 
-**No OCR. No image pipelines. No selectors. No annotations. No view wrappers.**
+That's not support. That's documentation delivery with a chat UI.
 
-The result: an AI that truly understands your app — and can act on it autonomously.
+**This SDK takes a different approach.** Instead of telling users where to go, it — with the user's permission — goes there for them.
 
-| | This SDK | Screenshot-based AI | Build It Yourself |
-|---|---|---|---|
-| **Setup** | `<AIAgent>` — one wrapper | Vision model + custom pipeline | Months of custom code |
-| **How it reads UI** | Native structure — real time | Screenshot → OCR | Custom integration |
-| **AI agent loop** | ✅ Built-in multi-step | ❌ Build from scratch | ❌ Build from scratch |
-| **Voice mode** | ✅ Real-time bidirectional | ❌ | ❌ |
-| **Custom business logic** | ✅ `useAction` hook | Custom code | Custom code |
-| **MCP bridge (any AI connects)** | ✅ One command | ❌ | ❌ |
-| **Knowledge base** | ✅ Built-in retrieval | ❌ | ❌ |
+---
+
+## 🧠 How It Works — The App's UI Is the Integration Layer
+
+Every other support tool needs you to build API connectors: endpoints, webhooks, action definitions in their dashboard. Months of backend work before the AI can do anything useful.
+
+This SDK reads your app's live UI natively — every button, label, input, and screen — in real time. **There's nothing to integrate. The UI is already the integration.** The app already knows how to cancel orders, update addresses, apply promo codes — it has buttons for all of it. The AI just uses them.
+
+**No OCR. No image pipelines. No selectors. No annotations. No backend connectors.**
+
+### Why This Matters in the Support Context
+
+The most important insight: UI control is only uncomfortable when it's unexpected. In a support conversation, the user has already asked for help — they're in a *"please help me"* mindset:
+
+| Context | User reaction to AI controlling UI |
+|:---|:---|
+| Unprompted (out of nowhere) | 😨 "What is happening?" |
+| **In a support chat — user asked for help** | 😊 "Yes please, do it for me" |
+| **User is frustrated and types "how do I..."** | 😮‍💨 "Thank God, yes" |
+
+---
+
+## 🎟️ The 5-Level Support Ladder
+
+The SDK handles every tier of support automatically — from a simple FAQ answer to live human chat:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Level 1: Knowledge Answer                           │
+│  Answers from knowledge base — instant, zero UI     │
+│  "What's your return policy?" → answered directly    │
+├──────────────────────────────────────────────────────┤
+│  Level 2: Show & Guide                               │
+│  AI navigates to exact screen, user acts last        │
+│  "Settings → Notifications. It's right here. ☘️"     │
+├──────────────────────────────────────────────────────┤
+│  Level 3: Do & Confirm (Copilot — default)           │
+│  AI fills forms, user confirms the final action      │
+│  "I've typed your new address. Tap Save to confirm." │
+├──────────────────────────────────────────────────────┤
+│  Level 4: Full Resolution (Autopilot)                │
+│  AI completes entire flow with one permission gate   │
+│  "Done! Order #4521 cancelled. Refund in 3-5 days." │
+├──────────────────────────────────────────────────────┤
+│  Level 5: Human Escalation                           │
+│  Live agent via WebSocket — seamless handoff         │
+│  Billing dispute, legal issues, edge cases           │
+└──────────────────────────────────────────────────────┘
+```
+
+### Example conversations
+
+<details>
+<summary><b>Level 1 — Knowledge Answer</b></summary>
+
+```
+User: "What's your return policy?"
+AI:   "You can return items within 30 days. Full refund in 5-7 business days."
+      [from knowledge base — no UI needed]
+```
+</details>
+
+<details>
+<summary><b>Level 2 — Show & Guide</b></summary>
+
+```
+User: "How do I turn on price alerts?"
+AI:   "That's in Settings → Notifications. Want me to take you there?"
+User: "Yes"
+AI:   [navigates to Settings → scrolls to Notifications section]
+AI:   "Here it is. The Price Alerts toggle is right here. ☘️"
+      [user taps the toggle themselves]
+```
+</details>
+
+<details>
+<summary><b>Level 3 — Do & Confirm (Copilot, default)</b></summary>
+
+```
+User: "I need to change my shipping address"
+AI:   "Sure! I'll navigate to your address settings."
+      [navigates to Profile → Address]
+AI:   "What's the new address?"
+User: "15 Omar St, Nasr City, Cairo"
+AI:   [types the address into the fields]
+AI:   "I've filled in '15 Omar St, Nasr City, Cairo'. Tap Save to confirm."
+      [user taps Save themselves]
+```
+</details>
+
+<details>
+<summary><b>Level 4 — Full Resolution (Autopilot)</b></summary>
+
+```
+User: "Cancel my last order"
+AI:   "Order #4521 — Margherita pizza, $12.99. Want me to cancel it?"
+User: "Yes"
+AI:   [navigates to Orders → finds #4521 → taps Cancel → taps Confirm]
+AI:   "Done! Order #4521 is cancelled. Refund arrives in 3-5 days."
+```
+</details>
+
+<details>
+<summary><b>Level 5 — Human Escalation</b></summary>
+
+```
+User: "I was charged twice for my order"
+AI:   "I can see your order history, but billing disputes need a human agent."
+      [triggers escalate → live agent chat via WebSocket]
+```
+</details>
+
+---
+
+## ⚙️ Why Not Intercom or Zendesk?
+
+| | Intercom Fin | Zendesk AI | **This SDK** |
+|:---|:---|:---|:---|
+| **Answer questions** | ✅ | ✅ | ✅ Knowledge base |
+| **Navigate user to right screen** | ❌ | ❌ | ✅ App-aware navigation |
+| **Fill forms for the user** | ❌ | ❌ | ✅ Types directly into fields |
+| **Execute in-app actions** | Via API connectors *(must build)* | Via API connectors | ✅ Via UI — zero backend work |
+| **Voice support** | ❌ | ❌ | ✅ Gemini Live |
+| **Human escalation** | ✅ | ✅ | ✅ WebSocket live chat |
+| **Mobile-native** | ❌ WebView overlay | ❌ WebView | ✅ React Native component |
+| **Setup time** | Days–weeks (build connectors) | Days–weeks | **Minutes** (`<AIAgent>` wrapper) |
+| **Price per resolution** | $0.99 + subscription | $1.50–2.00 | You decide |
+
+### The moat
+
+No competitor can do Levels 2–4. Intercom and Zendesk answer questions (Level 1) and escalate to humans (Level 5). The middle — **app-aware navigation, form assistance, and full in-app resolution** — is uniquely possible because this SDK reads the React Native Fiber tree. That can't be added with a plugin or API connector.
 
 ---
 
 ## ✨ What's Inside
 
-### Ship to Production
+### Support Your Users
 
-#### 🤖 Autonomous AI Agent — Natural Language UI Automation
+#### 🦹 AI Support Agent — Resolves at Every Level
 
-Your users describe what they want in natural language. The SDK reads the live screen, plans a sequence of actions, and executes them end-to-end — tapping buttons, filling forms, navigating screens — all autonomously. Powered by **Gemini**. **OpenAI** is also supported as a text mode alternative.
+The AI answers questions, guides users to the right screen, fills forms on their behalf, or completes full task flows — with voice support and human escalation built in. All in the existing app UI. Zero backend integration.
 
-- **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors
-- **Multi-step reasoning** — navigates across screens to complete complex tasks
-- **Custom actions** — expose any business logic (checkout, API calls, mutations) via `useAction`
-- **Knowledge base** — AI queries your FAQs, policies, product data on demand
-- **Human-in-the-loop** — native `Alert.alert` confirmation before critical actions
+- **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors, no API connectors
+- **5-level resolution** — knowledge answer → guided navigation → copilot → full resolution → human escalation
+- **Copilot mode** (default) — AI pauses once before irreversible actions (order, delete, submit). User always stays in control
+- **Human escalation** — live chat via WebSocket, CSAT survey, ticket dashboard — all built in
+- **Knowledge base** — policies, FAQs, product data queried on demand — no token waste
 
-#### 🎤 Real-time Voice AI Agent — Bidirectional Audio with Gemini Live API
+#### 🎤 Real-time Voice Support — Users Speak, AI Acts
 
-Full bidirectional voice AI powered by the Gemini Live API (Gemini only). Users speak naturally; the agent responds with voice AND controls your app simultaneously.
+Full bidirectional voice AI powered by the Gemini Live API. Users speak their support request; the agent responds with voice AND navigates, fills forms, and resolves issues simultaneously.
 
 - **Sub-second latency** — real-time audio via WebSockets, not turn-based
-- **Full UI control** — same tap, type, navigate, custom actions as text mode — all by voice
-- **Screen-aware** — auto-detects screen changes and updates its context instantly
+- **Full resolution** — same navigate, type, tap as text mode — all by voice
+- **Screen-aware** — auto-detects screen changes and updates context instantly
 
-> 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` and a mic button appears in the chat bar — letting users dictate messages instead of typing. This is separate from voice mode.
+> 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` for a mic button in the chat bar — letting users dictate instead of typing. Separate from voice mode.
 
 ---
 
 ### Supercharge Your Dev Workflow
 
-#### 🔌 MCP Bridge — Connect Any AI to Your App
+#### 🔌 MCP Bridge — Test Your App in English, Not Code
 
-Your app becomes MCP-compatible with one prop. Any AI that speaks the Model Context Protocol — editors, autonomous agents, CI/CD pipelines, custom scripts — can remotely read and control your app.
+Your app becomes MCP-compatible with one prop. Connect any AI — Antigravity, Claude Desktop, CI/CD pipelines — to remotely read and control the running app. Find bugs without writing a single test.
 
-The MCP bridge uses the **same `AgentRuntime`** that powers the in-app AI agent. If the agent can do it via chat, an external AI can do it via MCP.
+**MCP-only mode — just want testing? No chat popup needed:**
 
-**MCP-only mode** — just want testing? No chat popup needed:
 ```tsx
 <AIAgent
   showChatBar={false}
@@ -199,13 +320,17 @@ Then rebuild: `npx expo prebuild && npx expo run:android` (or `run:ios`)
 </details>
 
 <details>
-<summary><b>💬 Human Support</b> — persist tickets and restore them across sessions</summary>
+<summary><b>💬 Human Support &amp; Ticket Persistence</b> — persist tickets and discovery tooltip state across sessions</summary>
 
 ```bash
 npx expo install @react-native-async-storage/async-storage
 ```
 
-**Optional** but recommended when using human escalation support. Without it, support tickets are only visible during the current app session and won't be restored after the app restarts.
+**Optional** but recommended when using:
+- **Human escalation support** — tickets survive app restarts
+- **Discovery tooltip** — remembers if the user has already seen it
+
+Without it, both features gracefully degrade: tickets are only visible during the current session, and the tooltip shows every launch instead of once.
 
 </details>
 
@@ -317,6 +442,171 @@ Set `enableUIControl={false}` for a lightweight FAQ / support assistant. Single 
 | Tokens per request | ~500-2000 | ~200 |
 | Agent loop | Up to 25 steps | Single call |
 | Tools available | 7 | 2 (done, query_knowledge) |
+
+---
+
+## 🛡️ Copilot Mode — Safe-by-Default UI Automation
+
+The agent operates in **copilot mode** by default. It navigates, scrolls, types, and fills forms silently — then pauses **once** before the final irreversible action (place order, delete account, submit payment) to ask the user for confirmation.
+
+```tsx
+// Default — copilot mode, zero extra config:
+<AIAgent apiKey="..." navRef={navRef}>
+  <App />
+</AIAgent>
+```
+
+**What the AI does silently:**
+- Navigating between screens and tabs
+- Scrolling to find content
+- Typing into form fields
+- Selecting options and filters
+- Adding items to cart
+
+**What the AI pauses on** (asks the user first):
+- Placing an order / completing a purchase
+- Submitting a form that sends data to a server
+- Deleting anything (account, item, message)
+- Confirming a payment or transaction
+- Saving account/profile changes
+
+### Opt-out to Full Autonomy
+
+```tsx
+<AIAgent interactionMode="autopilot" />
+```
+
+Use `autopilot` for power users, accessibility tools, or repeat-task automation where confirmations are unwanted.
+
+### Optional: Mark Specific Buttons as Critical (Safety Net)
+
+In copilot mode, the prompt handles ~95% of cases automatically. For extra safety on your most sensitive buttons, add `aiConfirm={true}` — this adds a code-level block that cannot be bypassed even if the LLM ignores the prompt:
+
+```tsx
+// These elements will ALWAYS require confirmation before the AI touches them
+<Pressable aiConfirm onPress={deleteAccount}>
+  <Text>Delete Account</Text>
+</Pressable>
+
+<Pressable aiConfirm onPress={placeOrder}>
+  <Text>Place Order</Text>
+</Pressable>
+
+<TextInput aiConfirm placeholder="Credit card number" />
+```
+
+`aiConfirm` works on any interactive element: `Pressable`, `TextInput`, `Slider`, `Picker`, `Switch`, `DatePicker`.
+
+> 💡 **Dev tip**: In `__DEV__` mode, the SDK logs a reminder to add `aiConfirm` to critical elements after each copilot task.
+
+### Three-Layer Safety Model
+
+| Layer | Mechanism | Developer effort |
+|:---|:---|:---|
+| **Prompt** (primary) | AI uses `ask_user` before irreversible commits | Zero |
+| **`aiConfirm` prop** (optional safety net) | Code blocks specific elements | Add prop to 2–3 critical buttons |
+| **Dev warning** (preventive) | Logs tip in `__DEV__` mode | Zero |
+
+---
+
+## 💬 Human Support Mode
+
+Transform the AI agent into a production-grade support system. The AI resolves issues directly inside your app UI — no backend API integrations required. When it can't help, it escalates to a live human agent.
+
+```tsx
+import { SupportGreeting, buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
+
+<AIAgent
+  apiKey="..."
+  analyticsKey="mobileai_pub_xxx" // required for MobileAI escalation
+  instructions={{
+    system: buildSupportPrompt({
+      enabled: true,
+      greeting: {
+        message: "Hi! 👋 How can I help you today?",
+        agentName: "Support",
+      },
+      quickReplies: [
+        { label: "Track my order", icon: "📦" },
+        { label: "Cancel order", icon: "❌" },
+        { label: "Talk to a human", icon: "👤" },
+      ],
+      escalation: { provider: 'mobileai' },
+      csat: { enabled: true },
+    }),
+  }}
+  customTools={{ escalate: createEscalateTool({ provider: 'mobileai' }) }}
+  userContext={{
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    plan: 'pro',
+  }}
+>
+  <App />
+</AIAgent>
+```
+
+### What Happens on Escalation
+
+1. AI creates a ticket in the **MobileAI Dashboard** inbox
+2. User receives a real-time live chat thread (WebSocket)
+3. Support agent replies — user sees messages instantly
+4. Ticket is closed when resolved — a CSAT survey appears
+
+### Escalation Providers
+
+| Provider | What happens |
+|:---|:---|
+| `'mobileai'` | Ticket → MobileAI Dashboard inbox + WebSocket live chat |
+| `'custom'` | Calls your `onEscalate` callback — wire to Intercom, Zendesk, etc. |
+
+```tsx
+// Custom provider — bring your own live chat:
+createEscalateTool({
+  provider: 'custom',
+  onEscalate: (context) => {
+    Intercom.presentNewConversation();
+    // context includes: userId, message, screenName, chatHistory
+  },
+})
+```
+
+### User Context
+
+Pass user identity to the escalation ticket for agent visibility in the dashboard:
+
+```tsx
+<AIAgent
+  userContext={{
+    userId: 'usr_123',
+    name: 'Ahmed Hassan',
+    email: 'ahmed@example.com',
+    plan: 'pro',
+    custom: { region: 'cairo', language: 'ar' },
+  }}
+  pushToken={expoPushToken}      // for offline support reply notifications
+  pushTokenType="expo"            // 'fcm' | 'expo' | 'apns'
+/>
+```
+
+### `SupportGreeting` — Standalone Greeting Component
+
+Render the support greeting independently if you have a custom chat UI:
+
+```tsx
+import { SupportGreeting } from '@mobileai/react-native';
+
+<SupportGreeting
+  message="Hi! 👋 How can I help?"
+  agentName="Support"
+  quickReplies={[
+    { label: 'Track order', icon: '📦' },
+    { label: 'Talk to human', icon: '👤' },
+  ]}
+  onQuickReply={(text) => send(text)}
+/>
+```
 
 ---
 
@@ -540,43 +830,123 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ### `<AIAgent>` Props
 
+#### Core
+
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `apiKey` | `string` | — | API key for your provider (prototyping only). |
+| `apiKey` | `string` | — | API key for your provider (prototyping only — use `proxyUrl` in production). |
 | `provider` | `'gemini' \| 'openai'` | `'gemini'` | LLM provider for text mode. |
-| `proxyUrl` | `string` | — | Backend proxy URL (production). |
-| `proxyHeaders` | `Record<string, string>` | — | Auth headers for proxy. |
-| `voiceProxyUrl` | `string` | — | Dedicated proxy for Voice Mode WebSockets. |
+| `proxyUrl` | `string` | — | Backend proxy URL (production). Routes all LLM traffic through your server. |
+| `proxyHeaders` | `Record<string, string>` | — | Auth headers for proxy (e.g., `Authorization: Bearer ${token}`). |
+| `voiceProxyUrl` | `string` | — | Dedicated proxy for Voice Mode WebSockets. Falls back to `proxyUrl`. |
 | `voiceProxyHeaders` | `Record<string, string>` | — | Auth headers for voice proxy. |
 | `model` | `string` | Provider default | Model name (e.g. `gemini-2.5-flash`, `gpt-4.1-mini`). |
 | `navRef` | `NavigationContainerRef` | — | Navigation ref for auto-navigation. |
+| `children` | `ReactNode` | — | Your app — zero changes needed inside. |
+
+#### Behavior
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `interactionMode` | `'copilot' \| 'autopilot'` | `'copilot'` | **Copilot** (default): AI pauses before irreversible actions. **Autopilot**: full autonomy, no confirmation. |
+| `showDiscoveryTooltip` | `boolean` | `true` | Show one-time animated tooltip on FAB explaining AI capabilities. Dismissed after 6s or first tap. |
 | `maxSteps` | `number` | `25` | Max agent steps per task. |
 | `maxTokenBudget` | `number` | — | Max total tokens before auto-stopping the agent loop. |
 | `maxCostUSD` | `number` | — | Max estimated cost (USD) before auto-stopping. |
+| `stepDelay` | `number` | — | Delay between agent steps in ms. |
+| `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only (faster, fewer tokens). |
+| `enableVoice` | `boolean` | `false` | Show voice mode tab. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
-| `enableVoice` | `boolean` | `true` | Enable voice mode tab. |
-| `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only. |
+
+#### Navigation
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
 | `screenMap` | `ScreenMap` | — | Pre-generated screen map from `generate-map` CLI. |
 | `useScreenMap` | `boolean` | `true` | Set `false` to disable screen map without removing the prop. |
+| `router` | `{ push, replace, back }` | — | Expo Router instance (from `useRouter()`). |
+| `pathname` | `string` | — | Current pathname (from `usePathname()` — Expo Router). |
+
+#### AI
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
 | `instructions` | `{ system?, getScreenInstructions? }` | — | Custom system prompt + per-screen instructions. |
-| `customTools` | `Record<string, ToolDefinition \| null>` | — | Override or remove built-in tools. |
-| `knowledgeBase` | `KnowledgeEntry[] \| KnowledgeRetriever` | — | Domain knowledge the AI can query. |
+| `customTools` | `Record<string, ToolDefinition \| null>` | — | Add custom tools or remove built-in ones (set to `null`). |
+| `knowledgeBase` | `KnowledgeEntry[] \| { retrieve }` | — | Domain knowledge the AI can query via `query_knowledge`. |
 | `knowledgeMaxTokens` | `number` | `2000` | Max tokens for knowledge results. |
-| `mcpServerUrl` | `string` | — | WebSocket URL for MCP bridge. |
-| `accentColor` | `string` | — | Accent color for the chat bar. |
-| `theme` | `ChatBarTheme` | — | Full chat bar color customization. |
-| `onResult` | `(result) => void` | — | Called when agent finishes. |
-| `onBeforeStep` | `(stepCount) => void` | — | Called before each step. |
-| `onAfterStep` | `(history) => void` | — | Called after each step. |
-| `onTokenUsage` | `(usage) => void` | — | Token usage per step. |
-| `onAskUser` | `(question) => Promise<string>` | — | Handle `ask_user` inline — agent waits for your response. |
-| `stepDelay` | `number` | — | Delay between steps (ms). |
-| `router` | `{ push, replace, back }` | — | Expo Router instance. |
-| `pathname` | `string` | — | Current pathname (Expo Router). |
+| `transformScreenContent` | `(content: string) => string` | — | Transform/mask screen content before the LLM sees it. |
+
+#### Security
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `interactiveBlacklist` | `React.RefObject<any>[]` | — | Refs of elements the AI must NOT interact with. |
+| `interactiveWhitelist` | `React.RefObject<any>[]` | — | If set, AI can ONLY interact with these elements. |
+
+#### Support
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `userContext` | `{ userId?, name?, email?, plan?, custom? }` | — | Logged-in user identity — attached to escalation tickets. |
+| `pushToken` | `string` | — | Push token for offline support reply notifications. |
+| `pushTokenType` | `'fcm' \| 'expo' \| 'apns'` | — | Type of the push token. |
+
+#### Proactive Help
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `proactiveHelp` | `ProactiveHelpConfig` | — | Detects user hesitation and shows a contextual help nudge. |
+
+```tsx
+<AIAgent
+  proactiveHelp={{
+    enabled: true,
+    pulseAfterMinutes: 2,        // subtle FAB pulse to catch attention
+    badgeAfterMinutes: 4,        // badge: "Need help with this screen?"
+    badgeText: "Need help?",
+    dismissForSession: true,     // once dismissed, won't show again this session
+    generateSuggestion: (screen) => {
+      if (screen === 'Checkout') return 'Having trouble with checkout?';
+      return undefined;
+    },
+  }}
+/>
+```
+
+#### Analytics
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `analyticsKey` | `string` | — | Publishable key (`mobileai_pub_xxx`) — enables auto-analytics. |
+| `analyticsProxyUrl` | `string` | — | Enterprise: route events through your backend. |
+| `analyticsProxyHeaders` | `Record<string, string>` | — | Auth headers for analytics proxy. |
+
+#### MCP
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `mcpServerUrl` | `string` | — | WebSocket URL for the MCP bridge (e.g. `ws://localhost:3101`). |
+
+#### Lifecycle & Callbacks
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `onResult` | `(result) => void` | — | Called when agent finishes a task. |
+| `onBeforeTask` | `() => void` | — | Called before task execution starts. |
+| `onAfterTask` | `(result) => void` | — | Called after task completes. |
+| `onBeforeStep` | `(stepCount) => void` | — | Called before each agent step. |
+| `onAfterStep` | `(history) => void` | — | Called after each step (with full step history). |
+| `onTokenUsage` | `(usage) => void` | — | Token usage data per step. |
+| `onAskUser` | `(question) => Promise<string>` | — | Custom handler for `ask_user` — agent blocks until resolved. |
+
+#### Theming
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `accentColor` | `string` | — | Quick accent color for FAB, send button, active states. |
+| `theme` | `ChatBarTheme` | — | Full chat bar theme override. |
 | `debug` | `boolean` | `false` | Enable SDK debug logging. |
-| `analyticsKey` | `string` | — | Publishable key (`mobileai_pub_xxx`) for zero-config analytics to MobileAI Cloud. |
-| `analyticsProxyUrl` | `string` | — | Enterprise: route analytics events through your backend proxy. |
-| `analyticsProxyHeaders` | `Record<string, string>` | — | Auth headers for analyticsProxyUrl. |
 
 ### 🎨 Customization
 
@@ -767,7 +1137,13 @@ server.on('upgrade', geminiProxy.upgrade);
 ### Element Gating — Hide Elements from AI
 
 ```tsx
+// AI will never see or interact with this element:
 <Pressable aiIgnore={true}><Text>Admin Panel</Text></Pressable>
+
+// In copilot mode, AI must confirm before touching this element:
+<Pressable aiConfirm={true} onPress={deleteAccount}>
+  <Text>Delete Account</Text>
+</Pressable>
 ```
 
 ### Content Masking — Sanitize Before LLM Sees It
@@ -789,10 +1165,53 @@ server.on('upgrade', geminiProxy.upgrade);
 
 | Hook | When |
 |------|------|
+| `onBeforeTask` | Before task execution starts |
 | `onBeforeStep` | Before each agent step |
 | `onAfterStep` | After each step (with full history) |
-| `onBeforeTask` | Before task execution |
-| `onAfterTask` | After task completes |
+| `onAfterTask` | After task completes (success or failure) |
+
+---
+
+## 🧩 AIZone — Contextual AI Regions
+
+`AIZone` marks specific sections of your UI so the AI can operate within them with special capabilities: simplify cluttered areas, inject contextual cards, or highlight elements.
+
+```tsx
+import { AIZone } from '@mobileai/react-native';
+
+// Allow AI to simplify this zone if it's too cluttered
+<AIZone id="product-details" allowSimplify>
+  <View>
+    <Text aiPriority="high">Price: $29.99</Text>
+    <Text aiPriority="low">SKU: ABC-123</Text>
+    <Text aiPriority="low">Weight: 500g</Text>
+  </View>
+</AIZone>
+
+// Allow AI to inject contextual cards (e.g. "Need help?" dialogs)
+<AIZone id="checkout-summary" allowInjectCard allowHighlight>
+  <CheckoutSummary />
+</AIZone>
+```
+
+### `aiPriority` Attribute
+
+Tag any element with `aiPriority` to control AI visibility:
+
+| Value | Effect |
+|:---|:---|
+| `"high"` | Always rendered — surfaced first in AI context |
+| `"low"` | Hidden when AI calls `simplify_zone()` on the enclosing `AIZone` |
+
+### AIZone Props
+
+| Prop | Type | Description |
+|:---|:---|:---|
+| `id` | `string` | Unique zone identifier the AI uses to target operations |
+| `allowSimplify` | `boolean` | AI can call `simplify_zone(id)` to hide `aiPriority="low"` elements |
+| `allowHighlight` | `boolean` | AI can visually highlight elements inside this zone |
+| `allowInjectHint` | `boolean` | AI can inject a contextual text hint into this zone |
+| `allowInjectCard` | `boolean` | AI can inject a pre-built card template into this zone |
 
 ---
 
