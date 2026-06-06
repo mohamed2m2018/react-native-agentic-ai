@@ -14,6 +14,7 @@ import { EscalationSocket } from './EscalationSocket';
 
 import { ENDPOINTS } from '../config/endpoints';
 import { getDeviceId } from '../services/telemetry/device';
+import { getDeviceMetadata } from '../services/telemetry/deviceMetadata';
 import { logger } from '../utils/logger';
 
 const MOBILEAI_HOST = ENDPOINTS.escalation;
@@ -23,6 +24,7 @@ export interface EscalationToolDeps {
   analyticsKey?: string;
   getContext: () => Omit<EscalationContext, 'conversationSummary'>;
   getHistory: () => Array<{ role: string; content: string }>;
+  getScreenFlow?: () => string[];
   onHumanReply?: (reply: string, ticketId?: string) => void;
   onEscalationStarted?: (ticketId: string, socket: EscalationSocket) => void;
   onTypingChange?: (isTyping: boolean) => void;
@@ -61,7 +63,7 @@ export function createEscalateTool(
     deps = depsOrConfig as EscalationToolDeps;
   }
 
-  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, onTicketClosed, userContext, pushToken, pushTokenType } = deps;
+  const { config, analyticsKey, getContext, getHistory, onHumanReply, onEscalationStarted, onTypingChange, onTicketClosed, userContext, pushToken, pushTokenType, getScreenFlow } = deps;
 
   // Determine effective provider
   const provider = config.provider ?? (analyticsKey ? 'mobileai' : 'custom');
@@ -103,7 +105,11 @@ export function createEscalateTool(
                 screen: context.currentScreen,
                 history,
                 stepsBeforeEscalation: context.stepsBeforeEscalation,
-                userContext,
+                userContext: {
+                  ...userContext,
+                  device: getDeviceMetadata(),
+                },
+                screenFlow: getScreenFlow?.() ?? [],
                 pushToken,
                 pushTokenType,
                 deviceId: getDeviceId(),

@@ -31,6 +31,8 @@ interface SupportChatModalProps {
   isThinking?: boolean;
   /** Optional: externally controlled scroll trigger. Pass when messages update externally. */
   scrollToEndTrigger?: number;
+  /** Ticket status — when 'closed' or 'resolved', input is hidden and a banner is shown. */
+  ticketStatus?: string;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -73,6 +75,8 @@ function AgentAvatar() {
 
 // ─── Main Component ────────────────────────────────────────────
 
+const CLOSED_STATUSES = ['closed', 'resolved'];
+
 export function SupportChatModal({
   visible,
   messages,
@@ -81,7 +85,9 @@ export function SupportChatModal({
   isAgentTyping = false,
   isThinking = false,
   scrollToEndTrigger = 0,
+  ticketStatus,
 }: SupportChatModalProps) {
+  const isClosed = !!ticketStatus && CLOSED_STATUSES.includes(ticketStatus);
   const [text, setText] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -147,8 +153,10 @@ export function SupportChatModal({
           <View style={s.headerCenter}>
             <Text style={s.headerTitle}>Support Chat</Text>
             <View style={s.headerStatus}>
-              <View style={s.statusDot} />
-              <Text style={s.headerSubtitle}>Agent online</Text>
+              <View style={[s.statusDot, isClosed && s.statusDotClosed]} />
+              <Text style={s.headerSubtitle}>
+                {isClosed ? 'Conversation closed' : 'Agent online'}
+              </Text>
             </View>
           </View>
           <View style={s.headerBtn} />
@@ -227,26 +235,34 @@ export function SupportChatModal({
           </ScrollView>
         )}
 
-        {/* ── Input Row ── */}
-        <View style={s.inputRow}>
-          <TextInput
-            style={s.input}
-            placeholder="Type a message..."
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-            editable={!isThinking}
-          />
-          <Pressable
-            style={[s.sendBtn, text.trim() && !isThinking ? s.sendBtnActive : s.sendBtnInactive]}
-            onPress={handleSend}
-            disabled={!text.trim() || isThinking}
-          >
-            <SendArrowIcon size={18} color={text.trim() && !isThinking ? '#fff' : 'rgba(255,255,255,0.3)'} />
-          </Pressable>
-        </View>
+        {/* ── Input Row or Closed Banner ── */}
+        {isClosed ? (
+          <View style={s.closedBanner}>
+            <Text style={s.closedBannerText}>
+              This conversation has been closed. Start a new request to get help.
+            </Text>
+          </View>
+        ) : (
+          <View style={s.inputRow}>
+            <TextInput
+              style={s.input}
+              placeholder="Type a message..."
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+              editable={!isThinking}
+            />
+            <Pressable
+              style={[s.sendBtn, text.trim() && !isThinking ? s.sendBtnActive : s.sendBtnInactive]}
+              onPress={handleSend}
+              disabled={!text.trim() || isThinking}
+            >
+              <SendArrowIcon size={18} color={text.trim() && !isThinking ? '#fff' : 'rgba(255,255,255,0.3)'} />
+            </Pressable>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -311,6 +327,9 @@ const s = StyleSheet.create({
     height: 7,
     borderRadius: 4,
     backgroundColor: '#34C759',
+  },
+  statusDotClosed: {
+    backgroundColor: '#8E8E93',
   },
   headerSubtitle: {
     color: 'rgba(255,255,255,0.5)',
@@ -481,6 +500,23 @@ const s = StyleSheet.create({
   emptySubtitle: {
     color: 'rgba(255,255,255,0.25)',
     fontSize: 14,
+  },
+
+  // ── Closed Banner ──
+  closedBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  closedBannerText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
   },
 
   // ── Input Row ──
