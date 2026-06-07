@@ -200,9 +200,51 @@ Full bidirectional voice AI powered by the Gemini Live API. Users speak their su
 
 > 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` for a mic button in the chat bar — letting users dictate instead of typing. Separate from voice mode.
 
+#### 🍎 Siri & Spotlight — Trigger Actions Hands-Free (iOS 16+)
+
+Every `useAction` you register automatically becomes a **Siri shortcut** and **Spotlight action**. One config plugin added at build time — no Swift required — and users can say:
+
+> *"Hey Siri, track my order in MyApp"*
+> *"Hey Siri, checkout in MyApp"*
+> *"Hey Siri, cancel my last order in MyApp"*
+
+<details>
+<summary><b>Setup — Expo Config Plugin</b></summary>
+
+```json
+// app.json
+{
+  "expo": {
+    "plugins": [
+      ["@mobileai/react-native/withAppIntents", {
+        "scanDirectory": "src",
+        "appScheme": "myapp"
+      }]
+    ]
+  }
+}
+```
+
+After `npx expo prebuild`, every registered `useAction` is available in Siri and Spotlight automatically.
+
+**Or generate manually:**
+
+```bash
+# Scan useAction calls → intent-manifest.json
+npx @mobileai/react-native generate-intents src
+
+# Generate Swift AppIntents code
+npx @mobileai/react-native generate-swift intent-manifest.json myapp
+```
+
+</details>
+
+> ⚠️ iOS 16+ only. Android equivalent (Google Assistant App Actions) is on the roadmap.
+
 ---
 
 ### Supercharge Your Dev Workflow
+
 
 #### 🔌 MCP Bridge — Test Your App in English, Not Code
 
