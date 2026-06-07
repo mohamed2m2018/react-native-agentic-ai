@@ -1,6 +1,6 @@
 {
   "name": "experimental-stuff",
-  "version": "0.9.16",
+  "version": "0.9.17",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "source": "./src/index.ts",
@@ -84,14 +84,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mohamed2m2018/mobileai-react-native.git"
+    "url": "git+https://github.com/MobileAIAgent/react-native.git"
   },
   "author": "Mohamed Salah <mohamed2m2018@gmail.com> (https://example.com)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/mohamed2m2018/mobileai-react-native/issues"
+    "url": "https://github.com/MobileAIAgent/react-native/issues"
   },
-  "homepage": "https://github.com/mohamed2m2018/mobileai-react-native#readme",
+  "homepage": "https://github.com/MobileAIAgent/react-native#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
