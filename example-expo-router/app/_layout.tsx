@@ -118,9 +118,6 @@ function RootLayoutNav() {
       accentColor="#6C5CE7"
       // 🔹 Analytics telemetry
       analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
-      // 🔹 Budget guard (realistic for a multi-step task)
-      maxTokenBudget={50000}
-      maxCostUSD={0.50}
       // 🔹 Proactive hint — pulse after 1 min, badge after 2 mins
       proactiveHelp={{
         enabled: true,

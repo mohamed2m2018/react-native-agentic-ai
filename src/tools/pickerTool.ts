@@ -8,6 +8,7 @@
  */
 
 import { walkFiberTree } from '../core/FiberTreeWalker';
+import { getChild, getSibling, getProps } from '../core/FiberAdapter';
 import type { AgentTool, ToolContext } from './types';
 
 /**
@@ -45,14 +46,15 @@ function extractPickerOptions(element: any): Array<{ label: string; value: any }
 
   // Pattern 3: Fiber children (RN Picker with Picker.Item children)
   const fiberNode = element.fiberNode;
-  if (fiberNode?.child) {
-    let child = fiberNode.child;
+  const firstChild = getChild(fiberNode);
+  if (firstChild) {
+    let child = firstChild;
     while (child) {
-      const childProps = child.memoizedProps || {};
+      const childProps = getProps(child);
       if (childProps.label !== undefined && childProps.value !== undefined) {
         options.push({ label: String(childProps.label), value: childProps.value });
       }
-      child = child.sibling;
+      child = getSibling(child);
     }
   }
 

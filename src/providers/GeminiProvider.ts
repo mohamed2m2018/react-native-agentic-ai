@@ -10,8 +10,36 @@
  * with OpenAIProvider, AnthropicProvider, etc.
  */
 
-import { GoogleGenAI, FunctionCallingConfigMode, Type } from '@google/genai';
 import { logger } from '../utils/logger';
+
+/**
+ * Lazy-loads @google/genai on first call.
+ * Using require() instead of a static import allows:
+ *  1. Older Metro bundlers (RN 0.72-0.73) to bundle the library without
+ *     choking on the SDK's ESM sub-path exports.
+ *  2. Users who pick OpenAI to never pay the SDK startup cost.
+ *
+ * NOTE: We do NOT cache the result in module-scope variables because that
+ * would break Jest's mock isolation — jest.mock() replaces the module in the
+ * require registry, so every call to require() in a test sees the mock.
+ * Node's own require() cache handles de-duplication in production.
+ */
+function loadGenAI() {
+  try {
+    const mod = require('@google/genai');
+    return {
+      GoogleGenAI: mod.GoogleGenAI as typeof import('@google/genai').GoogleGenAI,
+      FunctionCallingConfigMode: mod.FunctionCallingConfigMode as typeof import('@google/genai').FunctionCallingConfigMode,
+      Type: mod.Type as typeof import('@google/genai').Type,
+    };
+  } catch (e: any) {
+    throw new Error(
+      '[mobileai] @google/genai is required for the Gemini provider. ' +
+      'Install it: npm install @google/genai'
+    );
+  }
+}
+
 import type {
   AIProvider,
   ToolDefinition,
@@ -28,7 +56,7 @@ const AGENT_STEP_FN = 'agent_step';
 // ─── Provider ──────────────────────────────────────────────────
 
 export class GeminiProvider implements AIProvider {
-  private ai: GoogleGenAI;
+  private ai: any; // GoogleGenAI instance, loaded lazily
   private model: string;
 
   constructor(
@@ -53,6 +81,7 @@ export class GeminiProvider implements AIProvider {
       );
     }
 
+    const { GoogleGenAI } = loadGenAI();
     this.ai = new GoogleGenAI(config);
     this.model = model;
   }
@@ -86,7 +115,7 @@ export class GeminiProvider implements AIProvider {
           tools: [{ functionDeclarations: [agentStepDeclaration] }],
           toolConfig: {
             functionCallingConfig: {
-              mode: FunctionCallingConfigMode.ANY,
+              mode: loadGenAI().FunctionCallingConfigMode.ANY,
               allowedFunctionNames: [AGENT_STEP_FN],
             },
           },
@@ -146,6 +175,8 @@ export class GeminiProvider implements AIProvider {
         return `- ${t.name}: ${t.description} ${inputGuide}`;
       })
       .join('\n');
+
+    const { Type } = loadGenAI();
 
     return {
       name: AGENT_STEP_FN,

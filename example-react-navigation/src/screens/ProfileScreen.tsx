@@ -14,10 +14,22 @@ const shortcuts: Array<{
     | 'DeliveryTracker'
     | 'ChargeDetails'
     | 'GiftDetails'
+    | 'FraudLockdown'
+    | 'FraudQuiz'
+    | 'FraudDevice'
+    | 'FraudResolution'
+    | 'LogisticsEvidence'
+    | 'LogisticsChecklist'
+    | 'LogisticsResolution'
   >;
   title: string;
   subtitle: string;
 }> = [
+  {
+    route: 'AdvancedSupportDashboard',
+    title: 'Advanced Support (New)',
+    subtitle: 'Complex Multi-step and Fraud workflows',
+  },
   {
     route: 'OrdersList',
     title: 'Orders & delivery',
@@ -80,7 +92,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Pressable
           key={shortcut.route}
           style={styles.shortcutCard}
-          onPress={() => navigation.navigate(shortcut.route)}
+          onPress={() => navigation.navigate(shortcut.route as any)}
         >
           <Text style={styles.shortcutTitle}>{shortcut.title}</Text>
           <Text style={styles.shortcutSubtitle}>{shortcut.subtitle}</Text>

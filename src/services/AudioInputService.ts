@@ -68,7 +68,7 @@ export class AudioInputService {
       } catch {
         const msg =
           'Voice mode requires react-native-audio-api. Install with: npm install react-native-audio-api';
-        logger.error('AudioInput', msg);
+        logger.warn('AudioInput', msg);
         this.config.onError?.(msg);
         return false;
       }

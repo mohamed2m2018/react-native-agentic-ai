@@ -63,7 +63,7 @@ export class AudioOutputService {
       } catch {
         const msg =
           'react-native-audio-api is required for audio output. Install with: npm install react-native-audio-api';
-        logger.error('AudioOutput', msg);
+        logger.warn('AudioOutput', msg);
         this.config.onError?.(msg);
         return false;
       }

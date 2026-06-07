@@ -15,18 +15,22 @@
  */
 
 import { walkFiberTree } from '../core/FiberTreeWalker';
+import { getChild, getSibling, getProps, getStateNode } from '../core/FiberAdapter';
 import type { AgentTool, ToolContext } from './types';
 
 /** BFS through fiber children. Returns first node where predicate matches. */
 function findFiberNode(rootFiber: any, predicate: (node: any) => boolean, maxDepth = 10): any | null {
-  if (!rootFiber?.child) return null;
-  const queue: { node: any; depth: number }[] = [{ node: rootFiber.child, depth: 0 }];
+  const firstChild = getChild(rootFiber);
+  if (!firstChild) return null;
+  const queue: { node: any; depth: number }[] = [{ node: firstChild, depth: 0 }];
   while (queue.length > 0) {
     const { node, depth } = queue.shift()!;
     if (!node || depth > maxDepth) continue;
     if (predicate(node)) return node;
-    if (node.child) queue.push({ node: node.child, depth: depth + 1 });
-    if (node.sibling) queue.push({ node: node.sibling, depth: depth + 1 });
+    const child = getChild(node);
+    if (child) queue.push({ node: child, depth: depth + 1 });
+    const sibling = getSibling(node);
+    if (sibling) queue.push({ node: sibling, depth: depth + 1 });
   }
   return null;
 }
@@ -69,17 +73,22 @@ export function createTypeTool(context: ToolContext): AgentTool {
       //   b) find the native stateNode to call setNativeProps to update visual display
       if (fiberNode) {
         // Find native onChange handler (behavior-based, no tag numbers)
-        const nativeOnChangeFiber = fiberNode.memoizedProps?.onChange
+        const fiberProps = getProps(fiberNode);
+        const nativeOnChangeFiber = fiberProps?.onChange
           ? fiberNode
-          : findFiberNode(fiberNode, n => typeof n.memoizedProps?.onChange === 'function');
+          : findFiberNode(fiberNode, n => typeof getProps(n)?.onChange === 'function');
 
         // Find native stateNode (host component with setNativeProps)
-        const nativeStateFiber = fiberNode.stateNode?.setNativeProps
+        const fiberStateNode = getStateNode(fiberNode);
+        const nativeStateFiber = fiberStateNode?.setNativeProps
           ? fiberNode
-          : findFiberNode(fiberNode, n => n.stateNode && typeof n.stateNode.setNativeProps === 'function');
+          : findFiberNode(fiberNode, n => {
+              const stateN = getStateNode(n);
+              return stateN && typeof stateN.setNativeProps === 'function';
+            });
 
-        const onChange = nativeOnChangeFiber?.memoizedProps?.onChange;
-        const nativeInstance = nativeStateFiber?.stateNode;
+        const onChange = getProps(nativeOnChangeFiber)?.onChange;
+        const nativeInstance = getStateNode(nativeStateFiber);
 
         if (onChange || nativeInstance) {
           try {

@@ -397,6 +397,7 @@ export function AIAgent({
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
+  const [supportMessages, setSupportMessages] = useState<AIMessage[]>([]);
   const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
   // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
   const messagesRef = useRef<AIMessage[]>([]);
@@ -664,7 +665,7 @@ export function AIAgent({
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.content })),
       getToolCalls: () => {
-        const toolCalls: Array<{name: string; input: Record<string, unknown>; output: string}> = [];
+        const toolCalls: Array<{ name: string; input: Record<string, unknown>; output: string }> = [];
         messages.forEach(m => {
           if (m.result?.steps) {
             m.result.steps.forEach(step => {
@@ -753,7 +754,7 @@ export function AIAgent({
               content: reply,
               timestamp: Date.now(),
             };
-            setMessages((prev) => [...prev, humanMsg]);
+            setSupportMessages((prev) => [...prev, humanMsg]);
             setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
           } else {
             // Not viewing this ticket — increment unread badge
@@ -815,7 +816,7 @@ export function AIAgent({
         setIsLoadingHistory(false);
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analyticsKey, userContext?.userId]);
 
   // ─── Restore pending tickets on app start ──────────────────────
@@ -922,7 +923,11 @@ export function AIAgent({
             onTicketClosed: () => clearSupport(ticket.id),
             onError: (err) => logger.error('AIAgent', '★ Restored socket error:', err),
           });
-          socket.connect(ticket.wsUrl);
+          if (ticket.wsUrl) {
+            socket.connect(ticket.wsUrl);
+          } else {
+            logger.warn('AIAgent', '★ Restored ticket has no wsUrl — skipping socket connect:', ticket.id);
+          }
           // Cache in pendingSocketsRef so handleTicketSelect reuses it without reconnecting
           pendingSocketsRef.current.set(ticket.id, socket);
           logger.info('AIAgent', '★ Single ticket restored and socket cached:', ticket.id);
@@ -1031,6 +1036,11 @@ export function AIAgent({
     // Trigger scroll to bottom when modal opens
     setChatScrollTrigger(prev => prev + 1);
 
+    // Capture the fresh wsUrl returned by the server — it is the canonical value.
+    // The local `ticket` snapshot may have an empty wsUrl if it was a placeholder
+    // created before the WS URL was known (e.g. via onEscalationStarted).
+    let freshWsUrl = ticket.wsUrl;
+
     // Fetch latest history from server — this is the source of truth and catches
     // any messages that arrived while the socket was disconnected (modal closed,
     // app backgrounded, etc.)
@@ -1040,6 +1050,9 @@ export function AIAgent({
       );
       if (res.ok) {
         const data = await res.json();
+        if (data.wsUrl) {
+          freshWsUrl = data.wsUrl; // always prefer the live server value
+        }
         const history: Array<{ role: string; content: string; timestamp?: string }> =
           Array.isArray(data.history) ? data.history : [];
         const restored: AIMessage[] = history.map((entry, i) => ({
@@ -1048,8 +1061,8 @@ export function AIAgent({
           content: entry.content,
           timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
         }));
-        setMessages(restored);
-        // Update ticket in local list with fresh history
+        setSupportMessages(restored);
+        // Update ticket in local list with fresh history + wsUrl
         if (data.wsUrl) {
           setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, history, wsUrl: data.wsUrl } : t));
         }
@@ -1064,9 +1077,9 @@ export function AIAgent({
               timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
             })
           );
-          setMessages(restored);
+          setSupportMessages(restored);
         } else {
-          setMessages([]);
+          setSupportMessages([]);
         }
       }
     } catch (err) {
@@ -1080,9 +1093,9 @@ export function AIAgent({
             timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
           })
         );
-        setMessages(restored);
+        setSupportMessages(restored);
       } else {
-        setMessages([]);
+        setSupportMessages([]);
       }
     }
 
@@ -1090,10 +1103,26 @@ export function AIAgent({
     // otherwise create a fresh connection from the ticket's stored wsUrl.
     const cached = pendingSocketsRef.current.get(ticketId);
     if (cached) {
-      pendingSocketsRef.current.delete(ticketId);
-      setSupportSocket(cached);
-      logger.info('AIAgent', '★ Reusing cached escalation socket for ticket:', ticketId);
-      return;
+      // If the socket errored (not just cleanly disconnected), discard it and
+      // fall through to create a fresh one — reusing an errored socket causes
+      // sendText to silently return false → "Connection lost" on every message.
+      if (cached.hasErrored) {
+        logger.warn('AIAgent', '★ Cached socket errored — discarding and creating fresh socket for ticket:', ticketId);
+        cached.disconnect();
+        pendingSocketsRef.current.delete(ticketId);
+        // Fall through to fresh socket creation below
+      } else {
+        pendingSocketsRef.current.delete(ticketId);
+        // If the cached socket was created before wsUrl was available (e.g. during
+        // on-mount restore), it may never have connected. Reconnect it now.
+        if (!cached.isConnected && freshWsUrl) {
+          logger.info('AIAgent', '★ Cached socket not connected — reconnecting with wsUrl:', freshWsUrl);
+          cached.connect(freshWsUrl);
+        }
+        setSupportSocket(cached);
+        logger.info('AIAgent', '★ Reusing cached escalation socket for ticket:', ticketId);
+        return;
+      }
     }
 
     const socket = new EscalationSocket({
@@ -1115,7 +1144,7 @@ export function AIAgent({
             content: reply,
             timestamp: Date.now(),
           };
-          setMessages(prev => [...prev, msg]);
+          setSupportMessages(prev => [...prev, msg]);
           setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
         } else {
           setUnreadCounts(prev => ({
@@ -1137,7 +1166,11 @@ export function AIAgent({
       },
       onError: (err) => logger.error('AIAgent', '★ Socket error on select:', err),
     });
-    socket.connect(ticket.wsUrl);
+    if (freshWsUrl) {
+      socket.connect(freshWsUrl);
+    } else {
+      logger.warn('AIAgent', '★ Ticket has no wsUrl — skipping socket connect for ticket:', ticketId);
+    }
     setSupportSocket(socket);
   }, [tickets, supportSocket, selectedTicketId, analyticsKey, clearSupport]);
 
@@ -1153,8 +1186,9 @@ export function AIAgent({
       }
       return null;
     });
+    logger.info('AIAgent', '★ Back to tickets');
     setSelectedTicketId(null);
-    setMessages([]);
+    setSupportMessages([]);
     setIsLiveAgentTyping(false);
   }, []); // No dependencies — uses refs/functional setters
 
@@ -1193,6 +1227,13 @@ export function AIAgent({
   // Ref-based resolver for ask_user — stays alive across renders
   const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
   const pendingAskUserKindRef = useRef<'freeform' | 'approval' | null>(null);
+  // Tracks whether we're waiting for a BUTTON tap (not just any text answer).
+  // Set true when kind='approval' is issued; cleared ONLY on actual button tap.
+  // Forces kind='approval' on all subsequent ask_user calls until resolved.
+  const pendingAppApprovalRef = useRef<boolean>(false);
+  // Stores a message typed by the user while the agent is still thinking (mid-approval flow).
+  // Auto-resolved into the next ask_user call to prevent the message being lost.
+  const queuedApprovalAnswerRef = useRef<string | null>(null);
   const [pendingApprovalQuestion, setPendingApprovalQuestion] = useState<string | null>(null);
   const overlayVisible = isThinking || !!pendingApprovalQuestion;
   const overlayStatusText = pendingApprovalQuestion
@@ -1247,8 +1288,42 @@ export function AIAgent({
           kind,
         });
         askUserResolverRef.current = resolve;
-        pendingAskUserKindRef.current = kind;
-        setPendingApprovalQuestion(kind === 'approval' ? question : null);
+        logger.info('AIAgent', `📌 askUserResolverRef SET (resolver stored) | kind=${kind} | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
+        // If we're already waiting for a button tap, force approval kind regardless
+        // of what the model passed — the user must tap a button to proceed.
+        const forcedKind = pendingAppApprovalRef.current ? 'approval' : kind;
+        pendingAskUserKindRef.current = forcedKind;
+        if (forcedKind === 'approval') {
+          pendingAppApprovalRef.current = true;
+        }
+
+        // If the user typed a message while we were thinking (queued answer),
+        // resolve immediately with that message instead of blocking on a new prompt.
+        const queued = queuedApprovalAnswerRef.current;
+        if (queued !== null) {
+          queuedApprovalAnswerRef.current = null;
+          logger.info('AIAgent', `⚡ Auto-resolving ask_user with queued message: "${queued}"`);
+          // Show the AI question in chat, clear the approval buttons (no resolver for them),
+          // then immediately resolve the Promise with the queued message.
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-ask-${Date.now()}`,
+              role: 'assistant' as const,
+              content: question,
+              timestamp: Date.now(),
+              promptKind: forcedKind === 'approval' ? 'approval' : undefined,
+            },
+          ]);
+          askUserResolverRef.current = null;
+          pendingAskUserKindRef.current = null;
+          pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
+          setPendingApprovalQuestion(null); // clear any stale buttons — buttons with no resolver = dead tap
+          resolve(queued);
+          return;
+        }
+
+        setPendingApprovalQuestion(forcedKind === 'approval' ? question : null);
         // Add AI question to the message thread so it appears in chat
         setMessages((prev) => [
           ...prev,
@@ -1343,7 +1418,7 @@ export function AIAgent({
           // Customer Success features
           if (customerSuccess?.enabled && event.type === 'user_interaction' && event.data) {
             const action = String(event.data.label || event.data.action || '');
-            
+
             // Check milestones
             customerSuccess.successMilestones?.forEach(m => {
               if (m.action && m.action === action) {
@@ -1417,14 +1492,14 @@ export function AIAgent({
             screen: screenName,
             action: step.action || 'view',
           });
-          
+
           // Pop the onboarding badge instantly
           setTimeout(() => {
             setProactiveBadgeText(step.message);
             setProactiveStage('badge');
             // Stop typical idle timers so it stays until dismissed or advanced
             idleDetectorRef.current?.dismiss();
-            
+
             // Auto advance logic
             advanceOnboarding();
           }, 300);
@@ -1530,7 +1605,7 @@ export function AIAgent({
     if (!audioOutputRef.current) {
       logger.info('AIAgent', 'Creating AudioOutputService...');
       audioOutputRef.current = new AudioOutputService({
-        onError: (err) => logger.error('AIAgent', `AudioOutput error: ${err}`),
+        onError: (err) => logger.warn('AIAgent', `AudioOutput error/disabled: ${err}`),
       });
       // IMPORTANT: Must await initialize() BEFORE starting mic.
       // initialize() calls setAudioSessionOptions which reconfigures the
@@ -1550,7 +1625,7 @@ export function AIAgent({
           logger.info('AIAgent', `🎤 onAudioChunk: ${chunk.length} chars, voiceService=${!!voiceServiceRef.current}, connected=${voiceServiceRef.current?.isConnected}`);
           voiceServiceRef.current?.sendAudio(chunk);
         },
-        onError: (err) => logger.error('AIAgent', `AudioInput error: ${err}`),
+        onError: (err) => logger.warn('AIAgent', `AudioInput error/disabled: ${err}`),
         onPermissionDenied: () => logger.warn('AIAgent', 'Mic permission denied by user'),
       });
     }
@@ -1796,7 +1871,10 @@ export function AIAgent({
     // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
     // If consent is required but not yet granted, show the consent dialog
     // instead of sending data to the AI provider.
-    if (consentGateActive) {
+    // EXCEPTION: bypass consent when talking to a human agent —
+    // this is a person-to-person chat, not AI data processing.
+    const isHumanAgentChat = !!(selectedTicketId && supportSocket);
+    if (consentGateActive && !isHumanAgentChat) {
       pendingConsentSendRef.current = {
         message: message.trim(),
         options,
@@ -1824,7 +1902,7 @@ export function AIAgent({
       }
 
       if (supportSocket.sendText(message)) {
-        setMessages((prev) => [
+        setSupportMessages((prev) => [
           ...prev,
           { id: `user-${Date.now()}`, role: 'user', content: message.trim(), timestamp: Date.now() },
         ]);
@@ -1861,21 +1939,26 @@ export function AIAgent({
         const resolver = askUserResolverRef.current;
         askUserResolverRef.current = null;
         pendingAskUserKindRef.current = null;
+        pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
         setPendingApprovalQuestion(null);
-        pendingFollowUpAfterApprovalRef.current = {
-          message: message.trim(),
-          options,
-        };
+
+        // Pass the user's conversational message directly back to the active prompt resolver.
+        // It will NOT be treated as a rejection! It will be passed back to the LLM.
         telemetryRef.current?.track('agent_trace', {
           stage: 'approval_interrupted_by_user_question',
           message: message.trim(),
         });
-        resolver('__APPROVAL_REJECTED__');
+
+        setIsThinking(true);
+        setStatusText('Answering your question...');
+        setLastResult(null);
+        resolver(message.trim());
         return;
       }
       const resolver = askUserResolverRef.current;
       askUserResolverRef.current = null;
       pendingAskUserKindRef.current = null;
+      pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
       setPendingApprovalQuestion(null);
       setIsThinking(true);
       setStatusText('Processing your answer...');
@@ -1890,7 +1973,20 @@ export function AIAgent({
       return;
     }
 
+    // Guard: if we're mid-approval flow (waiting for button tap) but no resolver exists yet
+    // (agent is still thinking between ask_user calls), do NOT start a new task —
+    // that would spawn two concurrent agent loops and freeze the app.
+    // Instead, store the message as a queued answer that will auto-resolve on the next ask_user.
+    if (pendingAppApprovalRef.current) {
+      logger.warn('AIAgent', '⚠️ User typed during active approval flow — queuing message, not spawning new task');
+      queuedApprovalAnswerRef.current = message.trim();
+      return;
+    }
+
     // Normal execution — new task
+    // Reset approval gate refs so previous conversations don't bleed state
+    pendingAppApprovalRef.current = false;
+    queuedApprovalAnswerRef.current = null;
     setIsThinking(true);
     setStatusText('Thinking...');
     setLastResult(null);
@@ -2036,12 +2132,12 @@ export function AIAgent({
             steps: result.steps.map((step) =>
               step === reportStep
                 ? {
-                    ...step,
-                    action: {
-                      ...step.action,
-                      output: resolvedCustomerMessage,
-                    },
-                  }
+                  ...step,
+                  action: {
+                    ...step.action,
+                    output: resolvedCustomerMessage,
+                  },
+                }
                 : step
             ),
           };
@@ -2051,8 +2147,8 @@ export function AIAgent({
       // Telemetry: track agent completion and per-step details
       if (telemetryRef.current) {
         if (!agentFrtFiredRef.current) {
-           agentFrtFiredRef.current = true;
-           telemetryRef.current.track('agent_first_response');
+          agentFrtFiredRef.current = true;
+          telemetryRef.current.track('agent_first_response');
         }
 
         for (const step of normalizedResult.steps ?? []) {
@@ -2327,14 +2423,28 @@ export function AIAgent({
                 pendingApprovalQuestion={pendingApprovalQuestion}
                 onPendingApprovalAction={(action) => {
                   const resolver = askUserResolverRef.current;
-                  if (!resolver) return;
+                  logger.info('AIAgent', `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
+                  if (!resolver) {
+                    logger.error('AIAgent', '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.');
+                    return;
+                  }
                   askUserResolverRef.current = null;
                   pendingAskUserKindRef.current = null;
+                  // Button was actually tapped — clear the approval gate and any queued message
+                  pendingAppApprovalRef.current = false;
+                  queuedApprovalAnswerRef.current = null;
                   setPendingApprovalQuestion(null);
                   const response =
                     action === 'approve'
                       ? '__APPROVAL_GRANTED__'
                       : '__APPROVAL_REJECTED__';
+                  // Restore the thinking overlay so the user can see the agent working
+                  // after approval. onAskUser set isThinking=false when buttons appeared,
+                  // but the agent is still running — restore the visual indicator.
+                  if (action === 'approve') {
+                    setIsThinking(true);
+                    setStatusText('Working...');
+                  }
                   telemetryRef.current?.track('agent_trace', {
                     stage: 'approval_button_pressed',
                     action,
@@ -2409,7 +2519,7 @@ export function AIAgent({
           {/* Support chat modal — opens when user taps a ticket */}
           <SupportChatModal
             visible={mode === 'human' && !!selectedTicketId}
-            messages={messages}
+            messages={supportMessages}
             onSend={handleSend}
             onClose={handleBackToTickets}
             isAgentTyping={isLiveAgentTyping}

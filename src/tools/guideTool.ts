@@ -2,6 +2,7 @@ import { DeviceEventEmitter } from 'react-native';
 import type { ToolDefinition } from '../core/types';
 import type { ToolContext } from './types';
 import { logger } from '../utils/logger';
+import { getStateNode } from '../core/FiberAdapter';
 
 export function createGuideTool(context: ToolContext): ToolDefinition {
   return {
@@ -46,7 +47,7 @@ export function createGuideTool(context: ToolContext): ToolDefinition {
         return `✅ Highlighted element ${index} ("${element.label}") with message: "${args.message}"`;
       }
 
-      const stateNode = element.fiberNode?.stateNode;
+      const stateNode = getStateNode(element.fiberNode);
       if (!stateNode || typeof stateNode.measure !== 'function') {
         return `❌ Element at index ${index} (${element.label}) cannot be highlighted because its layout position cannot be measured.`;
       }

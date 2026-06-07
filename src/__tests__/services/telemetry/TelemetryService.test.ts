@@ -27,7 +27,7 @@ describe('TelemetryService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({}) });
     jest.useFakeTimers();
   });
 

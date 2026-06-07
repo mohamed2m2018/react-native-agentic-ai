@@ -12,6 +12,7 @@
  * Handles:
  * - Server heartbeat pings (type: 'ping') — acknowledged silently
  * - Auto-reconnect on unexpected close (max 3 attempts, exponential backoff)
+ * - Message queue — buffers sendText calls while connecting, flushes on open
  */
 
 export type SocketReplyHandler = (reply: string, ticketId?: string) => void;
@@ -30,6 +31,10 @@ export class EscalationSocket {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private _hasErrored = false;
+
+  /** Messages buffered while the socket is connecting / reconnecting. */
+  private messageQueue: string[] = [];
 
   private readonly onReply: SocketReplyHandler;
   private readonly onError?: (error: Event) => void;
@@ -48,15 +53,53 @@ export class EscalationSocket {
   connect(wsUrl: string): void {
     this.wsUrl = wsUrl;
     this.intentionalClose = false;
+    this._hasErrored = false;
     this.openConnection();
   }
 
+  /** True if the underlying WebSocket is open and ready to send. */
+  get isConnected(): boolean {
+    return this.ws?.readyState === 1; // WebSocket.OPEN
+  }
+
+  /** True if the socket encountered an error (and may not be reliable to reuse). */
+  get hasErrored(): boolean {
+    return this._hasErrored;
+  }
+
+  /**
+   * Send a text message to the live agent.
+   *
+   * If the socket is currently connecting or reconnecting, the message is
+   * buffered and sent automatically once the connection is established.
+   * Returns `true` in both cases (connected send + queued send).
+   * Returns `false` only if the socket has no URL (was never connected).
+   */
   sendText(text: string): boolean {
+    if (!this.wsUrl) {
+      // No URL at all — nothing we can do.
+      return false;
+    }
+
     if (this.ws?.readyState === 1) { // WebSocket.OPEN
       this.ws.send(JSON.stringify({ type: 'user_message', content: text }));
       return true;
     }
-    return false;
+
+    // Socket is connecting (CONNECTING=0) or reconnecting (CLOSED=3 → scheduleReconnect).
+    // Queue the message so it is flushed as soon as onopen fires.
+    console.log('[EscalationSocket] ⏳ Socket not open — queuing message for when connected');
+    this.messageQueue.push(JSON.stringify({ type: 'user_message', content: text }));
+
+    // If the socket is fully closed (not just connecting), kick off a reconnect now
+    // rather than waiting for scheduleReconnect's timeout to fire.
+    const state = this.ws?.readyState;
+    if (state === undefined || state === 3 /* CLOSED */) {
+      console.log('[EscalationSocket] Socket CLOSED — initiating reconnect to flush queue');
+      this.openConnection();
+    }
+
+    return true; // optimistic — message is queued
   }
 
   sendTypingStatus(isTyping: boolean): boolean {
@@ -69,6 +112,7 @@ export class EscalationSocket {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.messageQueue = []; // drop queued messages on intentional close
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -79,8 +123,27 @@ export class EscalationSocket {
     }
   }
 
+  private flushQueue(): void {
+    if (this.messageQueue.length === 0) return;
+    console.log(`[EscalationSocket] 🚀 Flushing ${this.messageQueue.length} queued message(s)`);
+    const queue = this.messageQueue.splice(0); // drain atomically
+    for (const payload of queue) {
+      try {
+        this.ws?.send(payload);
+      } catch (err) {
+        console.error('[EscalationSocket] Failed to flush queued message:', err);
+      }
+    }
+  }
+
   private openConnection(): void {
     if (!this.wsUrl) return;
+
+    // Don't open a second socket if one is already connecting
+    if (this.ws && this.ws.readyState === 0 /* CONNECTING */) {
+      console.log('[EscalationSocket] Already connecting — skipping duplicate openConnection');
+      return;
+    }
 
     try {
       this.ws = new WebSocket(this.wsUrl);
@@ -92,6 +155,8 @@ export class EscalationSocket {
     this.ws.onopen = () => {
       console.log('[EscalationSocket] ✅ Connected to:', this.wsUrl);
       this.reconnectAttempts = 0;
+      this._hasErrored = false;
+      this.flushQueue(); // send any messages that arrived while connecting
     };
 
     this.ws.onmessage = (event) => {
@@ -125,6 +190,7 @@ export class EscalationSocket {
 
     this.ws.onerror = (event) => {
       console.error('[EscalationSocket] ❌ WebSocket error. URL was:', this.wsUrl, event);
+      this._hasErrored = true;
       this.onError?.(event);
     };
 
@@ -138,6 +204,7 @@ export class EscalationSocket {
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[EscalationSocket] Max reconnect attempts reached — giving up');
+      this.messageQueue = []; // drop queued messages — connection is permanently lost
       return;
     }
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 16_000);
@@ -146,6 +213,7 @@ export class EscalationSocket {
       `[EscalationSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
     );
     this.reconnectTimer = setTimeout(() => {
+      this._hasErrored = false; // clear error flag before reconnect attempt
       this.openConnection();
     }, delay);
   }

@@ -46,61 +46,12 @@ function generateTraceId(): string {
   return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function normalizeApprovalText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function isApprovalResponse(value: string): boolean {
-  const normalized = normalizeApprovalText(value);
-  if (!normalized) return false;
-
-  const directApprovals = [
-    'yes',
-    'y',
-    'ok',
-    'okay',
-    'sure',
-    'go',
-    'go ahead',
-    'proceed',
-    'confirm',
-    'confirmed',
-    'continue',
-    'start',
-    'do it',
-    'do that',
-    'tap it',
-    'click it',
-    'clicked it',
-    'i clicked it',
-    'i did it',
-    'done',
-    'approved',
-    'approve',
-    'تمام',
-    'ايوه',
-    'أيوه',
-    'نعم',
-    'موافق',
-    'اكمل',
-    'أكمل',
-    'استمر',
-  ];
-
-  if (directApprovals.includes(normalized)) return true;
-
-  return directApprovals.some((phrase) => normalized.includes(phrase));
-}
 
 const APPROVAL_GRANTED_TOKEN = '__APPROVAL_GRANTED__';
 const APPROVAL_REJECTED_TOKEN = '__APPROVAL_REJECTED__';
 const APPROVAL_ALREADY_DONE_TOKEN = '__APPROVAL_ALREADY_DONE__';
 const USER_ALREADY_COMPLETED_MESSAGE = '✅ It looks like you already completed that step yourself. Great — let me know if you want help with anything else.';
-const TASK_NOT_APPROVED_MESSAGE = "No problem — I won't take any action. Let me know if you'd like help with something else.";
+
 const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
 
 // ─── Agent Runtime ─────────────────────────────────────────────
@@ -119,7 +70,6 @@ export class AgentRuntime {
   private uiControlOverride?: boolean;
   private lastDehydratedRoot: any = null;
   private currentTraceId: string | null = null;
-  private hasTaskApproval = false;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -129,6 +79,16 @@ export class AgentRuntime {
   private lastSuppressedError: Error | null = null;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private originalReportErrorsAsExceptions: boolean | undefined = undefined;
+
+  // ─── App-action approval gate ────────────────────────────────
+  // Tracks whether the support consent flow (ask_user + request_app_action=true)
+  // has been issued and whether the user has explicitly approved it via button tap.
+  // Only UI-altering tools are gated; informational tools (done, query_knowledge) are not.
+  private appActionApproved = false;        // true only after __APPROVAL_GRANTED__ received
+  // Tools that physically alter the app — must be gated by appAction approval
+  private static readonly APP_ACTION_TOOLS = new Set([
+    'tap', 'type', 'scroll', 'navigate', 'long_press', 'slider', 'picker', 'date_picker', 'keyboard',
+  ]);
 
   public getConfig(): AgentConfig {
     return this.config;
@@ -286,11 +246,15 @@ export class AgentRuntime {
       description: 'Complete the task with a message to the user.',
       parameters: {
         text: { type: 'string', description: 'Response message to the user', required: true },
+        message: { type: 'string', description: 'Alternative to text parameter', required: false },
         success: { type: 'boolean', description: 'Whether the task was completed successfully', required: true },
       },
       execute: async (args) => {
-        // Strip any leaked bracketed indices like [41] before showing to user
-        const cleanText = args.text?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || '';
+        let cleanText = args.text || args.message || '';
+        if (typeof cleanText === 'string') {
+          // Strip bracketed indices safely avoiding regex stack overflows on large strings
+          cleanText = cleanText.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
+        }
         return cleanText;
       },
     });
@@ -312,21 +276,43 @@ export class AgentRuntime {
     // ask_user — ask for clarification
     this.tools.set('ask_user', {
       name: 'ask_user',
-      description: 'Ask the user a question and wait for their answer. Use this if you need more information or clarification.',
+      description: 'Communicate with the user. Use this to ask questions, request permission for app actions, OR answer a question the user asked.',
       parameters: {
-        question: { type: 'string', description: 'Question to ask the user', required: true },
+        question: { type: 'string', description: 'The message or question to say to the user', required: true },
+        request_app_action: { type: 'boolean', description: 'Set to true when requesting permission to take an action in the app (navigate, tap, investigate). Shows explicit approval buttons to the user.', required: true },
       },
       execute: async (args) => {
-        // Strip any leaked bracketed indices like [41] before showing to user
-        const cleanQuestion = args.question?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || '';
+        // Strip any leaked bracketed indices like [41] safely
+        let cleanQuestion = args.question || '';
+        if (typeof cleanQuestion === 'string') {
+          cleanQuestion = cleanQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
+        }
+        const kind = args.request_app_action ? 'approval' : 'freeform';
 
-        logger.info('AgentRuntime', `❓ ask_user emitted: "${cleanQuestion}"`);
+        // Mark that the support approval flow has been initiated
+        if (args.request_app_action) {
+          this.appActionApproved = false; // reset until user taps Allow
+          logger.info('AgentRuntime', '🔒 App action gate: approval requested, UI tools now BLOCKED until granted');
+        }
+
+        logger.info('AgentRuntime', `❓ ask_user emitted (kind=${kind}): "${cleanQuestion}"`);
         if (this.config.onAskUser) {
           // Block until user responds, then continue the loop
           this.config.onStatusUpdate?.('Waiting for your answer...');
-          logger.info('AgentRuntime', '⏸️ Waiting for user response via onAskUser callback');
-          const answer = await this.config.onAskUser({ question: cleanQuestion, kind: 'freeform' });
+          logger.info('AgentRuntime', `⏸️ Waiting for user response via onAskUser callback (kind=${kind})`);
+          const answer = await this.config.onAskUser({ question: cleanQuestion, kind });
           logger.info('AgentRuntime', `✅ ask_user resolved with: "${String(answer)}"`);
+
+          // Resolve approval gate based on button response
+          if (answer === '__APPROVAL_GRANTED__') {
+            this.appActionApproved = true;
+            logger.info('AgentRuntime', '✅ App action gate: APPROVED — UI tools unblocked');
+          } else if (answer === '__APPROVAL_REJECTED__') {
+            this.appActionApproved = false;
+            logger.info('AgentRuntime', '🚫 App action gate: REJECTED — UI tools remain blocked');
+          }
+          // Any other text answer (conversational interruption) leaves appActionApproved as-is
+
           return `User answered: ${answer}`;
         }
         // Legacy fallback: break the loop (context will be lost)
@@ -713,11 +699,11 @@ ${screen.elementsText}
         if (typeof val === 'string') {
           toolParams[key] = { type: 'string', description: val, required: true };
         } else {
-          toolParams[key] = { 
-            type: val.type, 
-            description: val.description, 
-            required: val.required !== false, 
-            enum: val.enum 
+          toolParams[key] = {
+            type: val.type,
+            description: val.description,
+            required: val.required !== false,
+            enum: val.enum
           };
         }
       }
@@ -886,6 +872,22 @@ ${screen.elementsText}
         }, stepIndex);
       }
 
+      // ── App-action approval gate ────────────────────────────────────────
+      // Mandate explicit ask_user approval for all UI-altering tools ONLY if we are in
+      // copilot mode AND the host app has provided an onAskUser callback.
+      // If the model tries to use a UI tool without explicitly getting approval, we block it.
+      if (
+        this.config.interactionMode !== 'autopilot' &&
+        this.config.onAskUser &&
+        AgentRuntime.APP_ACTION_TOOLS.has(toolName) &&
+        !this.appActionApproved
+      ) {
+        const blockedMsg = `🚫 APP ACTION BLOCKED: You are attempting to use "${toolName}" but have not yet received explicit user approval. You MUST first call ask_user(request_app_action=true) and wait for the user to explicitly tap 'Allow' before executing ANY UI actions (including navigate, tap, scroll, etc).`;
+        logger.warn('AgentRuntime', blockedMsg);
+        this.emitTrace('app_action_gate_blocked', { tool: toolName, args }, stepIndex);
+        return blockedMsg;
+      }
+
       const result = await tool.execute(args);
 
       // Settle window for async side-effects (useEffect, native callbacks)
@@ -978,135 +980,6 @@ ${screen.elementsText}
     'tap', 'type', 'long_press', 'adjust_slider', 'select_picker', 'set_date',
   ]);
 
-  /** Any UI-driving tools that should never start silently in copilot mode. */
-  private static readonly ACTION_TOOLS_REQUIRING_TASK_APPROVAL = new Set([
-    'tap',
-    'type',
-    'long_press',
-    'scroll',
-    'navigate',
-    'adjust_slider',
-    'select_picker',
-    'set_date',
-    'guide_user',
-    'simplify_zone',
-    'restore_zone',
-  ]);
-
-  private async ensureCopilotTaskApproval(
-    toolName: string,
-    args: Record<string, any>,
-    plan: string,
-    stepIndex?: number,
-  ): Promise<string | null> {
-    if (this.config.interactionMode === 'autopilot') {
-      return null;
-    }
-
-    if (!AgentRuntime.ACTION_TOOLS_REQUIRING_TASK_APPROVAL.has(toolName)) {
-      return null;
-    }
-
-    if (this.hasTaskApproval) {
-      this.emitTrace('task_approval_not_needed', {
-        tool: toolName,
-        reason: 'already_approved',
-      }, stepIndex);
-      return null;
-    }
-
-    const actionLabel = this.getToolStatusLabel(toolName, args).replace(/\s+/g, ' ').trim();
-    const normalizedPlan = plan?.trim() || `carry out this request by ${actionLabel}`;
-    const question = `I can do this in the app for you by tapping and typing where needed, and ${normalizedPlan.charAt(0).toLowerCase()}${normalizedPlan.slice(1)}. If you'd rather do it yourself, I can guide you step by step instead.`;
-
-    this.emitTrace('task_approval_required', {
-      tool: toolName,
-      args,
-      plan: normalizedPlan,
-      question,
-    }, stepIndex);
-
-    if (this.config.onAskUser) {
-      this.emitTrace('task_approval_prompted', {
-        tool: toolName,
-        channel: 'ask_user',
-        question,
-      }, stepIndex);
-      const response = await this.config.onAskUser({ question, kind: 'approval' });
-      this.emitTrace('task_approval_response_received', {
-        tool: toolName,
-        response: String(response),
-      }, stepIndex);
-      if (response === APPROVAL_ALREADY_DONE_TOKEN) {
-        this.emitTrace('task_approval_already_done', {
-          tool: toolName,
-        }, stepIndex);
-        return APPROVAL_ALREADY_DONE_TOKEN;
-      }
-      if (response === APPROVAL_GRANTED_TOKEN) {
-        this.hasTaskApproval = true;
-        this.emitTrace('task_approval_granted', {
-          tool: toolName,
-          response: 'explicit_button',
-        }, stepIndex);
-        return null;
-      }
-      if (response === APPROVAL_REJECTED_TOKEN) {
-        this.emitTrace('task_approval_rejected', {
-          tool: toolName,
-          response: 'explicit_button',
-        }, stepIndex);
-        return TASK_NOT_APPROVED_MESSAGE;
-      }
-      const approved = isApprovalResponse(String(response));
-      if (!approved) {
-        this.emitTrace('task_approval_rejected', {
-          tool: toolName,
-          response: String(response),
-        }, stepIndex);
-        return TASK_NOT_APPROVED_MESSAGE;
-      }
-      this.hasTaskApproval = true;
-      this.emitTrace('task_approval_granted', {
-        tool: toolName,
-        response: String(response),
-      }, stepIndex);
-      return null;
-    }
-
-    const { Alert } = require('react-native');
-    this.emitTrace('task_approval_prompted', {
-      tool: toolName,
-      channel: 'native_alert',
-      question,
-    }, stepIndex);
-    const approved = await new Promise<boolean>(resolve => {
-      Alert.alert(
-        'Start Action',
-        question,
-        [
-          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-          { text: 'Continue', onPress: () => resolve(true) },
-        ],
-        { cancelable: false },
-      );
-    });
-
-    if (!approved) {
-      this.emitTrace('task_approval_rejected', {
-        tool: toolName,
-        response: 'cancel',
-      }, stepIndex);
-      return TASK_NOT_APPROVED_MESSAGE;
-    }
-
-    this.hasTaskApproval = true;
-    this.emitTrace('task_approval_granted', {
-      tool: toolName,
-      response: 'continue',
-    }, stepIndex);
-    return null;
-  }
 
   /**
    * Check if a tool call targets an aiConfirm element and request user confirmation.
@@ -1238,23 +1111,14 @@ ${screen.elementsText}
         }, stepIndex);
         return ACTION_NOT_APPROVED_MESSAGE;
       }
-      const approved = isApprovalResponse(String(response));
-      if (!approved) {
-        logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
-        this.emitTrace('confirmation_rejected', {
-          tool: toolName,
-          elementLabel: label,
-          response: String(response),
-        }, stepIndex);
-        return ACTION_NOT_APPROVED_MESSAGE;
-      }
-      logger.info('AgentRuntime', `✅ User approved "${toolName}" on "${label}"`);
-      this.emitTrace('confirmation_approved', {
+
+      // If it's conversational input (e.g. "Why?"), pause the action and pass the user's question back to the LLM so it can answer it!
+      this.emitTrace('confirmation_interrupted', {
         tool: toolName,
         elementLabel: label,
         response: String(response),
       }, stepIndex);
-      return null;
+      return `Action paused because the user interrupted with this message: "${response}". Please answer the user by fully explaining your logic.`;
     }
 
     // Fallback: React Native Alert
@@ -1491,9 +1355,10 @@ ${screen.elementsText}
     this.isCancelRequested = false;
     this.history = [];
     this.currentTraceId = generateTraceId();
-    this.hasTaskApproval = false;
     this.observations = [];
     this.lastScreenName = '';
+    // Reset app-action approval gate for each new task
+    this.appActionApproved = false;
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
     const stepDelay = this.config.stepDelay ?? 300;
 
@@ -1647,13 +1512,11 @@ ${screen.elementsText}
         this.lastDehydratedRoot = screen;
         this.emitTrace('screen_dehydrated', {
           screenName: screen.screenName,
-          availableScreens: screen.availableScreens,
-          interactiveCount: screen.elements?.length ?? 0,
-          elementsText: screen.elementsText,
+          elementCount: screen.elements.length,
+          elementsTextLength: screen.elementsText.length,
         }, step);
 
         logger.info('AgentRuntime', `Screen: ${screen.screenName}`);
-        logger.debug('AgentRuntime', `Dehydrated:\n${screen.elementsText}`);
 
         // 2. Apply transformScreenContent
         let screenContent = screen.elementsText;
@@ -1788,33 +1651,6 @@ ${screen.elementsText}
           reasoning,
         }, step);
 
-        const taskApprovalResult = await this.ensureCopilotTaskApproval(
-          toolCall.name,
-          toolCall.args,
-          reasoning.plan,
-          step,
-        );
-        if (taskApprovalResult) {
-          if (taskApprovalResult === APPROVAL_ALREADY_DONE_TOKEN) {
-            const result: ExecutionResult = {
-              success: true,
-              message: USER_ALREADY_COMPLETED_MESSAGE,
-              steps: this.history,
-              tokenUsage: sessionUsage,
-            };
-            await this.config.onAfterTask?.(result);
-            return result;
-          }
-          logger.info('AgentRuntime', taskApprovalResult);
-          const result: ExecutionResult = {
-            success: false,
-            message: taskApprovalResult,
-            steps: this.history,
-            tokenUsage: sessionUsage,
-          };
-          await this.config.onAfterTask?.(result);
-          return result;
-        }
 
         if (toolCall.name !== 'ask_user' && this.config.interactionMode !== 'autopilot') {
           logger.info('AgentRuntime', `🛡️ Tool "${toolCall.name}" chosen without prompt-level pause; relying on model plan-following and aiConfirm safeguards if present`);
@@ -1878,7 +1714,7 @@ ${screen.elementsText}
         if (toolCall.name === 'done') {
           const result: ExecutionResult = {
             success: toolCall.args.success !== false,
-            message: toolCall.args.text || output,
+            message: toolCall.args.text || toolCall.args.message || output || reasoning.plan || (toolCall.args.success === false ? 'Action stopped.' : 'Action completed.'),
             steps: this.history,
             tokenUsage: sessionUsage,
           };
@@ -1895,8 +1731,11 @@ ${screen.elementsText}
 
         // Check if asking user (legacy path — only breaks loop when onAskUser is NOT set)
         if (toolCall.name === 'ask_user' && !this.config.onAskUser) {
-          const rawQuestion = toolCall.args.question || output;
-          this.lastAskUserQuestion = rawQuestion?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || rawQuestion || '';
+          let rawQuestion = toolCall.args.question || output || '';
+          if (typeof rawQuestion === 'string') {
+            rawQuestion = rawQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
+          }
+          this.lastAskUserQuestion = rawQuestion;
 
           const result: ExecutionResult = {
             success: true,
