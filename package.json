@@ -1,18 +1,15 @@
 {
   "name": "experimental-stuff",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
-  "source": "./src/index.ts",
   "types": "./lib/typescript/src/index.d.ts",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
     },
     "./withAppIntents": {
-      "source": "./src/plugin/withAppIntents.ts",
       "types": "./lib/typescript/src/plugin/withAppIntents.d.ts",
       "default": "./lib/module/plugin/withAppIntents.js"
     },
@@ -23,7 +20,6 @@
     "react-native-ai-agent": "./bin/generate-map.cjs"
   },
   "files": [
-    "src",
     "lib",
     "bin",
     "generate-map.js",
@@ -41,6 +37,7 @@
     "!**/__tests__",
     "!**/__fixtures__",
     "!**/__mocks__",
+    "!lib/**/*.map",
     "!**/.*",
     "!mcp-server"
   ],
