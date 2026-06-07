@@ -8,6 +8,7 @@
 // ─── Components ──────────────────────────────────────────────
 export { AIAgent } from './components/AIAgent';
 export { AIZone } from './components/AIZone';
+export { AIConsentDialog, useAIConsent } from './components/AIConsentDialog';
 // Built-in card templates for AIZone injection
 // Note: displayName is set explicitly on each — required for minification-safe template lookup.
 export { InfoCard } from './components/cards/InfoCard';
@@ -26,6 +27,7 @@ export { VoiceService } from './services/VoiceService';
 export { AudioInputService } from './services/AudioInputService';
 export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
+export { createMobileAIKnowledgeRetriever } from './services/MobileAIKnowledgeRetriever';
 
 // ─── Analytics ───────────────────────────────────────────────
 export { MobileAI } from './services/telemetry';
@@ -52,7 +54,12 @@ export type {
   ScreenMap,
   ScreenMapEntry,
   InteractionMode,
+  ConversationSummary,
 } from './core/types';
+
+export type { MobileAIKnowledgeRetrieverOptions } from './services/MobileAIKnowledgeRetriever';
+
+export type { AIConsentConfig } from './components/AIConsentDialog';
 
 export type {
   VoiceServiceConfig,
@@ -60,16 +67,20 @@ export type {
   VoiceStatus,
 } from './services/VoiceService';
 
-export type {
-  TelemetryConfig,
-  TelemetryEvent,
-} from './services/telemetry';
+export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
 
 // ─── Support Mode ────────────────────────────────────────────
 // SupportGreeting, CSATSurvey, buildSupportPrompt work standalone (no backend)
 // createEscalateTool works with provider='custom' (no backend)
 // EscalationSocket and provider='mobileai' require api.mobileai.dev
-export { SupportGreeting, CSATSurvey, buildSupportPrompt, createEscalateTool, EscalationSocket } from './support';
+export {
+  SupportGreeting,
+  CSATSurvey,
+  buildSupportPrompt,
+  createEscalateTool,
+  EscalationSocket,
+} from './support';
+export { createReportIssueTool } from './support';
 
 export type {
   SupportModeConfig,
@@ -80,4 +91,7 @@ export type {
   CSATRating,
   BusinessHoursConfig,
   SupportTicket,
+  ReportedIssue,
+  ReportedIssueCustomerStatus,
+  ReportedIssueStatusUpdate,
 } from './support';

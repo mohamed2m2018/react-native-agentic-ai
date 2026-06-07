@@ -72,6 +72,7 @@ export interface DehydratedScreen {
 export interface ScreenMapEntry {
   title?: string;
   description: string;
+  navigatesTo?: string[];
 }
 
 export interface ScreenMap {
@@ -91,6 +92,20 @@ export interface AgentStep {
     input: Record<string, any>;
     output: string;
   };
+}
+
+export interface AgentTraceEvent {
+  traceId: string;
+  stage: string;
+  timestamp?: string;
+  stepIndex?: number;
+  screenName?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface AskUserRequest {
+  question: string;
+  kind?: 'freeform' | 'approval';
 }
 
 export interface AgentConfig {
@@ -240,6 +255,8 @@ export interface AgentConfig {
   /**
    * Called after each step with token usage data.
    * Use to track cost, enforce budgets, or display usage to the user.
+   * NOTE: Estimated costs are raw provider rates. They do not include the 
+   * dashboard's hosted proxy tier multiplier.
    */
   onTokenUsage?: (usage: TokenUsage) => void;
 
@@ -249,7 +266,7 @@ export interface AgentConfig {
    * If not set, ask_user tool will break the loop (legacy behavior).
    * @example onAskUser: (q) => new Promise(resolve => showPrompt(q, resolve))
    */
-  onAskUser?: (question: string) => Promise<string>;
+  onAskUser?: (request: AskUserRequest | string) => Promise<string>;
 
   /**
    * Called immediately before and after each agent tool execution.
@@ -258,6 +275,12 @@ export interface AgentConfig {
    * @param active - true = agent is acting, false = agent finished acting
    */
   onToolExecute?: (active: boolean) => void;
+
+  /**
+   * Called whenever the runtime emits a detailed audit trace event.
+   * Intended for backend persistence of high-signal execution trails.
+   */
+  onTrace?: (event: AgentTraceEvent) => void;
 
   // ─── Expo Router Support ─────────────────────────────────────────────────
 
@@ -301,6 +324,8 @@ export interface AgentConfig {
    * Maximum estimated cost (USD) allowed per task.
    * The agent loop auto-stops when this budget is exceeded, returning partial results.
    * Cost is estimated based on the provider's pricing (see provider source for rates).
+   * NOTE: This represents raw provider cost (Gemini's base pricing). 
+   * It does NOT include the MobileAI dashboard tier-based markup multiplier.
    */
   maxCostUSD?: number;
 
@@ -402,7 +427,33 @@ export interface AIMessage {
   timestamp: number;
   /** Attached execution result (assistant messages only) */
   result?: ExecutionResult;
+  /** Optional UI hint for rendering assistant prompts */
+  promptKind?: 'approval';
 }
+
+// ─── Conversation History ─────────────────────────────────────
+
+/**
+ * A past conversation session summary returned by the history list endpoint.
+ * Used to populate the history panel in AgentChatBar.
+ */
+export interface ConversationSummary {
+  /** Unique conversation ID (backend cuid) */
+  id: string;
+  /** Auto-generated title from the first user message */
+  title: string;
+  /** Preview text — last message content, truncated */
+  preview: string;
+  /** Role of the last message ('user' | 'assistant') */
+  previewRole: string;
+  /** Total number of messages in the conversation */
+  messageCount: number;
+  /** Unix ms — when the conversation was created */
+  createdAt: number;
+  /** Unix ms — when it was last updated */
+  updatedAt: number;
+}
+
 
 // ─── Chat Bar Theme ──────────────────────────────────────────
 
@@ -518,4 +569,49 @@ export interface ProactiveHelpConfig {
   dismissForSession?: boolean;
   /** Dynamic context suggestion generator based on current screen */
   generateSuggestion?: (screenName: string) => string;
+  /**
+   * Behavior-based triggers to detect user struggle (e.g., rage tapping) and show help instantly.
+   */
+  behaviorTriggers?: Array<{
+    /** Exact screen name or '*' for all screens */
+    screen: string;
+    /** Type of struggle behavior to detect */
+    type: 'rage_tap' | 'error_screen' | 'repeated_navigation';
+    /** Custom badge message when triggered */
+    message?: string;
+    /** Delay before showing badge once triggered (ms) */
+    delayMs?: number;
+  }>;
+}
+
+export interface CustomerSuccessConfig {
+  /** Enable background collection of health and adoption signals */
+  enabled: boolean;
+  /** Key features to track adoption for */
+  keyFeatures?: string[];
+  /** Milestones that indicate the user is "succeeding" */
+  successMilestones?: Array<{
+    name: string;
+    /** Screen or action that indicates this milestone */
+    screen?: string;
+    action?: string;
+  }>;
+}
+
+export interface OnboardingConfig {
+  /** Automatically guide the user through these steps */
+  enabled: boolean;
+  /** Steps in the onboarding journey */
+  steps: Array<{
+    screen: string;
+    message: string;
+    /** Element index to highlight via guide tool (optional) */
+    highlightIndex?: number;
+    /** Auto-complete action if user agrees (optional) */
+    action?: string;
+  }>;
+  /** Only show on the very first time the app is launched. Default: true */
+  firstLaunchOnly?: boolean;
+  /** Callback fired when the final step is completed */
+  onComplete?: () => void;
 }

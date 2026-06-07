@@ -15,6 +15,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import type { CSATConfig, CSATRating } from './types';
+import { MobileAI } from '../services/telemetry';
 
 interface CSATSurveyProps {
   config: CSATConfig;
@@ -35,6 +36,14 @@ const EMOJI_OPTIONS = [
   { emoji: '🤩', label: 'Amazing', score: 5 },
 ];
 
+const CES_OPTIONS = [
+  { label: 'Very Difficult', score: 1 },
+  { label: 'Difficult', score: 2 },
+  { label: 'Neutral', score: 3 },
+  { label: 'Easy', score: 4 },
+  { label: 'Very Easy', score: 5 },
+];
+
 const STAR_COUNT = 5;
 
 export function CSATSurvey({
@@ -50,8 +59,13 @@ export function CSATSurvey({
   const primary = theme?.primaryColor ?? '#8b5cf6';
   const textColor = theme?.textColor ?? '#ffffff';
   const bgColor = theme?.backgroundColor ?? 'rgba(26, 26, 46, 0.98)';
+  const surveyType = config.surveyType ?? 'csat';
   const ratingType = config.ratingType ?? 'emoji';
-  const question = config.question ?? 'How was your experience?';
+  
+  const defaultQuestion = surveyType === 'ces' 
+    ? 'How easy was it to get the help you needed?' 
+    : 'How was your experience?';
+  const question = config.question ?? defaultQuestion;
 
   const handleSubmit = () => {
     if (selectedScore === null) return;
@@ -64,6 +78,15 @@ export function CSATSurvey({
 
     config.onSubmit(rating);
     setSubmitted(true);
+
+    // Track CSAT/CES response
+    const fcrAchieved = selectedScore >= 4 || (ratingType === 'thumbs' && selectedScore === 5);
+    const eventName = surveyType === 'ces' ? 'ces_response' : 'csat_response';
+    
+    MobileAI.track(eventName, { score: selectedScore, fcrAchieved, ticketId: metadata?.ticketId });
+    if (fcrAchieved) {
+      MobileAI.track('fcr_achieved', { score: selectedScore, ticketId: metadata?.ticketId });
+    }
 
     // Auto-dismiss after 1.5s
     setTimeout(onDismiss, 1500);
@@ -86,7 +109,43 @@ export function CSATSurvey({
 
       {/* Rating selector */}
       <View style={styles.ratingContainer}>
-        {ratingType === 'emoji' && (
+        {surveyType === 'ces' && (
+          <View style={styles.cesRow}>
+            {CES_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.score}
+                onPress={() => setSelectedScore(opt.score)}
+                style={[
+                  styles.cesButton,
+                  selectedScore === opt.score && {
+                    backgroundColor: `${primary}30`,
+                    borderColor: primary,
+                  },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.cesNumber,
+                    { color: selectedScore === opt.score ? primary : textColor },
+                  ]}
+                >
+                  {opt.score}
+                </Text>
+                <Text
+                  style={[
+                    styles.cesLabel,
+                    { color: selectedScore === opt.score ? primary : '#71717a' },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {surveyType === 'csat' && ratingType === 'emoji' && (
           <View style={styles.emojiRow}>
             {EMOJI_OPTIONS.map((opt) => (
               <TouchableOpacity
@@ -115,7 +174,7 @@ export function CSATSurvey({
           </View>
         )}
 
-        {ratingType === 'stars' && (
+        {surveyType === 'csat' && ratingType === 'stars' && (
           <View style={styles.starsRow}>
             {Array.from({ length: STAR_COUNT }, (_, i) => i + 1).map(
               (star) => (
@@ -143,33 +202,37 @@ export function CSATSurvey({
           </View>
         )}
 
-        {ratingType === 'thumbs' && (
+        {surveyType === 'csat' && ratingType === 'thumbs' && (
           <View style={styles.thumbsRow}>
-            <TouchableOpacity
-              onPress={() => setSelectedScore(0)}
-              style={[
-                styles.thumbButton,
-                selectedScore === 0 && {
-                  backgroundColor: '#ef444430',
-                  borderColor: '#ef4444',
-                },
-              ]}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.thumbEmoji}>👎</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setSelectedScore(1)}
               style={[
                 styles.thumbButton,
                 selectedScore === 1 && {
-                  backgroundColor: '#22c55e30',
+                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                  borderColor: '#ef4444',
+                },
+              ]}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.thumbEmoji, selectedScore === 1 && { opacity: 1 }]}>
+                👎
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setSelectedScore(5)}
+              style={[
+                styles.thumbButton,
+                selectedScore === 5 && {
+                  backgroundColor: 'rgba(34, 197, 94, 0.2)',
                   borderColor: '#22c55e',
                 },
               ]}
               activeOpacity={0.7}
             >
-              <Text style={styles.thumbEmoji}>👍</Text>
+              <Text style={[styles.thumbEmoji, selectedScore === 5 && { opacity: 1 }]}>
+                👍
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -250,6 +313,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 4,
     fontWeight: '500',
+  },
+  cesRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  cesButton: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    minWidth: 60,
+  },
+  cesNumber: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  cesLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   starsRow: {
     flexDirection: 'row',

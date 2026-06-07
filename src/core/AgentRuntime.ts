@@ -32,6 +32,7 @@ import type { ToolContext } from '../tools';
 import type {
   AIProvider,
   AgentConfig,
+  AgentTraceEvent,
   AgentStep,
   ExecutionResult,
   ToolDefinition,
@@ -40,6 +41,67 @@ import type {
 import { actionRegistry } from './ActionRegistry';
 
 const DEFAULT_MAX_STEPS = 25;
+
+function generateTraceId(): string {
+  return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeApprovalText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isApprovalResponse(value: string): boolean {
+  const normalized = normalizeApprovalText(value);
+  if (!normalized) return false;
+
+  const directApprovals = [
+    'yes',
+    'y',
+    'ok',
+    'okay',
+    'sure',
+    'go',
+    'go ahead',
+    'proceed',
+    'confirm',
+    'confirmed',
+    'continue',
+    'start',
+    'do it',
+    'do that',
+    'tap it',
+    'click it',
+    'clicked it',
+    'i clicked it',
+    'i did it',
+    'done',
+    'approved',
+    'approve',
+    'تمام',
+    'ايوه',
+    'أيوه',
+    'نعم',
+    'موافق',
+    'اكمل',
+    'أكمل',
+    'استمر',
+  ];
+
+  if (directApprovals.includes(normalized)) return true;
+
+  return directApprovals.some((phrase) => normalized.includes(phrase));
+}
+
+const APPROVAL_GRANTED_TOKEN = '__APPROVAL_GRANTED__';
+const APPROVAL_REJECTED_TOKEN = '__APPROVAL_REJECTED__';
+const APPROVAL_ALREADY_DONE_TOKEN = '__APPROVAL_ALREADY_DONE__';
+const USER_ALREADY_COMPLETED_MESSAGE = '✅ It looks like you already completed that step yourself. Great — let me know if you want help with anything else.';
+const TASK_NOT_APPROVED_MESSAGE = "No problem — I won't take any action. Let me know if you'd like help with something else.";
+const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
 
 // ─── Agent Runtime ─────────────────────────────────────────────
 
@@ -56,6 +118,8 @@ export class AgentRuntime {
   private knowledgeService: KnowledgeBaseService | null = null;
   private uiControlOverride?: boolean;
   private lastDehydratedRoot: any = null;
+  private currentTraceId: string | null = null;
+  private hasTaskApproval = false;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -225,7 +289,9 @@ export class AgentRuntime {
         success: { type: 'boolean', description: 'Whether the task was completed successfully', required: true },
       },
       execute: async (args) => {
-        return args.text;
+        // Strip any leaked bracketed indices like [41] before showing to user
+        const cleanText = args.text?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || '';
+        return cleanText;
       },
     });
 
@@ -251,14 +317,21 @@ export class AgentRuntime {
         question: { type: 'string', description: 'Question to ask the user', required: true },
       },
       execute: async (args) => {
+        // Strip any leaked bracketed indices like [41] before showing to user
+        const cleanQuestion = args.question?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || '';
+
+        logger.info('AgentRuntime', `❓ ask_user emitted: "${cleanQuestion}"`);
         if (this.config.onAskUser) {
           // Block until user responds, then continue the loop
           this.config.onStatusUpdate?.('Waiting for your answer...');
-          const answer = await this.config.onAskUser(args.question);
+          logger.info('AgentRuntime', '⏸️ Waiting for user response via onAskUser callback');
+          const answer = await this.config.onAskUser({ question: cleanQuestion, kind: 'freeform' });
+          logger.info('AgentRuntime', `✅ ask_user resolved with: "${String(answer)}"`);
           return `User answered: ${answer}`;
         }
         // Legacy fallback: break the loop (context will be lost)
-        return `❓ ${args.question}`;
+        logger.warn('AgentRuntime', '⚠️ ask_user has no onAskUser callback; returning legacy fallback');
+        return `❓ ${cleanQuestion}`;
       },
     });
 
@@ -769,7 +842,8 @@ ${screen.elementsText}
   private async executeToolSafely(
     tool: { execute: (args: any) => Promise<string> },
     args: any,
-    toolName: string
+    toolName: string,
+    stepIndex?: number,
   ): Promise<string> {
     // Clear any previous suppressed error before this tool
     this.lastSuppressedError = null;
@@ -779,10 +853,20 @@ ${screen.elementsText}
     this.config.onToolExecute?.(true);
 
     try {
+      this.emitTrace('tool_execution_started', {
+        tool: toolName,
+        args,
+      }, stepIndex);
+
       // ── Argument Validation (Pattern from Detox/Appium: typeof checks before native dispatch) ──
       const validationError = this.validateToolArgs(args, toolName);
       if (validationError) {
         logger.warn('AgentRuntime', `🛡️ Arg validation rejected "${toolName}": ${validationError}`);
+        this.emitTrace('tool_validation_rejected', {
+          tool: toolName,
+          args,
+          validationError,
+        }, stepIndex);
         return validationError;
       }
 
@@ -791,8 +875,15 @@ ${screen.elementsText}
       // user confirmation before execution. This is the code-level safety net
       // complementing the prompt-level copilot instructions.
       if (this.config.interactionMode !== 'autopilot') {
-        const confirmResult = await this.checkCopilotConfirmation(toolName, args);
+        logger.info('AgentRuntime', `🛡️ Checking copilot confirmation for ${toolName}(${JSON.stringify(args)})`);
+        const confirmResult = await this.checkCopilotConfirmation(toolName, args, stepIndex);
         if (confirmResult) return confirmResult;
+      } else {
+        logger.info('AgentRuntime', `🚀 interactionMode=autopilot, skipping copilot confirmation for "${toolName}"`);
+        this.emitTrace('confirmation_skipped_autopilot', {
+          tool: toolName,
+          args,
+        }, stepIndex);
       }
 
       const result = await tool.execute(args);
@@ -805,11 +896,27 @@ ${screen.elementsText}
       if (suppressedError) {
         logger.warn('AgentRuntime', `🛡️ Tool "${toolName}" caused async error (suppressed): ${suppressedError.message}`);
         this.lastSuppressedError = null;
+        this.emitTrace('tool_async_error_suppressed', {
+          tool: toolName,
+          args,
+          result,
+          error: suppressedError.message,
+        }, stepIndex);
         return `${result} (⚠️ a background error was safely caught: ${suppressedError.message})`;
       }
+      this.emitTrace('tool_execution_finished', {
+        tool: toolName,
+        args,
+        result,
+      }, stepIndex);
       return result;
     } catch (error: any) {
       logger.error('AgentRuntime', `Tool "${toolName}" threw: ${error.message}`);
+      this.emitTrace('tool_execution_failed', {
+        tool: toolName,
+        args,
+        error: error?.message ?? String(error),
+      }, stepIndex);
       return `❌ Tool "${toolName}" failed: ${error.message}`;
     } finally {
       // Always restore the flag — even on error or validation rejection
@@ -847,12 +954,159 @@ ${screen.elementsText}
     return null;
   }
 
+  private emitTrace(
+    stage: string,
+    data: Record<string, unknown> = {},
+    stepIndex?: number,
+  ): void {
+    if (!this.currentTraceId || !this.config.onTrace) return;
+    const event: AgentTraceEvent = {
+      traceId: this.currentTraceId,
+      stage,
+      timestamp: new Date().toISOString(),
+      stepIndex,
+      screenName: this.getCurrentScreenName(),
+      data,
+    };
+    this.config.onTrace(event);
+  }
+
   // ─── Copilot Confirmation ─────────────────────────────────────
 
   /** Write tools that can mutate state — only these are checked for aiConfirm */
   private static readonly WRITE_TOOLS = new Set([
     'tap', 'type', 'long_press', 'adjust_slider', 'select_picker', 'set_date',
   ]);
+
+  /** Any UI-driving tools that should never start silently in copilot mode. */
+  private static readonly ACTION_TOOLS_REQUIRING_TASK_APPROVAL = new Set([
+    'tap',
+    'type',
+    'long_press',
+    'scroll',
+    'navigate',
+    'adjust_slider',
+    'select_picker',
+    'set_date',
+    'guide_user',
+    'simplify_zone',
+    'restore_zone',
+  ]);
+
+  private async ensureCopilotTaskApproval(
+    toolName: string,
+    args: Record<string, any>,
+    plan: string,
+    stepIndex?: number,
+  ): Promise<string | null> {
+    if (this.config.interactionMode === 'autopilot') {
+      return null;
+    }
+
+    if (!AgentRuntime.ACTION_TOOLS_REQUIRING_TASK_APPROVAL.has(toolName)) {
+      return null;
+    }
+
+    if (this.hasTaskApproval) {
+      this.emitTrace('task_approval_not_needed', {
+        tool: toolName,
+        reason: 'already_approved',
+      }, stepIndex);
+      return null;
+    }
+
+    const actionLabel = this.getToolStatusLabel(toolName, args).replace(/\s+/g, ' ').trim();
+    const normalizedPlan = plan?.trim() || `carry out this request by ${actionLabel}`;
+    const question = `I can do this in the app for you by tapping and typing where needed, and ${normalizedPlan.charAt(0).toLowerCase()}${normalizedPlan.slice(1)}. If you'd rather do it yourself, I can guide you step by step instead.`;
+
+    this.emitTrace('task_approval_required', {
+      tool: toolName,
+      args,
+      plan: normalizedPlan,
+      question,
+    }, stepIndex);
+
+    if (this.config.onAskUser) {
+      this.emitTrace('task_approval_prompted', {
+        tool: toolName,
+        channel: 'ask_user',
+        question,
+      }, stepIndex);
+      const response = await this.config.onAskUser({ question, kind: 'approval' });
+      this.emitTrace('task_approval_response_received', {
+        tool: toolName,
+        response: String(response),
+      }, stepIndex);
+      if (response === APPROVAL_ALREADY_DONE_TOKEN) {
+        this.emitTrace('task_approval_already_done', {
+          tool: toolName,
+        }, stepIndex);
+        return APPROVAL_ALREADY_DONE_TOKEN;
+      }
+      if (response === APPROVAL_GRANTED_TOKEN) {
+        this.hasTaskApproval = true;
+        this.emitTrace('task_approval_granted', {
+          tool: toolName,
+          response: 'explicit_button',
+        }, stepIndex);
+        return null;
+      }
+      if (response === APPROVAL_REJECTED_TOKEN) {
+        this.emitTrace('task_approval_rejected', {
+          tool: toolName,
+          response: 'explicit_button',
+        }, stepIndex);
+        return TASK_NOT_APPROVED_MESSAGE;
+      }
+      const approved = isApprovalResponse(String(response));
+      if (!approved) {
+        this.emitTrace('task_approval_rejected', {
+          tool: toolName,
+          response: String(response),
+        }, stepIndex);
+        return TASK_NOT_APPROVED_MESSAGE;
+      }
+      this.hasTaskApproval = true;
+      this.emitTrace('task_approval_granted', {
+        tool: toolName,
+        response: String(response),
+      }, stepIndex);
+      return null;
+    }
+
+    const { Alert } = require('react-native');
+    this.emitTrace('task_approval_prompted', {
+      tool: toolName,
+      channel: 'native_alert',
+      question,
+    }, stepIndex);
+    const approved = await new Promise<boolean>(resolve => {
+      Alert.alert(
+        'Start Action',
+        question,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Continue', onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    });
+
+    if (!approved) {
+      this.emitTrace('task_approval_rejected', {
+        tool: toolName,
+        response: 'cancel',
+      }, stepIndex);
+      return TASK_NOT_APPROVED_MESSAGE;
+    }
+
+    this.hasTaskApproval = true;
+    this.emitTrace('task_approval_granted', {
+      tool: toolName,
+      response: 'continue',
+    }, stepIndex);
+    return null;
+  }
 
   /**
    * Check if a tool call targets an aiConfirm element and request user confirmation.
@@ -861,40 +1115,158 @@ ${screen.elementsText}
   private async checkCopilotConfirmation(
     toolName: string,
     args: Record<string, any>,
+    stepIndex?: number,
   ): Promise<string | null> {
     // Only gate write tools
-    if (!AgentRuntime.WRITE_TOOLS.has(toolName)) return null;
+    if (!AgentRuntime.WRITE_TOOLS.has(toolName)) {
+      logger.info('AgentRuntime', `🛡️ No confirmation needed for "${toolName}" because it is not a write tool`);
+      this.emitTrace('confirmation_not_needed', {
+        tool: toolName,
+        reason: 'not_write_tool',
+        args,
+      }, stepIndex);
+      return null;
+    }
 
     // Look up the target element by index
     const index = args.index;
-    if (typeof index !== 'number') return null;
+    if (typeof index !== 'number') {
+      logger.info('AgentRuntime', `🛡️ No confirmation needed for "${toolName}" because no element index was provided`);
+      this.emitTrace('confirmation_not_needed', {
+        tool: toolName,
+        reason: 'missing_index',
+        args,
+      }, stepIndex);
+      return null;
+    }
 
     const screen = this.lastDehydratedRoot as import('./types').DehydratedScreen | null;
-    if (!screen?.elements) return null;
+    if (!screen?.elements) {
+      logger.warn('AgentRuntime', `🛡️ Could not evaluate confirmation for "${toolName}" because no dehydrated screen was available`);
+      this.emitTrace('confirmation_not_evaluated', {
+        tool: toolName,
+        reason: 'missing_dehydrated_screen',
+        args,
+      }, stepIndex);
+      return null;
+    }
 
     const element = screen.elements.find(e => e.index === index);
-    if (!element?.requiresConfirmation) return null;
+    if (!element) {
+      logger.warn('AgentRuntime', `🛡️ Could not find element index ${index} for "${toolName}" on screen "${screen.screenName}"`);
+      this.emitTrace('confirmation_not_evaluated', {
+        tool: toolName,
+        reason: 'element_not_found',
+        args,
+        index,
+      }, stepIndex);
+      return null;
+    }
+
+    logger.info(
+      'AgentRuntime',
+      `🛡️ Copilot gate inspect: tool="${toolName}" index=${index} label="${element.label}" type="${element.type}" aiConfirm=${element.requiresConfirmation === true}`
+    );
+
+    if (!element.requiresConfirmation) {
+      logger.info('AgentRuntime', `🛡️ No confirmation needed for "${toolName}" on "${element.label}" because aiConfirm is not set`);
+      this.emitTrace('confirmation_not_needed', {
+        tool: toolName,
+        reason: 'aiConfirm_not_set',
+        args,
+        elementLabel: element.label,
+        elementType: element.type,
+        index,
+      }, stepIndex);
+      return null;
+    }
 
     // Element has aiConfirm — request user confirmation
     const label = element.label || `[${element.type}]`;
     const description = this.getToolStatusLabel(toolName, args);
-    const question = `I'm about to ${description} on "${label}". Should I proceed?`;
+    const question = `I can do this in the app for you by tapping and typing where needed, and ${description} on "${label}". If you'd rather do it yourself, I can guide you step by step instead.`;
 
     logger.info('AgentRuntime', `🛡️ Copilot: aiConfirm gate triggered for "${toolName}" on "${label}"`);
+    this.emitTrace('confirmation_required', {
+      tool: toolName,
+      args,
+      elementLabel: label,
+      elementType: element.type,
+      index,
+      question,
+    }, stepIndex);
 
     // Use onAskUser if available (integrated into chat UI), otherwise Alert.alert
     if (this.config.onAskUser) {
-      const response = await this.config.onAskUser(question);
-      const approved = /^(yes|ok|sure|go|proceed|confirm|y)/i.test(response.trim());
+      logger.info('AgentRuntime', `🛡️ Requesting explicit confirmation via ask_user for "${label}"`);
+      this.emitTrace('confirmation_prompted', {
+        tool: toolName,
+        elementLabel: label,
+        elementType: element.type,
+        question,
+        channel: 'ask_user',
+      }, stepIndex);
+      const response = await this.config.onAskUser({ question, kind: 'approval' });
+      logger.info('AgentRuntime', `🛡️ Confirmation response for "${label}": "${String(response)}"`);
+      this.emitTrace('confirmation_response_received', {
+        tool: toolName,
+        elementLabel: label,
+        response: String(response),
+      }, stepIndex);
+      if (response === APPROVAL_ALREADY_DONE_TOKEN) {
+        this.emitTrace('confirmation_already_done', {
+          tool: toolName,
+          elementLabel: label,
+        }, stepIndex);
+        return APPROVAL_ALREADY_DONE_TOKEN;
+      }
+      if (response === APPROVAL_GRANTED_TOKEN) {
+        logger.info('AgentRuntime', `✅ User approved "${toolName}" on "${label}"`);
+        this.emitTrace('confirmation_approved', {
+          tool: toolName,
+          elementLabel: label,
+          response: 'explicit_button',
+        }, stepIndex);
+        return null;
+      }
+      if (response === APPROVAL_REJECTED_TOKEN) {
+        logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
+        this.emitTrace('confirmation_rejected', {
+          tool: toolName,
+          elementLabel: label,
+          response: 'explicit_button',
+        }, stepIndex);
+        return ACTION_NOT_APPROVED_MESSAGE;
+      }
+      const approved = isApprovalResponse(String(response));
       if (!approved) {
         logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
-        return `❌ User rejected "${toolName}" action on "${label}". Ask what they would like to do instead.`;
+        this.emitTrace('confirmation_rejected', {
+          tool: toolName,
+          elementLabel: label,
+          response: String(response),
+        }, stepIndex);
+        return ACTION_NOT_APPROVED_MESSAGE;
       }
+      logger.info('AgentRuntime', `✅ User approved "${toolName}" on "${label}"`);
+      this.emitTrace('confirmation_approved', {
+        tool: toolName,
+        elementLabel: label,
+        response: String(response),
+      }, stepIndex);
       return null;
     }
 
     // Fallback: React Native Alert
     const { Alert } = require('react-native');
+    logger.info('AgentRuntime', `🛡️ Requesting explicit confirmation via native Alert for "${label}"`);
+    this.emitTrace('confirmation_prompted', {
+      tool: toolName,
+      elementLabel: label,
+      elementType: element.type,
+      question,
+      channel: 'native_alert',
+    }, stepIndex);
     const approved = await new Promise<boolean>(resolve => {
       Alert.alert(
         'Confirm Action',
@@ -909,9 +1281,20 @@ ${screen.elementsText}
 
     if (!approved) {
       logger.info('AgentRuntime', `🛑 User rejected "${toolName}" on "${label}"`);
-      return `❌ User rejected "${toolName}" action on "${label}". Ask what they would like to do instead.`;
+      this.emitTrace('confirmation_rejected', {
+        tool: toolName,
+        elementLabel: label,
+        response: 'cancel',
+      }, stepIndex);
+      return ACTION_NOT_APPROVED_MESSAGE;
     }
 
+    logger.info('AgentRuntime', `✅ User approved "${toolName}" on "${label}" via native Alert`);
+    this.emitTrace('confirmation_approved', {
+      tool: toolName,
+      elementLabel: label,
+      response: 'continue',
+    }, stepIndex);
     return null;
   }
 
@@ -1107,6 +1490,8 @@ ${screen.elementsText}
     this.isRunning = true;
     this.isCancelRequested = false;
     this.history = [];
+    this.currentTraceId = generateTraceId();
+    this.hasTaskApproval = false;
     this.observations = [];
     this.lastScreenName = '';
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
@@ -1133,6 +1518,14 @@ ${screen.elementsText}
     await this.config.onBeforeTask?.();
 
     try {
+      this.emitTrace('task_started', {
+        message: userMessage,
+        contextualMessage,
+        maxSteps,
+        interactionMode: this.config.interactionMode || 'copilot',
+        enableUIControl: this.config.enableUIControl !== false,
+        chatHistoryLength: chatHistory?.length ?? 0,
+      });
       // ── Start error suppression (3 layers) ──────────────────
       this._startErrorSuppression();
 
@@ -1217,6 +1610,7 @@ ${screen.elementsText}
         // ── Cancel check ──
         if (this.isCancelRequested) {
           logger.info('AgentRuntime', `Task cancelled by user at step ${step + 1}`);
+          this.emitTrace('task_cancelled', { reason: 'user_cancelled' }, step);
           const cancelResult: ExecutionResult = {
             success: false,
             message: 'Task was cancelled.',
@@ -1227,6 +1621,14 @@ ${screen.elementsText}
           return cancelResult;
         }
         logger.info('AgentRuntime', `===== Step ${step + 1}/${maxSteps} =====`);
+        this.emitTrace('step_started', {
+          maxSteps,
+          historyLength: this.history.length,
+        }, step);
+        logger.info(
+          'AgentRuntime',
+          `⚙️ Effective mode: interactionMode=${this.config.interactionMode || 'copilot(default)'} | onAskUser=${!!this.config.onAskUser} | enableUIControl=${this.config.enableUIControl !== false}`
+        );
 
         // Lifecycle: onBeforeStep
         await this.config.onBeforeStep?.(step);
@@ -1243,6 +1645,12 @@ ${screen.elementsText}
 
         // Store root for tooling access (e.g., GuideTool measuring)
         this.lastDehydratedRoot = screen;
+        this.emitTrace('screen_dehydrated', {
+          screenName: screen.screenName,
+          availableScreens: screen.availableScreens,
+          interactiveCount: screen.elements?.length ?? 0,
+          elementsText: screen.elementsText,
+        }, step);
 
         logger.info('AgentRuntime', `Screen: ${screen.screenName}`);
         logger.debug('AgentRuntime', `Dehydrated:\n${screen.elementsText}`);
@@ -1265,7 +1673,7 @@ ${screen.elementsText}
         const screenshot = await this.captureScreenshot();
 
         // 5. Send to AI provider
-        this.config.onStatusUpdate?.('Analyzing screen...');
+        this.config.onStatusUpdate?.('Thinking...');
         const hasKnowledge = !!this.knowledgeService;
         const isCopilot = this.config.interactionMode !== 'autopilot';
         const systemPrompt = buildSystemPrompt('en', hasKnowledge, isCopilot);
@@ -1282,6 +1690,23 @@ ${screen.elementsText}
           this.history,
           screenshot,
         );
+        this.emitTrace('provider_response', {
+          text: response.text,
+          toolCalls: response.toolCalls,
+          tokenUsage: response.tokenUsage,
+        }, step);
+
+        logger.info(
+          'AgentRuntime',
+          `🤖 Provider response: textLength=${response.text?.length || 0} toolCalls=${response.toolCalls?.length || 0}`
+        );
+        if (response.toolCalls?.length) {
+          response.toolCalls.forEach((toolCall, idx) => {
+            logger.info('AgentRuntime', `🤖 Tool call[${idx}]: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
+          });
+        } else if (response.text) {
+          logger.info('AgentRuntime', `🤖 Provider text response: ${response.text}`);
+        }
 
         // Accumulate token usage
         if (response.tokenUsage) {
@@ -1295,6 +1720,11 @@ ${screen.elementsText}
         // ── Budget Guards ──────────────────────────────────────
         if (this.config.maxTokenBudget && sessionUsage.totalTokens >= this.config.maxTokenBudget) {
           logger.warn('AgentRuntime', `Token budget exceeded: ${sessionUsage.totalTokens} >= ${this.config.maxTokenBudget}`);
+          this.emitTrace('task_stopped_budget', {
+            budgetType: 'tokens',
+            used: sessionUsage.totalTokens,
+            limit: this.config.maxTokenBudget,
+          }, step);
           const budgetResult: ExecutionResult = {
             success: false,
             message: `Task stopped: token budget exceeded (used ${sessionUsage.totalTokens.toLocaleString()} of ${this.config.maxTokenBudget.toLocaleString()} tokens)`,
@@ -1306,6 +1736,11 @@ ${screen.elementsText}
         }
         if (this.config.maxCostUSD && sessionUsage.estimatedCostUSD >= this.config.maxCostUSD) {
           logger.warn('AgentRuntime', `Cost budget exceeded: $${sessionUsage.estimatedCostUSD.toFixed(4)} >= $${this.config.maxCostUSD}`);
+          this.emitTrace('task_stopped_budget', {
+            budgetType: 'cost_usd',
+            used: sessionUsage.estimatedCostUSD,
+            limit: this.config.maxCostUSD,
+          }, step);
           const budgetResult: ExecutionResult = {
             success: false,
             message: `Task stopped: cost budget exceeded ($${sessionUsage.estimatedCostUSD.toFixed(4)} of $${this.config.maxCostUSD.toFixed(2)} max)`,
@@ -1319,6 +1754,9 @@ ${screen.elementsText}
         // 6. Process tool calls
         if (!response.toolCalls || response.toolCalls.length === 0) {
           logger.warn('AgentRuntime', 'No tool calls in response. Text:', response.text);
+          this.emitTrace('task_completed_without_tool', {
+            responseText: response.text,
+          }, step);
           const result: ExecutionResult = {
             success: true,
             message: response.text || 'Task completed.',
@@ -1344,6 +1782,43 @@ ${screen.elementsText}
         }
 
         logger.info('AgentRuntime', `Tool: ${toolCall.name}(${JSON.stringify(toolCall.args)})`);
+        this.emitTrace('tool_selected', {
+          tool: toolCall.name,
+          args: toolCall.args,
+          reasoning,
+        }, step);
+
+        const taskApprovalResult = await this.ensureCopilotTaskApproval(
+          toolCall.name,
+          toolCall.args,
+          reasoning.plan,
+          step,
+        );
+        if (taskApprovalResult) {
+          if (taskApprovalResult === APPROVAL_ALREADY_DONE_TOKEN) {
+            const result: ExecutionResult = {
+              success: true,
+              message: USER_ALREADY_COMPLETED_MESSAGE,
+              steps: this.history,
+              tokenUsage: sessionUsage,
+            };
+            await this.config.onAfterTask?.(result);
+            return result;
+          }
+          logger.info('AgentRuntime', taskApprovalResult);
+          const result: ExecutionResult = {
+            success: false,
+            message: taskApprovalResult,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          await this.config.onAfterTask?.(result);
+          return result;
+        }
+
+        if (toolCall.name !== 'ask_user' && this.config.interactionMode !== 'autopilot') {
+          logger.info('AgentRuntime', `🛡️ Tool "${toolCall.name}" chosen without prompt-level pause; relying on model plan-following and aiConfirm safeguards if present`);
+        }
 
         // Dynamic status update based on tool being executed + Reasoning
         const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
@@ -1357,12 +1832,32 @@ ${screen.elementsText}
 
         let output: string;
         if (tool) {
-          output = await this.executeToolSafely(tool, toolCall.args, toolCall.name);
+          output = await this.executeToolSafely(tool, toolCall.args, toolCall.name, step);
         } else {
+          this.emitTrace('tool_unknown', {
+            tool: toolCall.name,
+            args: toolCall.args,
+          }, step);
           output = `❌ Unknown tool: ${toolCall.name}`;
         }
 
         logger.info('AgentRuntime', `Result: ${output}`);
+        this.emitTrace('tool_result', {
+          tool: toolCall.name,
+          args: toolCall.args,
+          output,
+        }, step);
+
+        if (output === APPROVAL_ALREADY_DONE_TOKEN) {
+          const result: ExecutionResult = {
+            success: true,
+            message: USER_ALREADY_COMPLETED_MESSAGE,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          await this.config.onAfterTask?.(result);
+          return result;
+        }
 
         // Record step with structured reasoning
         const agentStep: AgentStep = {
@@ -1388,20 +1883,30 @@ ${screen.elementsText}
             tokenUsage: sessionUsage,
           };
           logger.info('AgentRuntime', `Task completed: ${result.message}`);
+          this.emitTrace('task_completed', {
+            success: result.success,
+            message: result.message,
+            steps: this.history.length,
+            tokenUsage: sessionUsage,
+          }, step);
           await this.config.onAfterTask?.(result);
           return result;
         }
 
         // Check if asking user (legacy path — only breaks loop when onAskUser is NOT set)
         if (toolCall.name === 'ask_user' && !this.config.onAskUser) {
-          this.lastAskUserQuestion = toolCall.args.question || output;
+          const rawQuestion = toolCall.args.question || output;
+          this.lastAskUserQuestion = rawQuestion?.replace(/\s*\[\d+\]\s*/g, ' ')?.trim() || rawQuestion || '';
 
           const result: ExecutionResult = {
             success: true,
-            message: output,
+            message: this.lastAskUserQuestion || '',
             steps: this.history,
             tokenUsage: sessionUsage,
           };
+          this.emitTrace('task_paused_for_user', {
+            question: this.lastAskUserQuestion || '',
+          }, step);
           await this.config.onAfterTask?.(result);
           return result;
         }
@@ -1425,10 +1930,19 @@ ${screen.elementsText}
         );
       }
 
+      this.emitTrace('task_failed_max_steps', {
+        success: false,
+        steps: this.history.length,
+        message: result.message,
+      });
       await this.config.onAfterTask?.(result);
       return result;
     } catch (error: any) {
       logger.error('AgentRuntime', 'Execution error:', error);
+      this.emitTrace('task_failed_error', {
+        error: error?.message ?? String(error),
+        steps: this.history.length,
+      });
       const result: ExecutionResult = {
         success: false,
         message: `Error: ${error.message}`,
@@ -1439,6 +1953,7 @@ ${screen.elementsText}
       return result;
     } finally {
       this.isRunning = false;
+      this.currentTraceId = null;
       // ── Grace period: keep error suppression for delayed side-effects ──
       // useEffect callbacks, PagerView onPageSelected, scrollToIndex, etc.
       // can fire AFTER execute() returns. Keep suppression active for 10s.

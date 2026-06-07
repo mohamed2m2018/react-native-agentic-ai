@@ -12,14 +12,18 @@
 
 import { GoogleGenAI, FunctionCallingConfigMode, Type } from '@google/genai';
 import { logger } from '../utils/logger';
-import type { AIProvider, ToolDefinition, AgentStep, ProviderResult, AgentReasoning, TokenUsage } from '../core/types';
+import type {
+  AIProvider,
+  ToolDefinition,
+  AgentStep,
+  ProviderResult,
+  AgentReasoning,
+  TokenUsage,
+} from '../core/types';
 
 // ─── Constants ─────────────────────────────────────────────────
 
 const AGENT_STEP_FN = 'agent_step';
-
-// Reasoning fields always present in the agent_step schema
-const REASONING_FIELDS = ['previous_goal_eval', 'memory', 'plan'] as const;
 
 // ─── Provider ──────────────────────────────────────────────────
 
@@ -44,7 +48,9 @@ export class GeminiProvider implements AIProvider {
     } else if (apiKey) {
       config.apiKey = apiKey;
     } else {
-      throw new Error('[mobileai] You must provide either "apiKey" or "proxyUrl" to AIAgent.');
+      throw new Error(
+        '[mobileai] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
+      );
     }
 
     this.ai = new GoogleGenAI(config);
@@ -56,10 +62,12 @@ export class GeminiProvider implements AIProvider {
     userMessage: string,
     tools: ToolDefinition[],
     history: AgentStep[],
-    screenshot?: string,
+    screenshot?: string
   ): Promise<ProviderResult> {
-
-    logger.info('GeminiProvider', `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}`);
+    logger.info(
+      'GeminiProvider',
+      `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}`
+    );
 
     // Build single agent_step function declaration
     const agentStepDeclaration = this.buildAgentStepDeclaration(tools);
@@ -93,7 +101,10 @@ export class GeminiProvider implements AIProvider {
       // Extract token usage from SDK response
       const tokenUsage = this.extractTokenUsage(response);
       if (tokenUsage) {
-        logger.info('GeminiProvider', `Tokens: ${tokenUsage.promptTokens} in / ${tokenUsage.completionTokens} out / $${tokenUsage.estimatedCostUSD.toFixed(6)}`);
+        logger.info(
+          'GeminiProvider',
+          `Tokens: ${tokenUsage.promptTokens} in / ${tokenUsage.completionTokens} out / $${tokenUsage.estimatedCostUSD.toFixed(6)}`
+        );
       }
 
       const result = this.parseAgentStepResponse(response, tools);
@@ -112,34 +123,27 @@ export class GeminiProvider implements AIProvider {
   // ─── Build agent_step Declaration ──────────────────────────
 
   /**
-   * Builds a single `agent_step` function declaration that combines:
-   * - Structured reasoning fields (previous_goal_eval, memory, plan)
+   * Builds a single `agent_step` function declaration that keeps Gemini's
+   * served schema intentionally narrow:
+   * - Structured reasoning fields
    * - action_name (enum of all available tool names)
-   * - All tool parameter fields as flat top-level properties
+   * - action_input as a JSON object string
    *
-   * Flat schema avoids Gemini's "deeply nested schema" rejection in ANY mode.
+   * Flattening every tool parameter into top-level properties can trigger
+   * Gemini's "too much branching for serving" error once the toolset grows.
    */
   private buildAgentStepDeclaration(tools: ToolDefinition[]): any {
-    const toolNames = tools.map(t => t.name);
-
-    // Collect all unique parameter fields across all tools
-    const actionProperties: Record<string, any> = {};
-    for (const tool of tools) {
-      for (const [paramName, param] of Object.entries(tool.parameters)) {
-        if (actionProperties[paramName]) continue;
-        actionProperties[paramName] = {
-          type: this.mapParamType(param.type),
-          description: param.description,
-          ...(param.enum ? { enum: param.enum } : {}),
-        };
-      }
-    }
+    const toolNames = tools.map((t) => t.name);
 
     // Build tool descriptions for the action_name enum
     const toolDescriptions = tools
-      .map(t => {
-        const params = Object.keys(t.parameters).join(', ');
-        return `- ${t.name}(${params}): ${t.description}`;
+      .map((t) => {
+        const params = Object.keys(t.parameters);
+        const inputGuide =
+          params.length === 0
+            ? 'Use {} for action_input.'
+            : `Provide action_input as a JSON object string with keys: ${params.join(', ')}.`;
+        return `- ${t.name}: ${t.description} ${inputGuide}`;
       })
       .join('\n');
 
@@ -151,36 +155,33 @@ export class GeminiProvider implements AIProvider {
         properties: {
           previous_goal_eval: {
             type: Type.STRING,
-            description: 'One-sentence assessment of your last action. State success, failure, or uncertain. Skip on first step.',
+            description:
+              'One-sentence assessment of your last action. State success, failure, or uncertain. Skip on first step.',
           },
           memory: {
             type: Type.STRING,
-            description: 'Key facts to remember for future steps: progress made, items found, counters, field values already collected.',
+            description:
+              'Key facts to remember for future steps: progress made, items found, counters, field values already collected.',
           },
           plan: {
             type: Type.STRING,
-            description: 'Your immediate next goal — what action you will take and why.',
+            description:
+              'Your immediate next goal — what action you will take and why.',
           },
           action_name: {
             type: Type.STRING,
             description: 'Which action to execute.',
             enum: toolNames,
           },
-          ...actionProperties,
+          action_input: {
+            type: Type.STRING,
+            description:
+              'JSON object string containing only the arguments for action_name. Use "{}" when the action takes no parameters.',
+          },
         },
         required: ['plan', 'action_name'],
       },
     };
-  }
-
-  private mapParamType(type: string): string {
-    switch (type) {
-      case 'number': return Type.NUMBER;
-      case 'integer': return Type.INTEGER;
-      case 'boolean': return Type.BOOLEAN;
-      case 'string':
-      default: return Type.STRING;
-    }
   }
 
   // ─── Build Contents ────────────────────────────────────────
@@ -189,7 +190,11 @@ export class GeminiProvider implements AIProvider {
    * Builds contents for the generateContent call.
    * Single-turn: user message + optional screenshot as inlineData.
    */
-  private buildContents(userMessage: string, _history: AgentStep[], screenshot?: string): any[] {
+  private buildContents(
+    userMessage: string,
+    _history: AgentStep[],
+    screenshot?: string
+  ): any[] {
     const parts: any[] = [{ text: userMessage }];
 
     // Append screenshot as inlineData for Gemini vision
@@ -211,13 +216,21 @@ export class GeminiProvider implements AIProvider {
    * Parses the SDK response expecting a single agent_step function call.
    * Extracts structured reasoning + action.
    */
-  private parseAgentStepResponse(response: any, tools: ToolDefinition[]): ProviderResult {
+  private parseAgentStepResponse(
+    response: any,
+    tools: ToolDefinition[]
+  ): ProviderResult {
     const candidates = response.candidates || [];
 
     if (candidates.length === 0) {
       logger.warn('GeminiProvider', 'No candidates in response');
       return {
-        toolCalls: [{ name: 'done', args: { text: 'No response generated.', success: false } }],
+        toolCalls: [
+          {
+            name: 'done',
+            args: { text: 'No response generated.', success: false },
+          },
+        ],
         reasoning: { previousGoalEval: '', memory: '', plan: '' },
         text: 'No response generated.',
       };
@@ -231,9 +244,21 @@ export class GeminiProvider implements AIProvider {
     const textPart = parts.find((p: any) => p.text);
 
     if (!fnCallPart?.functionCall) {
-      logger.warn('GeminiProvider', 'No function call in response. Text:', textPart?.text);
+      logger.warn(
+        'GeminiProvider',
+        'No function call in response. Text:',
+        textPart?.text
+      );
       return {
-        toolCalls: [{ name: 'done', args: { text: textPart?.text || 'No action taken.', success: false } }],
+        toolCalls: [
+          {
+            name: 'done',
+            args: {
+              text: textPart?.text || 'No action taken.',
+              success: false,
+            },
+          },
+        ],
         reasoning: { previousGoalEval: '', memory: '', plan: '' },
         text: textPart?.text,
       };
@@ -251,34 +276,57 @@ export class GeminiProvider implements AIProvider {
     // Extract action
     const actionName = args.action_name;
     if (!actionName) {
-      logger.warn('GeminiProvider', 'No action_name in agent_step. Falling back to done.');
+      logger.warn(
+        'GeminiProvider',
+        'No action_name in agent_step. Falling back to done.'
+      );
       return {
-        toolCalls: [{ name: 'done', args: { text: 'Agent did not choose an action.', success: false } }],
+        toolCalls: [
+          {
+            name: 'done',
+            args: { text: 'Agent did not choose an action.', success: false },
+          },
+        ],
         reasoning,
         text: textPart?.text,
       };
     }
 
-    // Build action args: extract only the params that belong to the matched tool
-    const actionArgs: Record<string, any> = {};
-    const reservedKeys = new Set([...REASONING_FIELDS, 'action_name']);
+    const matchedTool = tools.find((t) => t.name === actionName);
+    let actionArgs: Record<string, any> = {};
+    const rawActionInput = args.action_input;
 
-    const matchedTool = tools.find(t => t.name === actionName);
-    if (matchedTool) {
-      for (const paramName of Object.keys(matchedTool.parameters)) {
-        if (args[paramName] !== undefined) {
-          actionArgs[paramName] = args[paramName];
+    if (
+      typeof rawActionInput === 'string' &&
+      rawActionInput.trim().length > 0
+    ) {
+      try {
+        const parsed = JSON.parse(rawActionInput);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          actionArgs = parsed as Record<string, any>;
         }
-      }
-    } else {
-      for (const [key, value] of Object.entries(args)) {
-        if (!reservedKeys.has(key)) {
-          actionArgs[key] = value;
-        }
+      } catch (error) {
+        logger.warn(
+          'GeminiProvider',
+          `Invalid action_input JSON for ${actionName}: ${(error as Error).message}`
+        );
       }
     }
 
-    logger.info('GeminiProvider', `Parsed: action=${actionName}, plan="${reasoning.plan}"`);
+    if (matchedTool) {
+      actionArgs = Object.fromEntries(
+        Object.entries(actionArgs).filter(
+          ([key]) => key in matchedTool.parameters
+        )
+      );
+    } else {
+      actionArgs = {};
+    }
+
+    logger.info(
+      'GeminiProvider',
+      `Parsed: action=${actionName}, plan="${reasoning.plan}"`
+    );
 
     return {
       toolCalls: [{ name: actionName, args: actionArgs }],
@@ -302,11 +350,11 @@ export class GeminiProvider implements AIProvider {
 
     const promptTokens = meta.promptTokenCount ?? 0;
     const completionTokens = meta.candidatesTokenCount ?? 0;
-    const totalTokens = meta.totalTokenCount ?? (promptTokens + completionTokens);
+    const totalTokens = meta.totalTokenCount ?? promptTokens + completionTokens;
 
     // Cost estimation based on Gemini 2.5 Flash pricing
-    const INPUT_COST_PER_M = 0.30;
-    const OUTPUT_COST_PER_M = 2.50;
+    const INPUT_COST_PER_M = 0.3;
+    const OUTPUT_COST_PER_M = 2.5;
 
     const estimatedCostUSD =
       (promptTokens / 1_000_000) * INPUT_COST_PER_M +
@@ -324,9 +372,11 @@ export class GeminiProvider implements AIProvider {
   private formatProviderError(status: number, rawMessage: string): string {
     // Try to extract the human-readable message from JSON body
     let humanMessage = '';
+    let errorCode = '';
     try {
       const parsed = JSON.parse(rawMessage);
       humanMessage = parsed?.error?.message || parsed?.message || '';
+      errorCode = parsed?.error?.code || parsed?.code || '';
     } catch {
       // rawMessage may contain JSON embedded in a string like "503: {json}"
       const jsonMatch = rawMessage.match(/\{[\s\S]*\}/);
@@ -334,24 +384,43 @@ export class GeminiProvider implements AIProvider {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           humanMessage = parsed?.error?.message || parsed?.message || '';
-        } catch { /* ignore */ }
+          errorCode = parsed?.error?.code || parsed?.code || '';
+        } catch {
+          /* ignore */
+        }
       }
+    }
+
+    if (errorCode === 'proxy_blocked') {
+      logger.error('GeminiProvider', 'Proxy blocked: Credit limit reached or budget exhausted.');
+      return 'The AI assistant is temporarily unavailable. Please try again later.';
     }
 
     // Map status codes to friendly descriptions
     switch (status) {
       case 429:
-        return humanMessage || 'Too many requests. Please wait a moment and try again.';
+        return (
+          humanMessage ||
+          'Too many requests. Please wait a moment and try again.'
+        );
       case 503:
-        return humanMessage || 'The AI service is temporarily unavailable. Please try again shortly.';
+        return (
+          humanMessage ||
+          'The AI service is temporarily unavailable. Please try again shortly.'
+        );
       case 500:
-        return humanMessage || 'The AI service encountered an internal error. Please try again.';
+        return (
+          humanMessage ||
+          'The AI service encountered an internal error. Please try again.'
+        );
       case 401:
         return 'Authentication failed. Please check your API key.';
       case 403:
         return 'Access denied. Your API key may not have the required permissions.';
       default:
-        return humanMessage || `Something went wrong (${status}). Please try again.`;
+        return (
+          humanMessage || `Something went wrong (${status}). Please try again.`
+        );
     }
   }
 }

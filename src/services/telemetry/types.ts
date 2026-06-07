@@ -18,11 +18,19 @@ export type AutoEventType =
   | 'session_end'
   | 'agent_request'
   | 'agent_step'
+  | 'agent_trace'
   | 'agent_complete'
   | 'escalation'
   | 'knowledge_query'
   | 'knowledge_miss'
-  | 'csat_response';
+  | 'csat_response'
+  | 'ces_response'
+  | 'agent_first_response'
+  | 'human_first_response'
+  | 'fcr_achieved'
+  | 'engagement_signal'
+  | 'health_signal'
+  | 'onboarding_step';
 
 /** All event types (auto + custom) */
 export type EventType = AutoEventType | string;
@@ -72,4 +80,6 @@ export interface TelemetryConfig {
   maxBatchSize?: number;
   /** Enable debug logging for telemetry (default: false) */
   debug?: boolean;
+  /** Callback fired locally whenever an event is tracked (useful for reacting to rage_tap) */
+  onEvent?: (event: import('./types').TelemetryEvent) => void;
 }

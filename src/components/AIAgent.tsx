@@ -21,6 +21,8 @@ import { createProvider } from '../providers/ProviderFactory';
 import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
 import { AgentOverlay } from './AgentOverlay';
+import { AIConsentDialog, useAIConsent } from './AIConsentDialog';
+import type { AIConsentConfig } from './AIConsentDialog';
 import { logger } from '../utils/logger';
 import { buildVoiceSystemPrompt } from '../core/systemPrompt';
 import { MCPBridge } from '../core/MCPBridge';
@@ -30,16 +32,21 @@ import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
 import { extractTouchLabel, checkRageClick } from '../services/telemetry/TouchAutoCapture';
 import { initDeviceId, getDeviceId } from '../services/telemetry/device';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode, CustomerSuccessConfig, OnboardingConfig, ConversationSummary, AgentTraceEvent } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
 import { ProactiveHint } from './ProactiveHint';
 import { createEscalateTool } from '../support/escalateTool';
+import { createReportIssueTool } from '../support/reportIssueTool';
 import { EscalationSocket } from '../support/EscalationSocket';
 import { EscalationEventSource } from '../support/EscalationEventSource';
+import { ReportedIssueEventSource } from '../support/ReportedIssueEventSource';
 import { SupportChatModal } from '../support/SupportChatModal';
 import { ENDPOINTS } from '../config/endpoints';
+import type { ReportedIssue } from '../support/types';
+import * as ConversationService from '../services/ConversationService';
+import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
 
 // ─── Context ───────────────────────────────────────────────────
 
@@ -156,6 +163,8 @@ interface AIAgentProps {
   /**
    * Domain knowledge the AI can query via the query_knowledge tool.
    * Pass a static KnowledgeEntry[] or a { retrieve(query, screen) } function.
+   * If omitted and analyticsKey is configured, the SDK will query the project
+   * knowledge configured in the MobileAI dashboard automatically.
    */
   knowledgeBase?: KnowledgeBaseConfig;
   /** Max token budget for knowledge retrieval (default: 2000) */
@@ -265,6 +274,34 @@ interface AIAgentProps {
    * Default: true (shows once, then remembered via AsyncStorage)
    */
   showDiscoveryTooltip?: boolean;
+  /**
+   * Custom discovery tooltip copy shown above the chat FAB.
+   * Pass a string to override the default onboarding message for this app.
+   */
+  discoveryTooltipMessage?: string;
+
+  // ── Customer Success ────────────────────────────────────────
+
+  /**
+   * Health score configuration. Enable to automatically track screen
+   * flow, feature adoption, and success milestones for the MobileAI Dashboard.
+   */
+  customerSuccess?: CustomerSuccessConfig;
+
+  /**
+   * Onboarding journey configuration.
+   * Proactively guides users through structured steps when the app launches.
+   */
+  onboarding?: OnboardingConfig;
+
+  /**
+   * AI consent configuration (Apple Guideline 5.1.2(i)).
+   * Consent is REQUIRED by default — a consent dialog is shown before
+   * the first AI interaction. The agent will NOT send any data to
+   * the AI provider until the user explicitly consents.
+   * To opt out: `consent={{ required: false }}`.
+   */
+  consent?: AIConsentConfig;
 }
 
 
@@ -319,12 +356,38 @@ export function AIAgent({
   pushTokenType,
   interactionMode,
   showDiscoveryTooltip: showDiscoveryTooltipProp = true,
+  discoveryTooltipMessage,
+  customerSuccess,
+  onboarding,
+  consent,
 }: AIAgentProps) {
+  // Consent is ALWAYS required by default — only disabled if explicitly set to false.
+  // No consent prop at all → gate is active with default dialog config.
+  const consentRequired = consent?.required !== false;
+  const consentConfig: AIConsentConfig = consent ?? { required: true, persist: false };
+
+  // ─── AI Consent State (Apple Guideline 5.1.2(i)) ─────────────
+  const [hasConsented, grantConsent, , isConsentLoading] = useAIConsent(consentConfig.persist);
+  const [showConsentDialog, setShowConsentDialog] = useState(false);
+  const pendingConsentSendRef = useRef<{
+    message: string;
+    options?: { onResult?: (result: ExecutionResult) => void };
+  } | null>(null);
+  const pendingFollowUpAfterApprovalRef = useRef<{
+    message: string;
+    options?: { onResult?: (result: ExecutionResult) => void };
+  } | null>(null);
+
+  const consentGateActive = consentRequired && !hasConsented && !isConsentLoading;
   // Configure logger based on debug prop
   React.useEffect(() => {
     logger.setEnabled(debug);
     if (debug) {
       logger.info('AIAgent', '🔧 Debug logging enabled');
+      logger.info(
+        'AIAgent',
+        `⚙️ Initial config: interactionMode=${interactionMode || 'copilot(default)'} enableVoice=${enableVoice} useScreenMap=${useScreenMap} analytics=${!!analyticsKey}`
+      );
     }
   }, [debug]);
 
@@ -335,6 +398,20 @@ export function AIAgent({
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
+  // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
+  const messagesRef = useRef<AIMessage[]>([]);
+
+  // ── Conversation History State ────────────────────────────────
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const lastSavedMessageCountRef = useRef(0);
+  const appendDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep messagesRef always in sync — used by async save callbacks
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Increment scroll trigger when messages change to auto-scroll chat modal
   useEffect(() => {
@@ -350,6 +427,7 @@ export function AIAgent({
   const [isLiveAgentTyping, setIsLiveAgentTyping] = useState(false);
   const [autoExpandTrigger, setAutoExpandTrigger] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const seenReportedIssueUpdatesRef = useRef<Set<string>>(new Set());
   // Ref mirrors selectedTicketId — lets socket callbacks access current value
   // without stale closures (sockets are long-lived, closures capture old state).
   const selectedTicketIdRef = useRef<string | null>(null);
@@ -360,6 +438,45 @@ export function AIAgent({
   // SSE connections per ticket — reliable fallback for ticket_closed events
   // when the WebSocket is disconnected. EventSource auto-reconnects.
   const sseRef = useRef<Map<string, EscalationEventSource>>(new Map());
+  const reportedIssuesSSERef = useRef<ReportedIssueEventSource | null>(null);
+  const agentFrtFiredRef = useRef<boolean>(false);
+  const humanFrtFiredRef = useRef<Record<string, boolean>>({});
+
+  // ── Onboarding Journey State ────────────────────────────────
+  const [isOnboardingActive, setIsOnboardingActive] = useState(false);
+  const [currentOnboardingIndex, setCurrentOnboardingIndex] = useState(0);
+
+  useEffect(() => {
+    if (!onboarding?.enabled) return;
+    if (onboarding.firstLaunchOnly !== false) {
+      void (async () => {
+        try {
+          const AS = getTooltipStorage();
+          if (!AS) { setIsOnboardingActive(true); return; }
+          const completed = await AS.getItem('@mobileai_onboarding_completed');
+          if (!completed) setIsOnboardingActive(true);
+        } catch { setIsOnboardingActive(true); }
+      })();
+    } else {
+      setIsOnboardingActive(true);
+    }
+  }, [onboarding?.enabled, onboarding?.firstLaunchOnly]);
+
+  const advanceOnboarding = useCallback(() => {
+    if (!onboarding?.steps) return;
+    if (currentOnboardingIndex >= onboarding.steps.length - 1) {
+      setIsOnboardingActive(false);
+      onboarding.onComplete?.();
+      void (async () => {
+        try {
+          const AS = getTooltipStorage();
+          await AS?.setItem('@mobileai_onboarding_completed', 'true');
+        } catch { /* graceful */ }
+      })();
+    } else {
+      setCurrentOnboardingIndex(prev => prev + 1);
+    }
+  }, [onboarding, currentOnboardingIndex]);
 
   const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
 
@@ -464,6 +581,46 @@ export function AIAgent({
     setLastResult(null);
   }, []);
 
+  const applyReportedIssueUpdates = useCallback((
+    nextIssues: ReportedIssue[],
+    options?: { replayToChat?: boolean }
+  ) => {
+    const replayToChat = options?.replayToChat ?? true;
+
+    nextIssues.forEach((issue) => {
+      const history = Array.isArray(issue.statusHistory) ? issue.statusHistory : [];
+      history.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        const id = typeof entry.id === 'string' ? entry.id : null;
+        const message = typeof entry.message === 'string' ? entry.message : null;
+        if (!id || !message) return;
+
+        if (seenReportedIssueUpdatesRef.current.has(id)) return;
+        seenReportedIssueUpdatesRef.current.add(id);
+
+        if (!replayToChat) return;
+
+        const entryTimestamp =
+          typeof entry.timestamp === 'string'
+            ? new Date(entry.timestamp).getTime()
+            : NaN;
+
+        setMessages((prev) => {
+          if (prev.some((msg) => msg.id === `reported-${id}`)) return prev;
+          return [
+            ...prev,
+            {
+              id: `reported-${id}`,
+              role: 'assistant',
+              content: message,
+              timestamp: Number.isFinite(entryTimestamp) ? entryTimestamp : Date.now(),
+            },
+          ];
+        });
+      });
+    });
+  }, []);
+
   const getResolvedScreenName = useCallback(() => {
     const routeName = (navRef as any)?.getCurrentRoute?.()?.name;
     if (typeof routeName === 'string' && routeName.trim().length > 0) {
@@ -477,6 +634,17 @@ export function AIAgent({
 
     return 'unknown';
   }, [navRef]);
+
+  const resolvedKnowledgeBase = useMemo(() => {
+    if (knowledgeBase) return knowledgeBase;
+    if (!analyticsKey) return undefined;
+
+    return createMobileAIKnowledgeRetriever({
+      publishableKey: analyticsKey,
+      baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
+      headers: analyticsProxyHeaders,
+    });
+  }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl, knowledgeBase]);
 
   // ─── Auto-create MobileAI escalation tool ─────────────────────
   // When analyticsKey is present and consumer hasn't provided their own
@@ -495,6 +663,19 @@ export function AIAgent({
       }),
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.content })),
+      getToolCalls: () => {
+        const toolCalls: Array<{name: string; input: Record<string, unknown>; output: string}> = [];
+        messages.forEach(m => {
+          if (m.result?.steps) {
+            m.result.steps.forEach(step => {
+              if (step.action && step.action.name !== 'done' && step.action.name !== 'agent_step' && step.action.name !== 'escalate_to_human') {
+                toolCalls.push(step.action);
+              }
+            });
+          }
+        });
+        return toolCalls;
+      },
       getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
       userContext,
       pushToken,
@@ -550,6 +731,11 @@ export function AIAgent({
       },
       onHumanReply: (reply: string, ticketId?: string) => {
         if (ticketId) {
+          if (!humanFrtFiredRef.current[ticketId]) {
+            humanFrtFiredRef.current[ticketId] = true;
+            telemetryRef.current?.track('human_first_response', { ticketId });
+          }
+
           // Always update the ticket's history (source of truth for ticket cards)
           setTickets(prev => prev.map(t => {
             if (t.id !== ticketId) return t;
@@ -595,6 +781,42 @@ export function AIAgent({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analyticsKey, customTools, getResolvedScreenName, navRef, openSSE, userContext, pushToken, pushTokenType, messages, clearSupport]);
+
+  const autoReportIssueTool = useMemo(() => {
+    if (!analyticsKey) return null;
+    if (customTools?.['report_issue']) return null;
+    return createReportIssueTool({
+      analyticsKey,
+      getCurrentScreen: getResolvedScreenName,
+      getHistory: () => messages.map((m) => ({ role: m.role, content: m.content })),
+      getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
+      userContext,
+    });
+  }, [analyticsKey, customTools, getResolvedScreenName, messages, userContext]);
+
+  // ─── Load conversation history on mount ─────────────────────────
+  useEffect(() => {
+    if (!analyticsKey) return;
+
+    void (async () => {
+      try {
+        setIsLoadingHistory(true);
+        await initDeviceId();
+        const deviceId = getDeviceId();
+        const list = await ConversationService.fetchConversations({
+          analyticsKey,
+          userId: userContext?.userId,
+          deviceId: deviceId || undefined,
+        });
+        setConversations(list);
+      } catch (err) {
+        logger.warn('AIAgent', 'Failed to load conversation history:', err);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsKey, userContext?.userId]);
 
   // ─── Restore pending tickets on app start ──────────────────────
   useEffect(() => {
@@ -711,6 +933,64 @@ export function AIAgent({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analyticsKey]);
+
+  useEffect(() => {
+    if (!analyticsKey) return;
+
+    let isCancelled = false;
+
+    const syncIssues = async () => {
+      try {
+        await initDeviceId();
+        const deviceId = getDeviceId();
+        if (!userContext?.userId && !deviceId) return;
+
+        const query = new URLSearchParams({ analyticsKey });
+        if (userContext?.userId) query.append('userId', userContext.userId);
+        if (deviceId) query.append('deviceId', deviceId);
+
+        const res = await fetch(`${ENDPOINTS.escalation}/api/v1/reported-issues/mine?${query.toString()}`);
+        if (!res.ok || isCancelled) return;
+
+        const data = await res.json();
+        const nextIssues: ReportedIssue[] = Array.isArray(data.issues) ? data.issues : [];
+        applyReportedIssueUpdates(nextIssues, { replayToChat: false });
+      } catch (error) {
+        logger.warn('AIAgent', 'Failed to sync reported issues:', error);
+      }
+    };
+
+    void syncIssues();
+
+    void (async () => {
+      await initDeviceId();
+      const deviceId = getDeviceId();
+      if (!userContext?.userId && !deviceId) return;
+
+      const query = new URLSearchParams({ analyticsKey });
+      if (userContext?.userId) query.append('userId', userContext.userId);
+      if (deviceId) query.append('deviceId', deviceId);
+
+      reportedIssuesSSERef.current?.disconnect();
+      const sse = new ReportedIssueEventSource({
+        url: `${ENDPOINTS.escalation}/api/v1/reported-issues/events?${query.toString()}`,
+        onIssueUpdate: (issue) => {
+          applyReportedIssueUpdates([issue], { replayToChat: true });
+        },
+        onError: (error) => {
+          logger.warn('AIAgent', 'Reported issue SSE error:', error.message);
+        },
+      });
+      sse.connect();
+      reportedIssuesSSERef.current = sse;
+    })();
+
+    return () => {
+      isCancelled = true;
+      reportedIssuesSSERef.current?.disconnect();
+      reportedIssuesSSERef.current = null;
+    };
+  }, [analyticsKey, applyReportedIssueUpdates, userContext?.userId]);
 
   // ─── Ticket selection handlers ────────────────────────────────
   const handleTicketSelect = useCallback(async (ticketId: string) => {
@@ -879,9 +1159,12 @@ export function AIAgent({
   }, []); // No dependencies — uses refs/functional setters
 
   const mergedCustomTools = useMemo(() => {
-    if (!autoEscalateTool) return customTools;
-    return { escalate_to_human: autoEscalateTool, ...customTools };
-  }, [autoEscalateTool, customTools]);
+    return {
+      ...(autoEscalateTool ? { escalate_to_human: autoEscalateTool } : {}),
+      ...(autoReportIssueTool ? { report_issue: autoReportIssueTool } : {}),
+      ...customTools,
+    };
+  }, [autoEscalateTool, autoReportIssueTool, customTools]);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -909,6 +1192,12 @@ export function AIAgent({
 
   // Ref-based resolver for ask_user — stays alive across renders
   const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
+  const pendingAskUserKindRef = useRef<'freeform' | 'approval' | null>(null);
+  const [pendingApprovalQuestion, setPendingApprovalQuestion] = useState<string | null>(null);
+  const overlayVisible = isThinking || !!pendingApprovalQuestion;
+  const overlayStatusText = pendingApprovalQuestion
+    ? 'Waiting for your approval...'
+    : statusText;
 
   // ─── Create Runtime ──────────────────────────────────────────
 
@@ -935,7 +1224,7 @@ export function AIAgent({
     pathname,
     onStatusUpdate: setStatusText,
     onTokenUsage,
-    knowledgeBase,
+    knowledgeBase: resolvedKnowledgeBase,
     knowledgeMaxTokens,
     enableUIControl,
     screenMap: useScreenMap ? screenMap : undefined,
@@ -943,11 +1232,35 @@ export function AIAgent({
     maxCostUSD,
     interactionMode,
     // Block the agent loop until user responds
-    onAskUser: mode === 'voice' ? undefined : ((question: string) => {
+    onAskUser: mode === 'voice' ? undefined : ((request) => {
       return new Promise<string>((resolve) => {
+        const normalized = typeof request === 'string'
+          ? { question: request, kind: 'freeform' as const }
+          : request;
+        const question = normalized.question;
+        const kind = normalized.kind || 'freeform';
+        logger.info('AIAgent', `❓ onAskUser invoked in ${mode} mode: "${question}"`);
+        telemetryRef.current?.track('agent_trace', {
+          stage: 'ask_user_prompt_rendered',
+          question,
+          mode,
+          kind,
+        });
         askUserResolverRef.current = resolve;
-        // Show question in chat bar, allow user input
-        setLastResult({ success: true, message: `❓ ${question}`, steps: [] });
+        pendingAskUserKindRef.current = kind;
+        setPendingApprovalQuestion(kind === 'approval' ? question : null);
+        // Add AI question to the message thread so it appears in chat
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-ask-${Date.now()}`,
+            role: 'assistant' as const,
+            content: question,
+            timestamp: Date.now(),
+            promptKind: kind === 'approval' ? 'approval' : undefined,
+          },
+        ]);
+        setLastResult({ success: true, message: question, steps: [] });
         setIsThinking(false);
         setStatusText('');
       });
@@ -957,15 +1270,31 @@ export function AIAgent({
     onToolExecute: (active: boolean) => {
       telemetryRef.current?.setAgentActing(active);
     },
+    onTrace: (event: AgentTraceEvent) => {
+      telemetryRef.current?.track('agent_trace', {
+        traceId: event.traceId,
+        stage: event.stage,
+        stepIndex: event.stepIndex,
+        screenName: event.screenName,
+        ...(event.data ?? {}),
+      });
+    },
   }), [
     mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
-    knowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
-    maxTokenBudget, maxCostUSD,
+    resolvedKnowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
+    maxTokenBudget, maxCostUSD, interactionMode,
   ]);
+
+  useEffect(() => {
+    logger.info(
+      'AIAgent',
+      `⚙️ Runtime config recomputed: mode=${mode} interactionMode=${interactionMode || 'copilot(default)'} onAskUser=${mode !== 'voice'} mergedTools=${Object.keys(mergedCustomTools).join(', ') || '(none)'}`
+    );
+  }, [mode, interactionMode, mergedCustomTools]);
 
   const provider = useMemo(
     () => createProvider(providerName, apiKey, model, proxyUrl, proxyHeaders),
@@ -1001,6 +1330,41 @@ export function AIAgent({
         analyticsProxyUrl,
         analyticsProxyHeaders,
         debug,
+        onEvent: (event) => {
+          // Proactive behavior triggers
+          if (
+            event.type === 'rage_tap' ||
+            event.type === 'error_screen' ||
+            event.type === 'repeated_navigation'
+          ) {
+            idleDetectorRef.current?.triggerBehavior(event.type, event.screen);
+          }
+
+          // Customer Success features
+          if (customerSuccess?.enabled && event.type === 'user_interaction' && event.data) {
+            const action = String(event.data.label || event.data.action || '');
+            
+            // Check milestones
+            customerSuccess.successMilestones?.forEach(m => {
+              if (m.action && m.action === action) {
+                telemetry.track('health_signal', {
+                  type: 'success_milestone',
+                  milestone: m.name,
+                });
+              }
+            });
+
+            // Check key feature adoption
+            customerSuccess.keyFeatures?.forEach(feature => {
+              if (action.includes(feature) || action === feature) {
+                telemetry.track('health_signal', {
+                  type: 'feature_adoption',
+                  feature,
+                });
+              }
+            });
+          }
+        },
       });
       telemetryRef.current = telemetry;
       bindTelemetryService(telemetry);
@@ -1031,15 +1395,52 @@ export function AIAgent({
   useEffect(() => {
     if (!navRef?.addListener || !telemetryRef.current) return;
 
+    const checkScreenMilestone = (screenName: string) => {
+      telemetryRef.current?.setScreen(screenName);
+
+      if (customerSuccess?.enabled) {
+        customerSuccess.successMilestones?.forEach(m => {
+          if (m.screen && m.screen === screenName) {
+            telemetryRef.current?.track('health_signal', {
+              type: 'success_milestone',
+              milestone: m.name,
+            });
+          }
+        });
+      }
+
+      if (isOnboardingActive && onboarding?.steps) {
+        const step = onboarding.steps[currentOnboardingIndex];
+        if (step && step.screen === screenName) {
+          telemetryRef.current?.track('onboarding_step', {
+            step_index: currentOnboardingIndex,
+            screen: screenName,
+            action: step.action || 'view',
+          });
+          
+          // Pop the onboarding badge instantly
+          setTimeout(() => {
+            setProactiveBadgeText(step.message);
+            setProactiveStage('badge');
+            // Stop typical idle timers so it stays until dismissed or advanced
+            idleDetectorRef.current?.dismiss();
+            
+            // Auto advance logic
+            advanceOnboarding();
+          }, 300);
+        }
+      }
+    };
+
     const unsubscribe = navRef.addListener('state', () => {
       const currentRoute = navRef.getCurrentRoute?.();
       if (currentRoute?.name) {
-        telemetryRef.current?.setScreen(currentRoute.name);
+        checkScreenMilestone(currentRoute.name);
       }
     });
 
     return () => unsubscribe?.();
-  }, [navRef]);
+  }, [navRef, customerSuccess, isOnboardingActive, onboarding, currentOnboardingIndex, advanceOnboarding]);
 
   // ─── MCP Bridge ──────────────────────────────────────────────
 
@@ -1082,6 +1483,7 @@ export function AIAgent({
       },
       onReset: () => setProactiveStage('hidden'),
       generateSuggestion: () => proactiveHelp?.generateSuggestion?.(telemetryRef.current?.screen || 'Home') || proactiveHelp?.badgeText || "Need help with this screen?",
+      behaviorTriggers: proactiveHelp?.behaviorTriggers,
     });
 
     return () => {
@@ -1391,6 +1793,18 @@ export function AIAgent({
   ) => {
     if (!message.trim() || isThinking) return;
 
+    // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
+    // If consent is required but not yet granted, show the consent dialog
+    // instead of sending data to the AI provider.
+    if (consentGateActive) {
+      pendingConsentSendRef.current = {
+        message: message.trim(),
+        options,
+      };
+      setShowConsentDialog(true);
+      return;
+    }
+
     logger.info('AIAgent', `User message: "${message}"`);
     setLastUserMessage(message.trim());
 
@@ -1443,11 +1857,35 @@ export function AIAgent({
 
     // If there's a pending ask_user, resolve it instead of starting a new execution
     if (askUserResolverRef.current) {
+      if (pendingAskUserKindRef.current === 'approval') {
+        const resolver = askUserResolverRef.current;
+        askUserResolverRef.current = null;
+        pendingAskUserKindRef.current = null;
+        setPendingApprovalQuestion(null);
+        pendingFollowUpAfterApprovalRef.current = {
+          message: message.trim(),
+          options,
+        };
+        telemetryRef.current?.track('agent_trace', {
+          stage: 'approval_interrupted_by_user_question',
+          message: message.trim(),
+        });
+        resolver('__APPROVAL_REJECTED__');
+        return;
+      }
       const resolver = askUserResolverRef.current;
       askUserResolverRef.current = null;
+      pendingAskUserKindRef.current = null;
+      setPendingApprovalQuestion(null);
       setIsThinking(true);
       setStatusText('Processing your answer...');
       setLastResult(null);
+      logger.info('AIAgent', `✅ Resolving pending ask_user with: "${message.trim()}"`);
+      telemetryRef.current?.track('agent_trace', {
+        stage: 'ask_user_answer_submitted',
+        answer: message.trim(),
+        mode,
+      });
       resolver(message);
       return;
     }
@@ -1456,65 +1894,278 @@ export function AIAgent({
     setIsThinking(true);
     setStatusText('Thinking...');
     setLastResult(null);
+    logger.info(
+      'AIAgent',
+      `📨 New user request received in ${mode} mode | interactionMode=${interactionMode || 'copilot(default)'} | text="${message.trim()}"`
+    );
 
     // Telemetry: track agent request
     telemetryRef.current?.track('agent_request', {
       query: message.trim(),
+      transcript: message.trim(),
+      mode,
+    });
+    telemetryRef.current?.track('agent_trace', {
+      stage: 'request_received',
+      query: message.trim(),
+      mode,
+      interactionMode: interactionMode || 'copilot',
     });
 
     try {
+      // ─── Business-grade escalation policy ───
+      const FRUSTRATION_REGEX = /\b(angry|frustrated|useless|terrible|hate|worst|ridiculous|awful)\b/i;
+      const HIGH_RISK_ESCALATION_REGEX = /\b(human|agent|representative|supervisor|manager|refund|chargeback|charged|billing|payment|fraud|scam|lawsuit|attorney|lawyer|sue|legal|privacy|data breach|account locked|can't log in|cannot log in)\b/i;
+      const escalateTool = customTools?.['escalate_to_human'] || autoEscalateTool;
+      const priorFrustrationCount = messages.filter(
+        (m) => m.role === 'user' && typeof m.content === 'string' && FRUSTRATION_REGEX.test(m.content)
+      ).length;
+
+      if (escalateTool && !selectedTicketId) {
+        if (HIGH_RISK_ESCALATION_REGEX.test(message)) {
+          logger.warn('AIAgent', 'High-risk support signal detected — auto-escalating to human');
+          telemetryRef.current?.track('business_escalation', { message, trigger: 'high_risk' });
+
+          const escalationResult = await escalateTool.execute({
+            reason: `Customer needs human support: ${message.trim()}`,
+          });
+
+          const customerMessage =
+            typeof escalationResult === 'string' && escalationResult.trim().length > 0
+              ? escalationResult.replace(/^ESCALATED:\s*/i, '')
+              : 'Your request has been sent to our support team. A human agent will reply here as soon as possible.';
+
+          const res: ExecutionResult = {
+            success: true,
+            message: customerMessage,
+            steps: [{
+              stepIndex: 0,
+              reflection: {
+                previousGoalEval: '',
+                memory: '',
+                plan: 'Escalate to human support for a high-risk or explicitly requested issue',
+              },
+              action: {
+                name: 'escalate_to_human',
+                input: { reason: 'business_escalation' },
+                output: 'Escalated',
+              },
+            }],
+          };
+
+          setLastResult(res);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: 'assistant',
+              content: res.message,
+              timestamp: Date.now(),
+              result: res,
+            },
+          ]);
+
+          setIsThinking(false);
+          setStatusText('');
+          return;
+        }
+
+        if (FRUSTRATION_REGEX.test(message)) {
+          const frustrationMessage =
+            priorFrustrationCount > 0
+              ? "I'm sorry this has been frustrating. I can keep helping here, or I can connect you with a human support agent if you'd prefer."
+              : "I'm sorry this has been frustrating. Tell me what went wrong, and I'll do my best to fix it.";
+
+          const res: ExecutionResult = {
+            success: true,
+            message: frustrationMessage,
+            steps: [{
+              stepIndex: 0,
+              reflection: {
+                previousGoalEval: '',
+                memory: '',
+                plan:
+                  priorFrustrationCount > 0
+                    ? 'Acknowledge repeated frustration and offer escalation without forcing a handoff'
+                    : 'Acknowledge first-time frustration and continue trying to resolve the issue',
+              },
+              action: {
+                name: 'done',
+                input: {},
+                output: frustrationMessage,
+              },
+            }],
+          };
+
+          setLastResult(res);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: 'assistant',
+              content: frustrationMessage,
+              timestamp: Date.now(),
+              result: res,
+            },
+          ]);
+
+          setIsThinking(false);
+          setStatusText('');
+          return;
+        }
+      }
+
       // Ensure we have the latest Fiber tree ref
       runtime.updateRefs(rootViewRef.current, navRef);
 
       const result = await runtime.execute(message, messages);
+      let normalizedResult = result;
+
+      const reportStep = result.steps?.find((step) => step.action.name === 'report_issue');
+      if (reportStep && typeof reportStep.action.output === 'string') {
+        const match = /^ISSUE_REPORTED:([^:]+):([^:]*):([\s\S]+)$/i.exec(reportStep.action.output);
+        if (match) {
+          const [, _issueId, historyId, customerMessage] = match;
+          const resolvedCustomerMessage = customerMessage || reportStep.action.output;
+          if (historyId) {
+            seenReportedIssueUpdatesRef.current.add(historyId);
+          }
+          normalizedResult = {
+            ...result,
+            message: resolvedCustomerMessage,
+            steps: result.steps.map((step) =>
+              step === reportStep
+                ? {
+                    ...step,
+                    action: {
+                      ...step.action,
+                      output: resolvedCustomerMessage,
+                    },
+                  }
+                : step
+            ),
+          };
+        }
+      }
 
       // Telemetry: track agent completion and per-step details
       if (telemetryRef.current) {
-        for (const step of result.steps ?? []) {
+        if (!agentFrtFiredRef.current) {
+           agentFrtFiredRef.current = true;
+           telemetryRef.current.track('agent_first_response');
+        }
+
+        for (const step of normalizedResult.steps ?? []) {
           telemetryRef.current.track('agent_step', {
+            stepIndex: step.stepIndex,
             tool: step.action.name,
             args: step.action.input,
-            result: typeof step.action.output === 'string'
-              ? step.action.output.substring(0, 200)
-              : String(step.action.output),
+            result:
+              typeof step.action.output === 'string'
+                ? step.action.output
+                : String(step.action.output),
+            plan: step.reflection.plan,
+            memory: step.reflection.memory,
+            previousGoalEval: step.reflection.previousGoalEval,
           });
         }
         telemetryRef.current.track('agent_complete', {
-          success: result.success,
-          steps: result.steps?.length ?? 0,
-          tokens: result.tokenUsage?.totalTokens ?? 0,
-          cost: result.tokenUsage?.estimatedCostUSD ?? 0,
+          success: normalizedResult.success,
+          steps: normalizedResult.steps?.length ?? 0,
+          tokens: normalizedResult.tokenUsage?.totalTokens ?? 0,
+          cost: normalizedResult.tokenUsage?.estimatedCostUSD ?? 0,
+          response: normalizedResult.message,
+          conversation: {
+            user: message.trim(),
+            assistant: normalizedResult.message,
+          },
         });
       }
 
-      logger.info('AIAgent', '★ handleSend — SETTING lastResult:', result.message.substring(0, 80), '| mode:', mode);
+      logger.info('AIAgent', '★ handleSend — SETTING lastResult:', normalizedResult.message.substring(0, 80), '| mode:', mode);
       logger.info('AIAgent', '★ handleSend — tickets:', tickets.length, 'selectedTicketId:', selectedTicketId);
 
       // Don't overwrite lastResult if escalation already switched us to human mode
       // (mode in this closure is stale — the actual mode may have changed during async execution)
-      const stepsHadEscalation = result.steps?.some(s => s.action.name === 'escalate_to_human');
+      const stepsHadEscalation = normalizedResult.steps?.some(s => s.action.name === 'escalate_to_human');
       if (!stepsHadEscalation) {
-        setLastResult(result);
+        setLastResult(normalizedResult);
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString() + Math.random(),
-          role: 'assistant',
-          content: result.message,
-          timestamp: Date.now(),
-          result,
-        },
-      ]);
+      const assistantMsg: AIMessage = {
+        id: Date.now().toString() + Math.random(),
+        role: 'assistant',
+        content: normalizedResult.message,
+        timestamp: Date.now(),
+        result: normalizedResult,
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+
+      // ── Persist to backend (debounced 600ms) ─────────────────────
+      if (analyticsKey) {
+        if (appendDebounceRef.current) clearTimeout(appendDebounceRef.current);
+        appendDebounceRef.current = setTimeout(async () => {
+          try {
+            await initDeviceId();
+            const deviceId = getDeviceId();
+            // Read current messages directly from ref — never use setMessages() to read state
+            const currentMsgs = messagesRef.current;
+            const newMsgs = currentMsgs.slice(lastSavedMessageCountRef.current);
+
+            if (newMsgs.length === 0) return;
+
+            if (!activeConversationIdRef.current) {
+              // First exchange — create a new conversation
+              const id = await ConversationService.startConversation({
+                analyticsKey: analyticsKey!,
+                userId: userContext?.userId,
+                deviceId: deviceId || undefined,
+                messages: newMsgs,
+              });
+              if (id) {
+                activeConversationIdRef.current = id;
+                lastSavedMessageCountRef.current = currentMsgs.length;
+                const newSummary: ConversationSummary = {
+                  id,
+                  title: newMsgs.find(m => m.role === 'user')?.content?.slice(0, 80) || 'New conversation',
+                  preview: assistantMsg.content.slice(0, 100),
+                  previewRole: 'assistant',
+                  messageCount: newMsgs.length,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                };
+                setConversations(prev => [newSummary, ...prev]);
+                logger.info('AIAgent', `Conversation created: ${id}`);
+              }
+            } else {
+              // Subsequent turns — append only new messages
+              await ConversationService.appendMessages({
+                conversationId: activeConversationIdRef.current!,
+                analyticsKey: analyticsKey!,
+                messages: newMsgs,
+              });
+              lastSavedMessageCountRef.current = currentMsgs.length;
+              setConversations(prev => prev.map(c =>
+                c.id === activeConversationIdRef.current
+                  ? { ...c, preview: assistantMsg.content.slice(0, 100), updatedAt: Date.now(), messageCount: c.messageCount + newMsgs.length }
+                  : c
+              ));
+              logger.info('AIAgent', `Conversation appended: ${activeConversationIdRef.current}`);
+            }
+          } catch (err) {
+            logger.warn('AIAgent', 'Failed to persist conversation:', err);
+          }
+        }, 600);
+      }
 
       if (options?.onResult) {
-        options.onResult(result);
+        options.onResult(normalizedResult);
       } else {
-        onResult?.(result);
+        onResult?.(normalizedResult);
       }
 
-      logger.info('AIAgent', `Result: ${result.success ? '✅' : '❌'} ${result.message}`);
+      logger.info('AIAgent', `Result: ${normalizedResult.success ? '✅' : '❌'} ${normalizedResult.message}`);
     } catch (error: any) {
       logger.error('AIAgent', 'Execution failed:', error);
 
@@ -1522,6 +2173,11 @@ export function AIAgent({
       telemetryRef.current?.track('agent_complete', {
         success: false,
         error: error.message,
+        response: `Error: ${error.message}`,
+        conversation: {
+          user: message.trim(),
+          assistant: `Error: ${error.message}`,
+        },
       });
 
       setLastResult({
@@ -1533,7 +2189,25 @@ export function AIAgent({
       setIsThinking(false);
       setStatusText('');
     }
-  }, [runtime, navRef, onResult, messages, isThinking]);
+  }, [runtime, navRef, onResult, messages, isThinking, consentGateActive]);
+
+  useEffect(() => {
+    if (consentGateActive) return;
+    const pending = pendingConsentSendRef.current;
+    if (!pending) return;
+
+    pendingConsentSendRef.current = null;
+    void handleSend(pending.message, pending.options);
+  }, [consentGateActive, handleSend]);
+
+  useEffect(() => {
+    if (isThinking) return;
+    const pending = pendingFollowUpAfterApprovalRef.current;
+    if (!pending) return;
+
+    pendingFollowUpAfterApprovalRef.current = null;
+    void handleSend(pending.message, pending.options);
+  }, [isThinking, handleSend]);
 
   // ─── Context value (for useAI bridge) ─────────────────────────
 
@@ -1542,6 +2216,31 @@ export function AIAgent({
     setIsThinking(false);
     setStatusText('');
   }, [runtime]);
+
+  // ─── Conversation History Handlers ─────────────────────────────
+
+  const handleConversationSelect = useCallback(async (conversationId: string) => {
+    if (!analyticsKey) return;
+    try {
+      const msgs = await ConversationService.fetchConversation({ conversationId, analyticsKey });
+      if (msgs) {
+        activeConversationIdRef.current = conversationId;
+        lastSavedMessageCountRef.current = msgs.length;
+        setMessages(msgs);
+        setLastResult(null);
+      }
+    } catch (err) {
+      logger.warn('AIAgent', 'Failed to load conversation:', err);
+    }
+  }, [analyticsKey]);
+
+  const handleNewConversation = useCallback(() => {
+    activeConversationIdRef.current = null;
+    lastSavedMessageCountRef.current = 0;
+    setMessages([]);
+    setLastResult(null);
+    setLastUserMessage(null);
+  }, []);
 
   const contextValue = useMemo(() => ({
     runtime,
@@ -1569,7 +2268,7 @@ export function AIAgent({
             // Skip if the AI agent is currently executing a tool — those are
             // already tracked as `agent_step` events with full context.
             if (telemetryRef.current && !telemetryRef.current.isAgentActing) {
-              const label = extractTouchLabel(event.nativeEvent);
+              const label = extractTouchLabel(event);
               if (label && label !== 'Unknown Element' && label !== '[pressable]') {
                 telemetryRef.current.track('user_interaction', {
                   type: 'tap',
@@ -1611,9 +2310,6 @@ export function AIAgent({
           {/* Highlight Overlay (always active, listens to events) */}
           <HighlightOverlay />
 
-          {/* Overlay (shown while thinking) */}
-          <AgentOverlay visible={isThinking} statusText={statusText} onCancel={handleCancel} />
-
           {/* Chat bar wrapped in Proactive Hint */}
           {showChatBar && (
             <ProactiveHint
@@ -1624,8 +2320,27 @@ export function AIAgent({
               <AgentChatBar
                 onSend={handleSend}
                 isThinking={isThinking}
+                statusText={overlayStatusText}
                 lastResult={lastResult}
                 lastUserMessage={lastUserMessage}
+                chatMessages={messages}
+                pendingApprovalQuestion={pendingApprovalQuestion}
+                onPendingApprovalAction={(action) => {
+                  const resolver = askUserResolverRef.current;
+                  if (!resolver) return;
+                  askUserResolverRef.current = null;
+                  pendingAskUserKindRef.current = null;
+                  setPendingApprovalQuestion(null);
+                  const response =
+                    action === 'approve'
+                      ? '__APPROVAL_GRANTED__'
+                      : '__APPROVAL_REJECTED__';
+                  telemetryRef.current?.track('agent_trace', {
+                    stage: 'approval_button_pressed',
+                    action,
+                  });
+                  resolver(response);
+                }}
                 language={'en'}
                 onDismiss={() => { setLastResult(null); setLastUserMessage(null); }}
                 theme={accentColor || theme ? {
@@ -1678,10 +2393,18 @@ export function AIAgent({
                 unreadCounts={unreadCounts}
                 totalUnread={totalUnread}
                 showDiscoveryTooltip={tooltipVisible}
+                discoveryTooltipMessage={discoveryTooltipMessage}
                 onTooltipDismiss={handleTooltipDismiss}
+                conversations={conversations}
+                isLoadingHistory={isLoadingHistory}
+                onConversationSelect={handleConversationSelect}
+                onNewConversation={handleNewConversation}
               />
             </ProactiveHint>
           )}
+
+          {/* Overlay (shown while thinking) — render after chat UI so it stays on top */}
+          <AgentOverlay visible={overlayVisible} statusText={overlayStatusText} onCancel={handleCancel} />
 
           {/* Support chat modal — opens when user taps a ticket */}
           <SupportChatModal
@@ -1693,6 +2416,25 @@ export function AIAgent({
             isThinking={isThinking}
             scrollToEndTrigger={chatScrollTrigger}
             ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
+          />
+
+          {/* AI Consent Dialog (Apple Guideline 5.1.2(i)) — always rendered */}
+          <AIConsentDialog
+            visible={showConsentDialog}
+            provider={providerName}
+            config={consentConfig}
+            language={'en'}
+            onConsent={async () => {
+              await grantConsent();
+              setShowConsentDialog(false);
+              consentConfig.onConsent?.();
+              logger.info('AIAgent', '✅ AI consent granted by user');
+            }}
+            onDecline={() => {
+              setShowConsentDialog(false);
+              consentConfig.onDecline?.();
+              logger.info('AIAgent', '❌ AI consent declined by user');
+            }}
           />
         </View>
       </View>

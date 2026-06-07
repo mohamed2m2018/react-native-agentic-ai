@@ -148,6 +148,20 @@ describe('FiberTreeWalker', () => {
       expect(result.interactives[0]!.label).toBe('Submit Order');
     });
 
+    it('prefers visible nested text over low-signal accessibility labels', () => {
+      const nestedText = createFiberNode('Text', { children: 'Subscriptions' });
+      const wrapper = createFiberNode({ displayName: 'ShortcutCard' }, {}, [nestedText]);
+      const pressable = createFiberNode('Pressable', {
+        onPress: () => {},
+        accessibilityLabel: 'button',
+      }, [wrapper]);
+      const root = createFiberNode('View', {}, [pressable]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.interactives[0]!.label).toBe('Subscriptions');
+    });
+
     it('falls back to placeholder for TextInput', () => {
       const input = createFiberNode('TextInput', {
         onChangeText: () => {},

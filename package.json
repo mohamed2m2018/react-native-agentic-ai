@@ -1,5 +1,5 @@
 {
-  "name": "experimental-stuff",
+  "name": "@mobileai/react-native",
   "version": "0.9.18",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
@@ -84,7 +84,7 @@
     "url": "git+https://github.com/MobileAIAgent/react-native.git"
   },
   "author": "Mohamed Salah <mohamed2m2018@gmail.com> (https://example.com)",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "bugs": {
     "url": "https://github.com/MobileAIAgent/react-native/issues"
   },

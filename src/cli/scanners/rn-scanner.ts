@@ -48,8 +48,7 @@ export function scanReactNavigationApp(projectRoot: string): ScannedScreen[] {
 
   console.log(`[generate-map] Found ${navigatorFiles.length} navigator file(s)`);
 
-  const screens: ScannedScreen[] = [];
-  const processedRoutes = new Set<string>();
+  const bestScreens = new Map<string, ScannedScreen>();
   const fileAstCache = new Map<string, any>();
 
   for (const navFile of navigatorFiles) {
@@ -57,10 +56,8 @@ export function scanReactNavigationApp(projectRoot: string): ScannedScreen[] {
     const screenDefs = extractScreenDefinitions(sourceCode, navFile, projectRoot);
 
     for (const screenDef of screenDefs) {
-      if (processedRoutes.has(screenDef.routeName)) continue;
-      processedRoutes.add(screenDef.routeName);
-
       // Read and extract content from the screen component file
+      let candidate: ScannedScreen;
       if (fs.existsSync(screenDef.filePath)) {
         let extracted: any;
         if (fileAstCache.has(screenDef.filePath)) {
@@ -71,27 +68,32 @@ export function scanReactNavigationApp(projectRoot: string): ScannedScreen[] {
           fileAstCache.set(screenDef.filePath, extracted);
         }
 
-        screens.push({
+        candidate = {
           routeName: screenDef.routeName,
           filePath: screenDef.filePath,
           title: screenDef.title,
           description: buildDescription(extracted),
           navigationLinks: extracted.navigationLinks,
-        });
+        };
       } else {
         // Component defined in same file or import not resolved
-        screens.push({
+        candidate = {
           routeName: screenDef.routeName,
           filePath: screenDef.filePath,
           title: screenDef.title,
           description: 'Screen content',
           navigationLinks: [],
-        });
+        };
+      }
+
+      const existing = bestScreens.get(screenDef.routeName);
+      if (!existing || scoreScreenCandidate(candidate) > scoreScreenCandidate(existing)) {
+        bestScreens.set(screenDef.routeName, candidate);
       }
     }
   }
 
-  return screens;
+  return [...bestScreens.values()];
 }
 
 interface ScreenDefinition {
@@ -99,6 +101,30 @@ interface ScreenDefinition {
   componentName: string;
   filePath: string;
   title?: string;
+}
+
+function scoreScreenCandidate(screen: ScannedScreen): number {
+  let score = 0;
+
+  if (fs.existsSync(screen.filePath)) score += 20;
+  if (screen.description && screen.description !== 'Screen content') score += 80;
+  if (screen.navigationLinks.length > 0) score += 12;
+  if (screen.title) score += 4;
+
+  const describedElements = screen.description
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part && part !== 'Screen content').length;
+  score += Math.min(describedElements, 8) * 6;
+
+  const componentOnlyElements = screen.description
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part.endsWith('(component)')).length;
+  if (componentOnlyElements > 0) score -= componentOnlyElements * 20;
+  if (describedElements > 0 && componentOnlyElements === describedElements) score -= 120;
+
+  return score;
 }
 
 /**

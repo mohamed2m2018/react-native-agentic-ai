@@ -73,7 +73,7 @@ import { getDeviceId } from './device';
 
 export class TelemetryService {
   private queue: TelemetryEvent[] = [];
-  private config: TelemetryConfig;
+  public config: TelemetryConfig;
   private sessionId: string;
   private currentScreen = 'Unknown';
   private screenFlow: string[] = [];
@@ -211,6 +211,10 @@ export class TelemetryService {
     };
 
     this.queue.push(event);
+
+    if (this.config.onEvent) {
+      this.config.onEvent(event);
+    }
 
     if (this.config.debug) {
       logger.debug(LOG_TAG, `→ ${type}`, data);

@@ -8,7 +8,12 @@
  * to route telemetry through your own backend without touching this file.
  */
 
-const MOBILEAI_BASE = 'http://localhost:3001';
+const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV === 'development';
+
+const MOBILEAI_BASE =
+  process.env.EXPO_PUBLIC_MOBILEAI_BASE_URL ||
+  process.env.NEXT_PUBLIC_MOBILEAI_BASE_URL ||
+  (isDev ? 'http://localhost:3001' : 'https://api.mobileai.dev');
 
 export const ENDPOINTS = {
   /** Telemetry event ingest — receives batched SDK events */
@@ -19,4 +24,7 @@ export const ENDPOINTS = {
 
   /** Live agent escalation (support handoff) */
   escalation: `${MOBILEAI_BASE}`,
+
+  /** AI conversation history — save and retrieve per-user AI chat sessions */
+  conversations: `${MOBILEAI_BASE}/api/v1/conversations`,
 } as const;

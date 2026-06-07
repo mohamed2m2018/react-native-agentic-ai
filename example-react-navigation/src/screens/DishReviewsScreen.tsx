@@ -30,13 +30,6 @@ export default function DishReviewsScreen({ route, navigation }: Props) {
             <Text style={styles.reviewRating}>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</Text>
           </View>
           <Text style={styles.reviewText}>{review.text}</Text>
-          {/* Corner case: navigation.push() — tests push() method detection */}
-          <Pressable
-            style={styles.reportLink}
-            onPress={() => navigation.push('ReportIssue', { dishName, reviewId: review.id })}
-          >
-            <Text style={styles.reportLinkText}>Report</Text>
-          </Pressable>
         </View>
       ))}
 
@@ -121,8 +114,6 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  reportLink: { marginTop: 8, alignSelf: 'flex-end' },
-  reportLinkText: { fontSize: 13, color: '#dc3545' },
   writeReviewBtn: {
     backgroundColor: '#28a745',
     borderRadius: 12,

@@ -1,42 +1,66 @@
 {
-  "generatedAt": "2026-03-24T16:54:10.396Z",
+  "generatedAt": "2026-04-01T18:01:28.048Z",
   "framework": "react-navigation",
   "screens": {
     "Home": {
       "title": "FoodApp",
-      "description": "+ (button), Load More Dishes (button)"
+      "description": "$ (button), + (button), Load More Dishes (button), FlatList (list), Image (image), ActivityIndicator (component), MediaReel (component)",
+      "navigatesTo": [
+        "DishDetail",
+        "Menu"
+      ]
     },
     "Menu": {
-      "description": "Add (button)"
+      "description": "Add (button), FlatList (list), ActivityIndicator (component)",
+      "navigatesTo": [
+        "DishDetail"
+      ]
     },
     "DishDetail": {
-      "description": "Add to Favorites (switch), View Reviews & Questions (button), Add 1 to Cart - $ (button), Add 2 - $ (button)"
+      "description": "Add to Favorites (switch), View Reviews & Questions (button), Add 1 to Cart - $ (button), Add 2 - $ (button), Image (image)",
+      "navigatesTo": [
+        "DishReviews"
+      ]
     },
     "DishReviews": {
-      "description": "Report (button), Price Drop Alerts (switch), Notify on New Reviews (switch), Type your question about this dish... (text-input), Submit Question (button), ✍️ Write a Review (button)"
-    },
-    "ReportIssue": {
-      "title": "Report Issue",
-      "description": "Describe the issue in detail... (text-input), Submit Report (button)"
+      "description": "Type your question about this dish... (text-input), Price Drop Alerts (switch), Notify on New Reviews (switch), Submit Question (button), ✍️ Write a Review (button)",
+      "navigatesTo": [
+        "WriteReview"
+      ]
     },
     "WriteReview": {
-      "description": "Summarize your experience (text-input), What did you like or dislike? (text-input), 👍 Yes (button), 👎 No (button), Submit Review (button)"
+      "description": "Summarize your experience (text-input), What did you like or dislike? (text-input), ★ (button), ☆ (button), 👍 Yes (button), 👎 No (button), Submit Review (button)",
+      "navigatesTo": [
+        "ReviewThanks"
+      ]
     },
     "ReviewThanks": {
       "title": "Review Submitted",
-      "description": "View Loyalty Program (button), Back to Home (button)"
+      "description": "View Loyalty Program (button), Back to Home (button)",
+      "navigatesTo": [
+        "LoyaltyProgram"
+      ]
     },
     "LoyaltyProgram": {
       "title": "Loyalty Program",
-      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), 🎁 (button)"
+      "description": "New Reward Opportunities (switch), Weekly Exclusive Deals (switch), Milestone Alerts (switch), Redeem Rewards (button), View Loyalty Activity (button)",
+      "navigatesTo": [
+        "RedeemReward"
+      ]
     },
     "RedeemReward": {
       "title": "Redeem Rewards",
-      "description": "Screen content"
+      "description": "Free Dish (button), $5 Gift Card (button), $10 Gift Card (button), Free Delivery (button)",
+      "navigatesTo": [
+        "GiftCard"
+      ]
     },
     "GiftCard": {
       "title": "Send Gift Card",
-      "description": "friend@email.com (text-input), Add a personal note... (text-input), Send Gift Card (button)"
+      "description": "friend@email.com (text-input), Add a personal note... (text-input), Send Gift Card (button)",
+      "navigatesTo": [
+        "GiftConfirmation"
+      ]
     },
     "GiftConfirmation": {
       "title": "Gift Sent!",
@@ -44,9 +68,115 @@
     },
     "SettingsMain": {
       "title": "Settings",
-      "description": "Enter your name (text-input), Enter your email (text-input), Write about yourself (text-input), Email Alerts (switch), Push Notifications (switch), Order Updates (switch), SMS Promotional Offers (switch), Manage Notification Preferences (button), Two-Factor Authentication (switch)"
+      "description": "Enter your name (text-input), Enter your email (text-input), Write about yourself (text-input), Email Alerts (switch), Push Notifications (switch), Order Updates (switch), SMS Promotional Offers (switch), Two-Factor Authentication (switch)",
+      "navigatesTo": [
+        "NotificationPrefs"
+      ]
     },
     "NotificationPrefs": {
+      "title": "Notification Preferences",
+      "description": "toggle (switch), Reset to Defaults (button)"
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "Orders & delivery (button), Billing history (button), Subscriptions (button), Loyalty activity (button), Gift history (button), Account security (button), Log Out (button)",
+      "navigatesTo": [
+        "OrdersList",
+        "BillingHistory",
+        "SubscriptionManagement",
+        "LoyaltyActivity",
+        "GiftHistory",
+        "AccountSecurity"
+      ]
+    },
+    "OrdersList": {
+      "title": "Orders",
+      "description": "ETA (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "OrderDetails"
+      ]
+    },
+    "OrderDetails": {
+      "title": "Order Details",
+      "description": "Open Delivery Tracker (button), Open Linked Charge (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "DeliveryTracker",
+        "ChargeDetails"
+      ]
+    },
+    "DeliveryTracker": {
+      "title": "Delivery Tracker",
+      "description": "Screen content"
+    },
+    "BillingHistory": {
+      "title": "Billing History",
+      "description": "· (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "ChargeDetails"
+      ]
+    },
+    "ChargeDetails": {
+      "title": "Charge Details",
+      "description": "Open Linked Order (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "OrderDetails"
+      ]
+    },
+    "SubscriptionManagement": {
+      "title": "Subscriptions",
+      "description": "· Renews (button), ActivityIndicator (component), Plans needing review (SubscriptionSectionCard), · Renews (SubscriptionSectionCard), What this flow contains (SubscriptionSectionCard)",
+      "navigatesTo": [
+        "SubscriptionWorkspace"
+      ]
+    },
+    "SubscriptionWorkspace": {
+      "title": "Subscription Workspace",
+      "description": "Control room (button), Pause planner (button), Cancellation review (button), ActivityIndicator (component), Workspace seats (SubscriptionSectionCard), Control room (SubscriptionSectionCard), Included benefits (SubscriptionSectionCard)",
+      "navigatesTo": [
+        "SubscriptionControls",
+        "SubscriptionPause",
+        "SubscriptionCancellation"
+      ]
+    },
+    "SubscriptionControls": {
+      "title": "Control Room",
+      "description": "owner@example.com (text-input), Smart retry (switch), Consolidated invoices (switch), Auto-apply credits (switch), Billing anchor (button), Backup payment method (button), Open pause planner (button), Open cancellation review (button)",
+      "navigatesTo": [
+        "SubscriptionPause",
+        "SubscriptionCancellation"
+      ]
+    },
+    "SubscriptionPause": {
+      "title": "Pause Planner",
+      "description": "Explain why this pause exists or what support should watch for on resume. (text-input), Keep manager alerts on (switch), Preserve promo pricing (switch), Pause invoice generation (switch), Pause starts (button), Resume on (button), Review pause plan (button), Scheduling… (button)"
+    },
+    "SubscriptionCancellation": {
+      "title": "Cancellation Review",
+      "description": "Add any notes about refund timing, accidental renewal, account state, or support promises. (text-input), I understand benefits end after cancellation review (switch), Review cancellation request (button), Submitting… (button), Submit cancellation review (button), Final cancellation confirmation (modal), ActivityIndicator (component), Additional context (SubscriptionSectionCard)"
+    },
+    "LoyaltyActivity": {
+      "title": "Loyalty Activity",
+      "description": "Screen content"
+    },
+    "GiftHistory": {
+      "title": "Gift History",
+      "description": "Sent (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "GiftDetails"
+      ]
+    },
+    "GiftDetails": {
+      "title": "Gift Details",
+      "description": "Screen content"
+    },
+    "AccountSecurity": {
+      "title": "Account Security",
+      "description": "Open Notification Preferences (button), ActivityIndicator (component)",
+      "navigatesTo": [
+        "ProfileNotificationPrefs"
+      ]
+    },
+    "ProfileNotificationPrefs": {
       "title": "Notification Preferences",
       "description": "toggle (switch), Reset to Defaults (button)"
     },
@@ -56,26 +186,17 @@
     },
     "Search": {
       "title": "Search",
-      "description": "Add (button), Search dishes... (text-input)"
+      "description": "Search dishes... (text-input), Add (button), FlatList (list), Image (image), ActivityIndicator (component)",
+      "navigatesTo": [
+        "HomeTab"
+      ]
     },
     "Cart": {
       "title": "Cart",
-      "description": "✕ (button), Checkout (button)"
+      "description": "✕ (button), Checkout (button), FlatList (list)"
     },
-    "Profile": {
-      "title": "Profile",
-      "description": "Log Out (button)"
-    },
-    "Login": {
-      "description": "Email (text-input), Password (text-input), Log In (button), Forgot Password? (button), Don't have an account? (button)"
-    },
-    "Signup": {
-      "description": "Full Name (text-input), Email (text-input), Password (text-input), Sign Up (button), Already have an account? (button)"
-    },
-    "ForgotPassword": {
-      "description": "Back to Login (button), Email address (text-input), Send Reset Link (button)"
-    },
-    "CustomLoginXYZ": {
+    "Settings": {
+      "title": "Settings",
       "description": "Screen content"
     }
   },
@@ -104,21 +225,61 @@
       "GiftConfirmation"
     ],
     [
-      "Home",
-      "Menu",
-      "DishDetail",
-      "DishReviews",
-      "ReportIssue"
+      "Profile",
+      "BillingHistory",
+      "ChargeDetails",
+      "OrderDetails",
+      "DeliveryTracker"
     ],
     [
-      "Home",
-      "DishDetail",
-      "DishReviews",
-      "ReportIssue"
+      "Profile",
+      "SubscriptionManagement",
+      "SubscriptionWorkspace",
+      "SubscriptionControls",
+      "SubscriptionPause"
+    ],
+    [
+      "Profile",
+      "SubscriptionManagement",
+      "SubscriptionWorkspace",
+      "SubscriptionControls",
+      "SubscriptionCancellation"
+    ],
+    [
+      "Profile",
+      "OrdersList",
+      "OrderDetails",
+      "DeliveryTracker"
+    ],
+    [
+      "Profile",
+      "SubscriptionManagement",
+      "SubscriptionWorkspace",
+      "SubscriptionPause"
+    ],
+    [
+      "Profile",
+      "SubscriptionManagement",
+      "SubscriptionWorkspace",
+      "SubscriptionCancellation"
+    ],
+    [
+      "Profile",
+      "GiftHistory",
+      "GiftDetails"
+    ],
+    [
+      "Profile",
+      "AccountSecurity",
+      "ProfileNotificationPrefs"
     ],
     [
       "SettingsMain",
       "NotificationPrefs"
+    ],
+    [
+      "Profile",
+      "LoyaltyActivity"
     ],
     [
       "Search",

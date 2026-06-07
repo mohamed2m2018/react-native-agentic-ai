@@ -11,6 +11,13 @@ export interface IdleDetectorConfig {
   onReset: () => void;
   /** Dynamic context suggestion generator based on current screen */
   generateSuggestion?: () => string;
+  /** Configured behavior triggers */
+  behaviorTriggers?: Array<{
+    screen: string;
+    type: string;
+    message?: string;
+    delayMs?: number;
+  }>;
 }
 
 export class IdleDetector {
@@ -42,6 +49,30 @@ export class IdleDetector {
   destroy(): void {
     this.clearTimers();
     this.config = null;
+  }
+
+  /**
+   * Instantly trigger proactive help if the behavior matches a configured trigger.
+   */
+  triggerBehavior(type: string, currentScreen: string): void {
+    if (!this.config || this.dismissed || !this.config.behaviorTriggers) return;
+
+    const trigger = this.config.behaviorTriggers.find(t => 
+      t.type === type && (t.screen === '*' || t.screen === currentScreen)
+    );
+
+    if (trigger) {
+      this.clearTimers(); // Intercept normal idle flow
+      const message = trigger.message || `It looks like you might be having trouble. Can I help?`;
+      
+      if (trigger.delayMs) {
+        this.badgeTimer = setTimeout(() => {
+          this.config?.onBadge(message);
+        }, trigger.delayMs);
+      } else {
+        this.config.onBadge(message);
+      }
+    }
   }
 
   private resetTimers(): void {

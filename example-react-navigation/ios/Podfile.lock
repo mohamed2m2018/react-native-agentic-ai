@@ -38,6 +38,8 @@ PODS:
     - ExpoModulesCore
   - ExpoKeepAwake (55.0.4):
     - ExpoModulesCore
+  - ExpoLinking (7.0.5):
+    - ExpoModulesCore
   - ExpoLogBox (55.0.7):
     - React-Core
   - ExpoModulesCore (55.0.17):
@@ -2098,6 +2100,7 @@ DEPENDENCIES:
   - ExpoFileSystem (from `../../node_modules/expo-file-system/ios`)
   - ExpoFont (from `../../node_modules/expo-font/ios`)
   - ExpoKeepAwake (from `../../node_modules/expo-keep-awake/ios`)
+  - ExpoLinking (from `../../node_modules/expo-linking/ios`)
   - "ExpoLogBox (from `../../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../../node_modules/expo-modules-core`)
@@ -2201,6 +2204,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/expo-font/ios"
   ExpoKeepAwake:
     :path: "../../node_modules/expo-keep-awake/ios"
+  ExpoLinking:
+    :path: "../../node_modules/expo-linking/ios"
   ExpoLogBox:
     :path: "../../node_modules/@expo/log-box"
   ExpoModulesCore:
@@ -2380,6 +2385,7 @@ SPEC CHECKSUMS:
   ExpoFileSystem: ccbe192dde132e6e97bedcd51018a1642f4fa01c
   ExpoFont: 1aa465cf9f8ac6b670405becba8b15473581b2dd
   ExpoKeepAwake: 7f3b28c361c37389b18841bb52a58003b39fcb33
+  ExpoLinking: 8d12bee174ba0cdf31239706578e29e74a417402
   ExpoLogBox: 89b634d5a8a64c4a6a7caad8f9985a28463c7002
   ExpoModulesCore: 07b7f02f2cf283f1759dc4c8ba469e3fca660695
   ExpoModulesJSI: 7345645083e98be9c33c10027601aff2e445ba72

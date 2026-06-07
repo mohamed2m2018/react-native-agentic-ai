@@ -15,6 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { buildNavigationGraph, extractChains } from './analyzers/chain-analyzer';
 import { scanExpoRouterApp } from './scanners/expo-scanner';
 import { scanReactNavigationApp } from './scanners/rn-scanner';
 
@@ -28,6 +29,7 @@ interface ScreenMap {
   generatedAt: string;
   framework: 'expo-router' | 'react-navigation';
   screens: Record<string, ScreenMapEntry>;
+  chains?: string[][];
 }
 
 function main() {
@@ -56,8 +58,13 @@ function main() {
     screens: {},
   };
 
+  const screenLinks = Object.fromEntries(
+    scannedScreens.map(screen => [screen.routeName, screen.navigationLinks])
+  );
+  const navigationGraph = buildNavigationGraph(screenLinks, [...allRouteSet]);
+
   for (const screen of scannedScreens) {
-    const validLinks = screen.navigationLinks.filter(link => allRouteSet.has(link));
+    const validLinks = [...(navigationGraph.edges.get(screen.routeName) ?? new Set<string>())];
     if (screen.navigationLinks.length > 0) {
       const noise = screen.navigationLinks.length - validLinks.length;
       console.log(`  🔗 ${screen.routeName} → ${validLinks.join(', ')}${noise > 0 ? ` (${noise} noise filtered)` : ''}`);
@@ -68,12 +75,16 @@ function main() {
       navigatesTo: validLinks.length > 0 ? validLinks : undefined,
     };
   }
+  const chains = extractChains(navigationGraph, [...allRouteSet]);
+  if (chains.length > 0) {
+    screenMap.chains = chains;
+  }
 
   // Write output
   const outputPath = path.join(projectRoot, 'ai-screen-map.json');
   fs.writeFileSync(outputPath, JSON.stringify(screenMap, null, 2));
 
-  const linkedCount = scannedScreens.filter(s => s.navigationLinks.some(l => allRouteSet.has(l))).length;
+  const linkedCount = Object.values(screenMap.screens).filter(screen => (screen.navigatesTo?.length || 0) > 0).length;
   console.log('━'.repeat(40));
   console.log(`✅ Generated ${outputPath}`);
   console.log(`   ${Object.keys(screenMap.screens).length} screens, ${linkedCount} with navigation links`);
