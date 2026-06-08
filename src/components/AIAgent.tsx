@@ -642,7 +642,7 @@ export function AIAgent({
     if (!analyticsKey) return undefined;
 
     return createMobileAIKnowledgeRetriever({
-      publishableKey: analyticsKey,
+      analyticsKey: analyticsKey,
       baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
       headers: analyticsProxyHeaders,
     });

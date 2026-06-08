@@ -66,7 +66,7 @@ export const MobileAI = {
    */
   async consumeWowAction(actionName: string): Promise<boolean> {
     if (!service || !service.config.analyticsKey) {
-      logger.warn(LOG_TAG, 'consumeWowAction failed: SDK not initialized with analyticsKey or publishableKey in AIAgent');
+      logger.warn(LOG_TAG, 'consumeWowAction failed: SDK not initialized with analyticsKey or analyticsKey in AIAgent');
       return false;
     }
 

@@ -2,7 +2,7 @@ import type { KnowledgeRetriever } from '../core/types';
 import { logger } from '../utils/logger';
 
 export interface MobileAIKnowledgeRetrieverOptions {
-  publishableKey: string;
+  analyticsKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;
   limit?: number;
@@ -29,7 +29,7 @@ export function createMobileAIKnowledgeRetriever(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${options.publishableKey}`,
+            Authorization: `Bearer ${options.analyticsKey}`,
             ...(options.headers ?? {}),
           },
           body: JSON.stringify({

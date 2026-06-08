@@ -19,7 +19,7 @@ describe('createMobileAIKnowledgeRetriever', () => {
     } as any);
 
     const retriever = createMobileAIKnowledgeRetriever({
-      publishableKey: 'mobileai_pub_test',
+      analyticsKey: 'mobileai_pub_test',
       baseUrl: 'http://localhost:3001',
     });
 
@@ -47,7 +47,7 @@ describe('createMobileAIKnowledgeRetriever', () => {
     } as any);
 
     const retriever = createMobileAIKnowledgeRetriever({
-      publishableKey: 'mobileai_pub_test',
+      analyticsKey: 'mobileai_pub_test',
       baseUrl: 'https://app.mobileai.cloud/api/v1/analytics',
     });
 
