@@ -1445,11 +1445,23 @@ export function AIAgent({
       telemetryRef.current = telemetry;
       bindTelemetryService(telemetry);
       telemetry.start();
-
-      const initialRoute = navRef?.getCurrentRoute?.();
-      if (initialRoute?.name) {
-        telemetry.setScreen(initialRoute.name);
-      }
+      // NavigationContainer is a child of AIAgent, so navRef may not be
+      // ready yet when this effect runs. Poll briefly until it's available.
+      const resolveInitialScreen = () => {
+        let attempts = 0;
+        const maxAttempts = 15; // 15 × 200ms = 3s max wait
+        const timer = setInterval(() => {
+          attempts++;
+          const route = navRef?.getCurrentRoute?.();
+          if (route?.name) {
+            telemetry.setScreen(route.name);
+            clearInterval(timer);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(timer);
+          }
+        }, 200);
+      };
+      resolveInitialScreen();
     }); // initDeviceId
   }, [analyticsKey, analyticsProxyUrl, analyticsProxyHeaders, bindTelemetryService, debug, navRef]);
 
