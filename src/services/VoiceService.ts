@@ -104,7 +104,20 @@ export class VoiceService {
       const genAiConfig: any = {};
 
       if (this.config.proxyUrl) {
-        genAiConfig.apiKey = 'proxy-key';
+        // The @google/genai SDK sends apiKey as ?key=<value> in the WebSocket URL.
+        // For HTTP text proxy, the Authorization header carries the secret key.
+        // For WebSocket voice proxy, browser WS APIs don't support custom headers —
+        // the only way to pass auth is via the URL query string.
+        // So we extract the real secret key from proxyHeaders and use it as apiKey,
+        // which the SDK will append as ?key=<secret> in the WS URL.
+        // Our proxy reads it there, validates it, then replaces it with the real
+        // Gemini API key before forwarding upstream.
+        const authHeader = this.config.proxyHeaders?.['Authorization'] ?? this.config.proxyHeaders?.['authorization'];
+        const secretKey = authHeader?.startsWith('Bearer ')
+          ? authHeader.replace('Bearer ', '').trim()
+          : authHeader ?? 'proxy-key';
+
+        genAiConfig.apiKey = secretKey;
         genAiConfig.httpOptions = {
           baseUrl: this.config.proxyUrl,
           headers: this.config.proxyHeaders || {},
