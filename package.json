@@ -1,6 +1,6 @@
 {
   "name": "@mobileai/react-native",
-  "version": "0.9.19",
+  "version": "0.9.20",
   "description": "Build autonomous AI agents for React Native and Expo apps. Provides AI-native UI traversal, tool calling, and structured reasoning.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -21,6 +21,7 @@
   },
   "files": [
     "lib",
+    "src/specs",
     "bin",
     "generate-map.js",
     "android",
