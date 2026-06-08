@@ -52,6 +52,15 @@ export interface InteractiveElement {
    * Set automatically by the FiberTreeWalker when the element has aiConfirm={true} prop.
    */
   requiresConfirmation?: boolean;
+  /**
+   * If set, this is a virtual element injected by NativeAlertInterceptor.
+   * Not backed by a real Fiber node — tapTool routes it to the interceptor instead.
+   */
+  virtual?: {
+    kind: 'alert_button';
+    /** 0-based index of the button in the active alert */
+    alertButtonIndex: number;
+  };
 }
 
 // ─── Dehydrated Screen State ──────────────────────────────────
@@ -337,6 +346,16 @@ export interface AgentConfig {
    * from external AI agents (like OpenClaw, Claude Desktop, etc).
    */
   mcpServerUrl?: string;
+
+  /**
+   * When true, the agent monkey-patches Alert.alert and Alert.prompt during execution
+   * to capture native dialog metadata and inject virtual elements into the Fiber tree.
+   * This lets the agent see and tap alert buttons that are normally invisible.
+   *
+   * Default: false (opt-in — only enable if your app uses Alert dialogs the agent needs
+   * to interact with)
+   */
+  interceptNativeAlerts?: boolean;
 }
 
 export interface ExecutionResult {

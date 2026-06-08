@@ -54,15 +54,6 @@ export class AudioInputService {
       // Lazy-load react-native-audio-api (optional peer dependency)
       let audioApi: any;
       try {
-        const { NativeModules } = require('react-native');
-        if (!NativeModules.AudioApiModule) {
-          const msg =
-            '[mobileai] react-native-audio-api native module not found. '
-            + 'Voice mode requires a development build (not Expo Go).';
-          logger.warn('AudioInput', msg);
-          this.config.onError?.(msg);
-          return false;
-        }
         // Static require — Metro needs a literal string for bundling.
         audioApi = require('react-native-audio-api');
       } catch {
@@ -75,7 +66,7 @@ export class AudioInputService {
 
       // Request mic permission (Android)
       try {
-        const { PermissionsAndroid, Platform } = require('react-native');
+        const { Platform, PermissionsAndroid } = require('react-native');
         if (Platform.OS === 'android') {
           const result = await PermissionsAndroid.request(
             PermissionsAndroid.PERMISSIONS.RECORD_AUDIO

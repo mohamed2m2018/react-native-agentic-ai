@@ -15,6 +15,7 @@ import type { WalkConfig } from './FiberTreeWalker';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
 import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
+import { installAlertInterceptor, uninstallAlertInterceptor } from './NativeAlertInterceptor';
 import {
   createTapTool,
   createLongPressTool,
@@ -1169,6 +1170,7 @@ ${screen.elementsText}
       interactiveBlacklist: this.config.interactiveBlacklist,
       interactiveWhitelist: this.config.interactiveWhitelist,
       screenName: this.getCurrentScreenName(),
+      interceptNativeAlerts: this.config.interceptNativeAlerts,
     };
   }
 
@@ -1391,7 +1393,11 @@ ${screen.elementsText}
         enableUIControl: this.config.enableUIControl !== false,
         chatHistoryLength: chatHistory?.length ?? 0,
       });
-      // ── Start error suppression (3 layers) ──────────────────
+      
+      // ── Start interceptors & error suppression ──────────────────
+      if (this.config.interceptNativeAlerts) {
+        installAlertInterceptor();
+      }
       this._startErrorSuppression();
 
       // ─── Knowledge-only fast path ─────────────────────────────────
@@ -1793,6 +1799,9 @@ ${screen.elementsText}
     } finally {
       this.isRunning = false;
       this.currentTraceId = null;
+      if (this.config.interceptNativeAlerts) {
+        uninstallAlertInterceptor();
+      }
       // ── Grace period: keep error suppression for delayed side-effects ──
       // useEffect callbacks, PagerView onPageSelected, scrollToIndex, etc.
       // can fire AFTER execute() returns. Keep suppression active for 10s.

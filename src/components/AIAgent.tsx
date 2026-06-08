@@ -23,6 +23,7 @@ import { AgentChatBar } from './AgentChatBar';
 import { AgentOverlay } from './AgentOverlay';
 import { AIConsentDialog, useAIConsent } from './AIConsentDialog';
 import type { AIConsentConfig } from './AIConsentDialog';
+import { FloatingOverlayWrapper } from './FloatingOverlayWrapper';
 import { logger } from '../utils/logger';
 import { buildVoiceSystemPrompt } from '../core/systemPrompt';
 import { MCPBridge } from '../core/MCPBridge';
@@ -1737,6 +1738,11 @@ export function AIAgent({
         toolLockRef.current = true;
 
         try {
+          // Trigger visual 'thinking' overlay down to ChatBar so user knows action is happening
+          setIsThinking(true);
+          const toolNameFriendly = toolCall.name.replace(/_/g, ' ');
+          setStatusText(`Executing ${toolNameFriendly}...`);
+
           // Execute the tool via AgentRuntime and send result back to Gemini
           const result = await runtime.executeTool(toolCall.name, toolCall.args);
           logger.info('AIAgent', `🔧 Tool result for ${toolCall.name}: ${result}`);
@@ -1755,6 +1761,9 @@ export function AIAgent({
           logger.info('AIAgent', `📡 Tool response sent for ${toolCall.name} [id=${toolCall.id}]`);
         } finally {
           toolLockRef.current = false;
+          setIsThinking(false);
+          setStatusText('');
+          
           // Resume mic after tool response is sent
           if (voiceServiceRef.current?.isConnected) {
             audioInputRef.current?.start().then((ok) => {
@@ -2402,8 +2411,9 @@ export function AIAgent({
         </View>
 
         {/* Floating UI — absolute-positioned View that passes touches pass-through unless interacting */}
-        <View style={styles.floatingLayer} pointerEvents="box-none">
-          {/* Highlight Overlay (always active, listens to events) */}
+        <FloatingOverlayWrapper fallbackStyle={styles.floatingLayer}>
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            {/* Highlight Overlay (always active, listens to events) */}
           <HighlightOverlay />
 
           {/* Chat bar wrapped in Proactive Hint */}
@@ -2546,7 +2556,8 @@ export function AIAgent({
               logger.info('AIAgent', '❌ AI consent declined by user');
             }}
           />
-        </View>
+          </View>
+        </FloatingOverlayWrapper>
       </View>
     </AgentContext.Provider>
   );

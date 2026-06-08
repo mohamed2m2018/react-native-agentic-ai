@@ -1,0 +1,61 @@
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:8.1.0"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0"
+  }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+  compileSdkVersion 35
+  namespace "com.mobileai.overlay"
+
+  defaultConfig {
+    minSdkVersion 24
+    targetSdkVersion 35
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+
+  sourceSets {
+    main {
+      // Backward compatibility: conditionally load the correct ViewManager implementation.
+      // newArchEnabled=true  → Fabric (New Architecture, RN 0.74+)
+      // newArchEnabled=false → Paper (Old Architecture, <RN 0.74)
+      if (project.findProperty("newArchEnabled") == "true") {
+        java.srcDirs += ["src/newarch"]
+      } else {
+        java.srcDirs += ["src/oldarch"]
+      }
+    }
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+}
