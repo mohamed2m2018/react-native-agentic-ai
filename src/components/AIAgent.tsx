@@ -15,7 +15,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, InteractionManager } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
 import { walkFiberTree, captureWireframe } from '../core/FiberTreeWalker';
 import { createProvider } from '../providers/ProviderFactory';
@@ -1534,17 +1534,25 @@ export function AIAgent({
     const checkScreenMilestone = (screenName: string) => {
       telemetryRef.current?.setScreen(screenName);
 
-      // Auto-capture wireframe snapshot for privacy-safe heatmaps
+      // Auto-capture wireframe snapshot for privacy-safe heatmaps.
+      // Deferred: wait for all animations/interactions to finish, then
+      // wait one more frame for layout to settle. Zero perf impact.
       if (rootViewRef.current) {
-        captureWireframe(rootViewRef, { screenName })
-          .then((wireframe) => {
-            if (wireframe && telemetryRef.current) {
-              telemetryRef.current.trackWireframe(wireframe);
-            }
-          })
-          .catch((err) => {
-            if (debug) logger.debug('AIAgent', 'Wireframe capture failed:', err);
+        const handle = InteractionManager.runAfterInteractions(() => {
+          requestAnimationFrame(() => {
+            captureWireframe(rootViewRef, { screenName })
+              .then((wireframe) => {
+                if (wireframe && telemetryRef.current) {
+                  telemetryRef.current.trackWireframe(wireframe);
+                }
+              })
+              .catch((err) => {
+                if (debug) logger.debug('AIAgent', 'Wireframe capture failed:', err);
+              });
           });
+        });
+        // Cancel if the component unmounts or screen changes before capture starts
+        return () => handle.cancel();
       }
 
       if (customerSuccess?.enabled) {
