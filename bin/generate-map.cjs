@@ -87,6 +87,7 @@ function deduplicateAndPrioritize(elements) {
 function extractContentFromAST(sourceCode, filePath) {
   const elements = [];
   const navigationLinks = [];
+  const visibleText = [];
 
   let ast;
   try {
@@ -125,8 +126,10 @@ function extractContentFromAST(sourceCode, filePath) {
             const screenTarget = getStringAttribute(astPath.node, 'screen');
             if (screenTarget) navigationLinks.push(screenTarget);
           } else {
-            const buttonLabel = findChildTextContentRecursive(astPath);
-            if (buttonLabel) elements.push(`${buttonLabel} (button)`);
+            const buttonLabels = findChildTextContentRecursive(astPath);
+            for (const buttonLabel of buttonLabels) {
+              elements.push(`${buttonLabel} (button)`);
+            }
           }
           break;
         }
@@ -171,11 +174,21 @@ function extractContentFromAST(sourceCode, filePath) {
       if (Array.isArray(target)) navigationLinks.push(...target);
       else if (target) navigationLinks.push(target);
     },
+
+    JSXElement(astPath) {
+      const elementName = getJSXElementName(astPath.node.openingElement.name);
+      if (elementName !== 'Text') return;
+      const labels = extractTextCandidatesRecursive(astPath.node, astPath.scope);
+      for (const label of labels) {
+        visibleText.push(label);
+      }
+    },
   });
 
   return {
     elements: deduplicateAndPrioritize(elements),
     navigationLinks: [...new Set(navigationLinks)],
+    visibleText: dedupeLabels(visibleText).slice(0, 6),
   };
 }
 
@@ -490,6 +503,9 @@ function buildDescription(extracted) {
   if (extracted.elements.length > 0) {
     return extracted.elements.join(', ');
   }
+  if (extracted.visibleText?.length) {
+    return extracted.visibleText.join(', ');
+  }
   return 'Screen content';
 }
 
@@ -553,7 +569,7 @@ function findSiblingTextLabel(switchPath) {
   if (!parent?.node || !t.isJSXElement(parent.node)) return null;
   for (const child of parent.node.children) {
     if (t.isJSXElement(child)) {
-      const text = extractTextRecursive(child);
+      const text = extractTextCandidatesRecursive(child, parent.scope)[0];
       if (text) return text;
     }
   }
@@ -562,30 +578,138 @@ function findSiblingTextLabel(switchPath) {
 
 function findChildTextContentRecursive(pressablePath) {
   const jsxElement = pressablePath.parent;
-  if (!t.isJSXElement(jsxElement)) return null;
-  return extractTextRecursive(jsxElement);
+  if (!t.isJSXElement(jsxElement)) return [];
+  return extractTextCandidatesRecursive(jsxElement, pressablePath.scope);
 }
 
-function extractTextRecursive(element, depth = 0) {
-  if (depth > 4) return null;
+function extractTextCandidatesRecursive(element, scope, depth = 0) {
+  if (depth > 4) return [];
+  const labels = [];
   for (const child of element.children) {
     if (t.isJSXText(child)) {
-      const text = child.value.trim();
-      if (text) return text;
+      const text = normalizeLabel(child.value);
+      if (text) labels.push(text);
     }
     if (t.isJSXExpressionContainer(child) && !t.isJSXEmptyExpression(child.expression)) {
-      const hint = extractSemanticHint(child.expression);
-      if (hint) return hint;
+      labels.push(...resolveExpressionCandidates(child.expression, scope));
     }
     if (t.isJSXElement(child)) {
       const childName = getJSXElementName(child.openingElement.name);
       if (ICON_EXACT.has(childName) || childName.endsWith('Icon') ||
           childName.endsWith('_Dark') || childName.endsWith('_Light')) continue;
-      const text = extractTextRecursive(child, depth + 1);
-      if (text) return text;
+      labels.push(...extractTextCandidatesRecursive(child, scope, depth + 1));
     }
   }
-  return null;
+  return dedupeLabels(labels);
+}
+
+function resolveExpressionCandidates(node, scope, depth = 0) {
+  if (!node || depth > 6) return [];
+  if (t.isStringLiteral(node)) return [node.value];
+  if (t.isNumericLiteral(node)) return [String(node.value)];
+  if (t.isTemplateLiteral(node) && node.quasis.length > 0) {
+    const text = normalizeLabel(node.quasis.map(q => q.value.raw).join(' '));
+    return text ? [text] : [];
+  }
+  if (t.isIdentifier(node)) {
+    return resolveBindingCandidates(node.name, scope, depth + 1);
+  }
+  if (t.isConditionalExpression(node)) {
+    return dedupeLabels([
+      ...resolveExpressionCandidates(node.consequent, scope, depth + 1),
+      ...resolveExpressionCandidates(node.alternate, scope, depth + 1),
+    ]);
+  }
+  if (t.isLogicalExpression(node)) {
+    return dedupeLabels([
+      ...resolveExpressionCandidates(node.left, scope, depth + 1),
+      ...resolveExpressionCandidates(node.right, scope, depth + 1),
+    ]);
+  }
+  const hint = extractSemanticHint(node, depth + 1);
+  return hint ? [hint] : [];
+}
+
+function resolveBindingCandidates(name, scope, depth) {
+  if (!scope || depth > 6) return [];
+  const binding = scope.getBinding?.(name);
+  if (!binding?.path) return [];
+
+  if (binding.path.isVariableDeclarator()) {
+    return resolveExpressionCandidates(binding.path.node.init, binding.path.scope, depth + 1);
+  }
+
+  if (binding.path.isIdentifier() && binding.path.listKey === 'params') {
+    return dedupeLabels(
+      resolveFunctionParamValues(binding.path, depth + 1).flatMap(valueNode =>
+        resolveExpressionCandidates(valueNode, binding.path.scope, depth + 1)
+      )
+    );
+  }
+
+  return [];
+}
+
+function resolveFunctionParamValues(paramPath, depth) {
+  if (depth > 6) return [];
+  const functionPath = paramPath.findParent(p => p.isFunction());
+  const callPath = functionPath?.parentPath;
+  if (!callPath?.isCallExpression()) return [];
+
+  const callee = callPath.node.callee;
+  if (!t.isMemberExpression(callee) || !t.isIdentifier(callee.property)) return [];
+  if (!['map', 'flatMap'].includes(callee.property.name)) return [];
+
+  const sourceValues = resolveExpressionValueNodes(callee.object, callPath.scope, depth + 1);
+  const results = [];
+
+  for (const sourceNode of sourceValues) {
+    if (!t.isArrayExpression(sourceNode)) continue;
+    for (const element of sourceNode.elements) {
+      if (element && !t.isSpreadElement(element)) {
+        results.push(element);
+      }
+    }
+  }
+
+  return results;
+}
+
+function resolveExpressionValueNodes(node, scope, depth) {
+  if (!node || depth > 6) return [];
+  if (
+    t.isStringLiteral(node) ||
+    t.isNumericLiteral(node) ||
+    t.isArrayExpression(node) ||
+    t.isTemplateLiteral(node)
+  ) {
+    return [node];
+  }
+  if (t.isIdentifier(node)) {
+    const binding = scope?.getBinding?.(node.name);
+    if (binding?.path?.isVariableDeclarator()) {
+      return resolveExpressionValueNodes(binding.path.node.init, binding.path.scope, depth + 1);
+    }
+  }
+  return [];
+}
+
+function normalizeLabel(text) {
+  return text ? text.replace(/\s+/g, ' ').trim() : '';
+}
+
+function dedupeLabels(labels) {
+  const seen = new Set();
+  const result = [];
+  for (const label of labels) {
+    const normalized = normalizeLabel(label);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
 }
 
 
@@ -667,18 +791,20 @@ function scanExpoRouterApp(projectRoot) {
 
   const screens = [];
   const layoutTitles = new Map();
+  const extractedCache = new Map();
+  const resolvedImplementationCache = new Map();
   extractLayoutTitles(appDir, appDir, layoutTitles);
-  scanDirectory(appDir, appDir, screens, layoutTitles);
+  scanDirectory(appDir, appDir, screens, layoutTitles, projectRoot, extractedCache, resolvedImplementationCache);
   return screens;
 }
 
-function scanDirectory(dir, appRoot, screens, layoutTitles) {
+function scanDirectory(dir, appRoot, screens, layoutTitles, projectRoot, extractedCache, resolvedImplementationCache) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      scanDirectory(fullPath, appRoot, screens, layoutTitles);
+      scanDirectory(fullPath, appRoot, screens, layoutTitles, projectRoot, extractedCache, resolvedImplementationCache);
       continue;
     }
     if (!entry.name.match(/\.(tsx?|jsx?)$/)) continue;
@@ -686,16 +812,66 @@ function scanDirectory(dir, appRoot, screens, layoutTitles) {
     if (entry.name.startsWith('+') || entry.name.startsWith('_')) continue;
 
     const routeName = filePathToRouteName(fullPath, appRoot);
-    const sourceCode = fs.readFileSync(fullPath, 'utf-8');
-    const extracted = extractContentFromAST(sourceCode, fullPath);
     const title = layoutTitles.get(routeName);
+    const routeCandidate = buildScreenCandidate(routeName, title, fullPath, extractedCache);
+    const resolvedImplementation = resolvedImplementationCache.get(fullPath) || resolveProxyScreenFile(fullPath, projectRoot);
+    resolvedImplementationCache.set(fullPath, resolvedImplementation);
+    const implementationCandidate = resolvedImplementation !== fullPath
+      ? buildScreenCandidate(routeName, title, resolvedImplementation, extractedCache)
+      : routeCandidate;
+    const chosenCandidate = scoreScreenCandidate(implementationCandidate) > scoreScreenCandidate(routeCandidate)
+      ? implementationCandidate
+      : routeCandidate;
 
     screens.push({
-      routeName, filePath: fullPath, title,
-      description: buildDescription(extracted),
-      navigationLinks: extracted.navigationLinks,
+      routeName: chosenCandidate.routeName,
+      filePath: chosenCandidate.filePath,
+      title: chosenCandidate.title,
+      description: chosenCandidate.description,
+      navigationLinks: chosenCandidate.navigationLinks,
     });
   }
+}
+
+function buildScreenCandidate(routeName, title, filePath, extractedCache) {
+  let extracted = extractedCache.get(filePath);
+  if (!extracted) {
+    const sourceCode = fs.readFileSync(filePath, 'utf-8');
+    extracted = extractContentFromAST(sourceCode, filePath);
+    extractedCache.set(filePath, extracted);
+  }
+
+  return {
+    routeName,
+    filePath,
+    title,
+    description: buildDescription(extracted),
+    navigationLinks: extracted.navigationLinks,
+  };
+}
+
+function scoreScreenCandidate(screen) {
+  let score = 0;
+
+  if (fs.existsSync(screen.filePath)) score += 20;
+  if (screen.description && screen.description !== 'Screen content') score += 80;
+  if (screen.navigationLinks.length > 0) score += 12;
+  if (screen.title) score += 4;
+
+  const describedElements = screen.description
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part && part !== 'Screen content').length;
+  score += Math.min(describedElements, 8) * 6;
+
+  const componentOnlyElements = screen.description
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part.endsWith('(component)')).length;
+  if (componentOnlyElements > 0) score -= componentOnlyElements * 20;
+  if (describedElements > 0 && componentOnlyElements === describedElements) score -= 120;
+
+  return score;
 }
 
 // ─── React Navigation Scanner ─────────────────────────────────
@@ -978,43 +1154,93 @@ function extractTitleFromOptions(optionsNode) {
   return null;
 }
 
+const FILE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js'];
+const DEFAULT_PROXY_HOPS = 10;
+const moduleProxyInfoCache = new Map();
+const tsConfigResolutionCache = new Map();
+
 function resolveComponentPath(componentName, imports, currentFile) {
   const parts = componentName.split('.');
   const baseComponent = parts[0];
   const property = parts[1];
 
+  if (!baseComponent) return currentFile;
+
   const importPath = imports.get(baseComponent);
   if (!importPath) return currentFile;
 
-  let resolvedBase = currentFile;
-  if (importPath.startsWith('.')) {
-    const dir = path.dirname(currentFile);
-    const resolved = path.resolve(dir, importPath);
-    let found = false;
-    for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
-      if (fs.existsSync(resolved + ext)) {
-        resolvedBase = resolved + ext;
-        found = true; break;
-      }
-    }
-    if (!found) {
-      for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
-        const idx = path.join(resolved, `index${ext}`);
-        if (fs.existsSync(idx)) {
-          resolvedBase = idx;
-          found = true; break;
-        }
-      }
-    }
-    if (!found) resolvedBase = resolved;
-  }
+  const resolvedBase = resolveImportSpecifier(importPath, currentFile, _projectRoot);
+  if (!resolvedBase) return currentFile;
 
   if (!property || resolvedBase === currentFile) return resolvedBase;
 
-  return traceExportProperty(resolvedBase, baseComponent, property) || resolvedBase;
+  return traceExportProperty(resolvedBase, property, _projectRoot) || resolvedBase;
 }
 
-function traceExportProperty(filePath, objectName, propertyName) {
+function resolveProxyScreenFile(entryFile, projectRoot, maxHops = DEFAULT_PROXY_HOPS) {
+  let currentFile = path.resolve(entryFile);
+  let exportName = 'default';
+  const visited = new Set();
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    const visitKey = `${currentFile}::${exportName}`;
+    if (visited.has(visitKey)) return currentFile;
+    visited.add(visitKey);
+
+    const next = resolveExportTarget(currentFile, exportName, projectRoot);
+    if (!next) return currentFile;
+    if (next.filePath === currentFile && next.exportName === exportName) return currentFile;
+
+    currentFile = next.filePath;
+    exportName = next.exportName;
+  }
+
+  return currentFile;
+}
+
+function resolveExportTarget(filePath, exportName, projectRoot) {
+  const info = getModuleProxyInfo(filePath);
+  if (!info) return null;
+
+  if (exportName === 'default') {
+    if (info.defaultExportLocal) {
+      const imported = info.imports.get(info.defaultExportLocal);
+      if (imported) {
+        const resolved = resolveImportSpecifier(imported.source, filePath, projectRoot);
+        if (resolved) {
+          return { filePath: resolved, exportName: imported.importedName };
+        }
+      }
+      return null;
+    }
+
+    if (info.hasLocalDefaultExport) return null;
+  }
+
+  const link = info.exportLinks.find(candidate => candidate.exportedName === exportName);
+  if (!link) return null;
+
+  if (link.source) {
+    const resolved = resolveImportSpecifier(link.source, filePath, projectRoot);
+    if (!resolved) return null;
+    return { filePath: resolved, exportName: link.importedName || 'default' };
+  }
+
+  if (link.localName) {
+    const imported = info.imports.get(link.localName);
+    if (imported) {
+      const resolved = resolveImportSpecifier(imported.source, filePath, projectRoot);
+      if (!resolved) return null;
+      return { filePath: resolved, exportName: imported.importedName };
+    }
+
+    if (info.localBindings.has(link.localName)) return null;
+  }
+
+  return null;
+}
+
+function traceExportProperty(filePath, propertyName, projectRoot) {
   if (!fs.existsSync(filePath)) return null;
   const sourceCode = fs.readFileSync(filePath, 'utf-8');
   let ast;
@@ -1022,112 +1248,277 @@ function traceExportProperty(filePath, objectName, propertyName) {
     ast = parse(sourceCode, { sourceType: 'module', plugins: ['jsx', 'typescript', 'decorators-legacy'] });
   } catch { return null; }
 
-  const innerImports = new Map(); // identifier → import path
-  const localVarInits = new Map(); // identifier → AST node (for const X = React.lazy(...))
-  let targetNode = null; // The AST node for the property value
+  const imports = new Map();
+  let importName = null;
 
-  traverse(ast, {
-    ImportDeclaration(nodePath) {
-      const source = nodePath.node.source.value;
-      for (const specifier of nodePath.node.specifiers) {
-        if (t.isImportDefaultSpecifier(specifier) || t.isImportSpecifier(specifier)) {
-          innerImports.set(specifier.local.name, source);
+  for (const node of ast.program.body) {
+    if (t.isImportDeclaration(node)) {
+      const source = node.source.value;
+      for (const specifier of node.specifiers) {
+        if (t.isImportDefaultSpecifier(specifier)) {
+          imports.set(specifier.local.name, source);
+        } else if (t.isImportSpecifier(specifier)) {
+          imports.set(specifier.local.name, t.isIdentifier(specifier.imported) ? specifier.imported.name : specifier.imported.value);
         }
       }
-    },
-    VariableDeclarator(nodePath) {
-      const id = nodePath.node.id;
-      const init = nodePath.node.init;
-      if (!t.isIdentifier(id)) return;
+      continue;
+    }
 
-      // Collect the StackRoute = { ... } object and find the target property
-      if (id.name === objectName && t.isObjectExpression(init)) {
-        for (const prop of init.properties) {
-          if (t.isObjectProperty(prop) && t.isIdentifier(prop.key) && prop.key.name === propertyName) {
-            targetNode = prop.value;
+    if (t.isVariableDeclaration(node)) {
+      for (const declaration of node.declarations) {
+        if (t.isIdentifier(declaration.id) && t.isObjectExpression(declaration.init)) {
+          for (const property of declaration.init.properties) {
+            if (
+              t.isObjectProperty(property) &&
+              !property.computed &&
+              t.isIdentifier(property.key) &&
+              property.key.name === propertyName &&
+              t.isIdentifier(property.value)
+            ) {
+              importName = property.value.name;
+            }
           }
         }
       }
-
-      // Also collect all local variable assignments for later unwrapping
-      if (init) {
-        localVarInits.set(id.name, init);
-      }
     }
-  });
-
-  if (!targetNode) return null;
-
-  // Unwrap the target to find the component source
-  const ref = unwrapToComponentRef(targetNode, innerImports, localVarInits);
-  if (!ref) return null;
-
-  const dir = path.dirname(filePath);
-  const resolved = path.resolve(dir, ref);
-  for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
-    if (fs.existsSync(resolved + ext)) return resolved + ext;
   }
-  for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
-    const idx = path.join(resolved, `index${ext}`);
-    if (fs.existsSync(idx)) return idx;
-  }
-  return resolved;
+
+  if (!importName) return null;
+
+  const importPath = imports.get(importName);
+  if (!importPath) return null;
+
+  return resolveImportSpecifier(importPath, filePath, projectRoot);
 }
 
-/**
- * Recursively unwrap AST nodes to find the original component import path.
- * Handles: Identifier (import lookup), React.lazy(() => import('path')),
- * React.memo(X), connect(mapState)(X), observer(X), withX(X), etc.
- * Returns the relative import path string or null.
- */
-function unwrapToComponentRef(node, imports, localVars, depth = 0) {
-  if (!node || depth > 5) return null; // safety: prevent infinite recursion
+function resolveImportSpecifier(importPath, currentFile, projectRoot) {
+  const direct = resolveImportCandidate(importPath, currentFile, projectRoot);
+  return direct ? path.resolve(direct) : null;
+}
 
-  // Direct identifier: look up in imports first, then local vars
-  if (t.isIdentifier(node)) {
-    const importPath = imports.get(node.name);
-    if (importPath && importPath.startsWith('.')) return importPath;
+function resolveImportCandidate(importPath, currentFile, projectRoot) {
+  if (!importPath || importPath.includes('node_modules')) return null;
 
-    // Check if it's a local variable (const X = React.lazy(...))
-    const localInit = localVars.get(node.name);
-    if (localInit) return unwrapToComponentRef(localInit, imports, localVars, depth + 1);
-
-    return null;
+  if (importPath.startsWith('.')) {
+    return resolveFilePath(path.dirname(currentFile), importPath);
   }
 
-  // CallExpression: React.lazy(), React.memo(), connect()(), observer(), withX()
-  if (t.isCallExpression(node)) {
-    // React.lazy(() => import('./path')) — extract dynamic import path
-    const callee = node.callee;
-    if (t.isMemberExpression(callee) && t.isIdentifier(callee.property, { name: 'lazy' })) {
-      const arrowFn = node.arguments[0];
-      if (t.isArrowFunctionExpression(arrowFn) || t.isFunctionExpression(arrowFn)) {
-        const body = t.isBlockStatement(arrowFn.body)
-          ? arrowFn.body.body.find(s => t.isReturnStatement(s))?.argument
-          : arrowFn.body;
-        if (body && t.isCallExpression(body) && t.isImport(body.callee)) {
-          const importArg = body.arguments[0];
-          if (t.isStringLiteral(importArg)) return importArg.value;
-        }
-      }
-    }
+  const tsConfig = getTsConfigResolution(projectRoot);
+  for (const alias of tsConfig.aliases) {
+    const wildcardValue = matchAlias(importPath, alias.keyPrefix, alias.keySuffix);
+    if (wildcardValue === null) continue;
+    const target = `${alias.targetPrefix}${wildcardValue}${alias.targetSuffix}`;
+    const resolved = resolveFilePath(projectRoot, target);
+    if (resolved) return resolved;
+  }
 
-    // For HOCs: React.memo(X), observer(X), withNavigation(X)
-    // The component is typically the first argument
-    if (node.arguments.length > 0) {
-      const result = unwrapToComponentRef(node.arguments[0], imports, localVars, depth + 1);
-      if (result) return result;
-    }
+  if (tsConfig.baseUrl) {
+    const resolved = resolveFilePath(tsConfig.baseUrl, importPath);
+    if (resolved) return resolved;
+  }
 
-    // Chained HOC: connect(mapState)(Component) — callee is itself a CallExpression
-    if (t.isCallExpression(callee) && node.arguments.length > 0) {
-      return unwrapToComponentRef(node.arguments[0], imports, localVars, depth + 1);
-    }
+  const srcResolved = resolveFilePath(path.join(projectRoot, 'src'), importPath);
+  if (srcResolved) return srcResolved;
 
-    return null;
+  const rootResolved = resolveFilePath(projectRoot, importPath);
+  if (rootResolved) return rootResolved;
+
+  return null;
+}
+
+function resolveFilePath(baseDir, rawPath) {
+  const candidateBase = path.resolve(baseDir, rawPath);
+
+  if (fs.existsSync(candidateBase) && fs.statSync(candidateBase).isFile()) {
+    return candidateBase;
+  }
+
+  for (const extension of FILE_EXTENSIONS) {
+    const withExtension = `${candidateBase}${extension}`;
+    if (fs.existsSync(withExtension)) return withExtension;
+  }
+
+  for (const extension of FILE_EXTENSIONS) {
+    const indexPath = path.join(candidateBase, `index${extension}`);
+    if (fs.existsSync(indexPath)) return indexPath;
   }
 
   return null;
+}
+
+function getTsConfigResolution(projectRoot) {
+  const cached = tsConfigResolutionCache.get(projectRoot);
+  if (cached) return cached;
+
+  const tsConfigPath = path.join(projectRoot, 'tsconfig.json');
+  const resolution = { aliases: [], baseUrl: undefined };
+
+  try {
+    if (fs.existsSync(tsConfigPath)) {
+      const raw = JSON.parse(fs.readFileSync(tsConfigPath, 'utf-8'));
+      const compilerOptions = (raw && raw.compilerOptions) || {};
+      if (typeof compilerOptions.baseUrl === 'string') {
+        resolution.baseUrl = path.resolve(projectRoot, compilerOptions.baseUrl);
+      }
+      resolution.aliases = normalizePathAliases(compilerOptions.paths || {});
+    }
+  } catch {
+    // Ignore malformed tsconfig and fall back to conventional resolution.
+  }
+
+  tsConfigResolutionCache.set(projectRoot, resolution);
+  return resolution;
+}
+
+function normalizePathAliases(pathsConfig) {
+  const aliases = [];
+  for (const [key, values] of Object.entries(pathsConfig)) {
+    const target = values && values[0];
+    if (!target) continue;
+    const [keyPrefix, keySuffix] = splitAliasPattern(key);
+    const [targetPrefix, targetSuffix] = splitAliasPattern(target);
+    aliases.push({ keyPrefix, keySuffix, targetPrefix, targetSuffix });
+  }
+  return aliases;
+}
+
+function splitAliasPattern(pattern) {
+  const starIndex = pattern.indexOf('*');
+  if (starIndex === -1) return [pattern, ''];
+  return [pattern.slice(0, starIndex), pattern.slice(starIndex + 1)];
+}
+
+function matchAlias(value, prefix, suffix) {
+  if (!value.startsWith(prefix)) return null;
+  if (suffix && !value.endsWith(suffix)) return null;
+  return value.slice(prefix.length, suffix ? value.length - suffix.length : undefined);
+}
+
+function getModuleProxyInfo(filePath) {
+  const cached = moduleProxyInfoCache.get(filePath);
+  if (cached !== undefined) return cached;
+
+  if (!fs.existsSync(filePath)) {
+    moduleProxyInfoCache.set(filePath, null);
+    return null;
+  }
+
+  let ast;
+  try {
+    ast = parse(fs.readFileSync(filePath, 'utf-8'), {
+      sourceType: 'module',
+      plugins: ['jsx', 'typescript', 'decorators-legacy'],
+    });
+  } catch {
+    moduleProxyInfoCache.set(filePath, null);
+    return null;
+  }
+
+  const info = {
+    imports: new Map(),
+    exportLinks: [],
+    localBindings: new Set(),
+    defaultExportLocal: undefined,
+    hasLocalDefaultExport: false,
+  };
+
+  for (const node of ast.program.body) {
+    if (t.isImportDeclaration(node)) {
+      const source = node.source.value;
+      for (const specifier of node.specifiers) {
+        if (t.isImportDefaultSpecifier(specifier)) {
+          info.imports.set(specifier.local.name, { source, importedName: 'default' });
+        } else if (t.isImportSpecifier(specifier)) {
+          info.imports.set(specifier.local.name, {
+            source,
+            importedName: t.isIdentifier(specifier.imported) ? specifier.imported.name : specifier.imported.value,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (t.isExportDefaultDeclaration(node)) {
+      if (t.isIdentifier(node.declaration)) {
+        info.defaultExportLocal = node.declaration.name;
+      } else {
+        info.hasLocalDefaultExport = true;
+        collectLocalBindingNames(node.declaration, info.localBindings);
+      }
+      continue;
+    }
+
+    if (t.isExportNamedDeclaration(node)) {
+      if (node.declaration) {
+        collectLocalBindingNames(node.declaration, info.localBindings);
+      }
+
+      for (const specifier of node.specifiers) {
+        if (!t.isExportSpecifier(specifier)) continue;
+
+        info.exportLinks.push({
+          exportedName: getModuleExportedName(specifier.exported),
+          source: node.source ? node.source.value : undefined,
+          importedName: node.source ? getModuleExportedName(specifier.local) : undefined,
+          localName: node.source ? undefined : getModuleExportedName(specifier.local),
+        });
+      }
+    }
+  }
+
+  moduleProxyInfoCache.set(filePath, info);
+  return info;
+}
+
+function getModuleExportedName(node) {
+  return t.isIdentifier(node) ? node.name : node.value;
+}
+
+function collectLocalBindingNames(node, bindings) {
+  if (t.isFunctionDeclaration(node) || t.isClassDeclaration(node)) {
+    if (node.id) bindings.add(node.id.name);
+    return;
+  }
+
+  if (t.isVariableDeclaration(node)) {
+    for (const declaration of node.declarations) {
+      collectBindingNamesFromPattern(declaration.id, bindings);
+    }
+  }
+}
+
+function collectBindingNamesFromPattern(pattern, bindings) {
+  if (t.isIdentifier(pattern)) {
+    bindings.add(pattern.name);
+    return;
+  }
+
+  if (t.isObjectPattern(pattern)) {
+    for (const property of pattern.properties) {
+      if (t.isRestElement(property)) {
+        collectBindingNamesFromPattern(property.argument, bindings);
+      } else if (t.isObjectProperty(property)) {
+        collectBindingNamesFromPattern(property.value, bindings);
+      }
+    }
+    return;
+  }
+
+  if (t.isArrayPattern(pattern)) {
+    for (const element of pattern.elements) {
+      if (element) collectBindingNamesFromPattern(element, bindings);
+    }
+    return;
+  }
+
+  if (t.isAssignmentPattern(pattern)) {
+    collectBindingNamesFromPattern(pattern.left, bindings);
+    return;
+  }
+
+  if (t.isRestElement(pattern)) {
+    collectBindingNamesFromPattern(pattern.argument, bindings);
+  }
 }
 
 // ─── Main ──────────────────────────────────────────────────────

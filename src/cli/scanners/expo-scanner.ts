@@ -10,6 +10,7 @@ import { extractContentFromAST, buildDescription } from '../extractors/ast-extra
 import { parse } from '@babel/parser';
 import * as _traverse from '@babel/traverse';
 import * as t from '@babel/types';
+import { resolveProxyScreenFile, scoreScreenCandidate } from './shared';
 
 const traverse = (_traverse as any).default || _traverse;
 
@@ -35,12 +36,14 @@ export function scanExpoRouterApp(projectRoot: string): ScannedScreen[] {
 
   const screens: ScannedScreen[] = [];
   const layoutTitles = new Map<string, string>(); // routeName → title from _layout.tsx
+  const extractedCache = new Map<string, ReturnType<typeof extractContentFromAST>>();
+  const resolvedImplementationCache = new Map<string, string>();
 
   // First pass: extract titles from _layout.tsx files
   extractLayoutTitles(appDir, appDir, layoutTitles);
 
   // Second pass: scan screen files
-  scanDirectory(appDir, appDir, screens, layoutTitles);
+  scanDirectory(appDir, appDir, screens, layoutTitles, projectRoot, extractedCache, resolvedImplementationCache);
 
   return screens;
 }
@@ -59,7 +62,10 @@ function scanDirectory(
   dir: string,
   appRoot: string,
   screens: ScannedScreen[],
-  layoutTitles: Map<string, string>
+  layoutTitles: Map<string, string>,
+  projectRoot: string,
+  extractedCache: Map<string, ReturnType<typeof extractContentFromAST>>,
+  resolvedImplementationCache: Map<string, string>
 ) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
@@ -69,7 +75,7 @@ function scanDirectory(
     if (entry.isDirectory()) {
       // Skip hidden directories and node_modules
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      scanDirectory(fullPath, appRoot, screens, layoutTitles);
+      scanDirectory(fullPath, appRoot, screens, layoutTitles, projectRoot, extractedCache, resolvedImplementationCache);
       continue;
     }
 
@@ -82,18 +88,50 @@ function scanDirectory(
     if (entry.name.startsWith('_')) continue; // Other special files
 
     const routeName = filePathToRouteName(fullPath, appRoot);
-    const sourceCode = fs.readFileSync(fullPath, 'utf-8');
-    const extracted = extractContentFromAST(sourceCode, fullPath);
     const title = layoutTitles.get(routeName);
+    const routeCandidate = buildCandidate(routeName, title, fullPath, extractedCache);
+    const resolvedImplementation = resolvedImplementationCache.get(fullPath)
+      ?? resolveProxyScreenFile(fullPath, projectRoot);
+    resolvedImplementationCache.set(fullPath, resolvedImplementation);
+
+    const implementationCandidate = resolvedImplementation !== fullPath
+      ? buildCandidate(routeName, title, resolvedImplementation, extractedCache)
+      : routeCandidate;
+
+    const chosenCandidate = scoreScreenCandidate(implementationCandidate) > scoreScreenCandidate(routeCandidate)
+      ? implementationCandidate
+      : routeCandidate;
 
     screens.push({
-      routeName,
-      filePath: fullPath,
-      title,
-      description: buildDescription(extracted),
-      navigationLinks: extracted.navigationLinks,
+      routeName: chosenCandidate.routeName,
+      filePath: chosenCandidate.filePath,
+      title: chosenCandidate.title,
+      description: chosenCandidate.description,
+      navigationLinks: chosenCandidate.navigationLinks,
     });
   }
+}
+
+function buildCandidate(
+  routeName: string,
+  title: string | undefined,
+  filePath: string,
+  extractedCache: Map<string, ReturnType<typeof extractContentFromAST>>
+): ScannedScreen {
+  let extracted = extractedCache.get(filePath);
+  if (!extracted) {
+    const sourceCode = fs.readFileSync(filePath, 'utf-8');
+    extracted = extractContentFromAST(sourceCode, filePath);
+    extractedCache.set(filePath, extracted);
+  }
+
+  return {
+    routeName,
+    filePath,
+    title,
+    description: buildDescription(extracted),
+    navigationLinks: extracted.navigationLinks,
+  };
 }
 
 /**

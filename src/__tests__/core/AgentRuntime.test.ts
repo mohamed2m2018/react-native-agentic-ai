@@ -52,6 +52,11 @@ jest.mock('react-native-view-shot', () => ({
 
 import { AgentRuntime } from '../../core/AgentRuntime';
 import type { AIProvider, ProviderResult, AgentConfig, TokenUsage } from '../../core/types';
+import { walkFiberTree } from '../../core/FiberTreeWalker';
+import { dehydrateScreen } from '../../core/ScreenDehydrator';
+
+const mockWalkFiberTree = walkFiberTree as jest.Mock;
+const mockDehydrateScreen = dehydrateScreen as jest.Mock;
 
 // ─── Mock Provider Factory ─────────────────────────────────────
 
@@ -132,6 +137,16 @@ function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfi
 describe('AgentRuntime', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWalkFiberTree.mockReturnValue({
+      elementsText: '[0]<pressable>Submit />\n',
+      interactives: [{ index: 0, type: 'pressable' as const, label: 'Submit', fiberNode: {}, props: {} }],
+    });
+    mockDehydrateScreen.mockReturnValue({
+      screenName: 'TestScreen',
+      availableScreens: ['TestScreen'],
+      elementsText: 'Screen: TestScreen\n[0]<pressable>Submit />\n',
+      elements: [{ index: 0, type: 'pressable' as const, label: 'Submit', requiresConfirmation: true, fiberNode: {}, props: {} }],
+    });
   });
 
   // ── Execution Loop ──────────────────────────────────────────
@@ -219,7 +234,7 @@ describe('AgentRuntime', () => {
     });
 
     it('requires explicit approval before the first UI action in copilot mode', async () => {
-      const onAskUser = jest.fn().mockResolvedValue('yes');
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
       const provider = new MockProvider([
         createToolResponse('tap', { index: 0 }),
         createToolResponse('done', { text: 'Done after tap', success: true }),
@@ -264,6 +279,72 @@ describe('AgentRuntime', () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain('already completed that step yourself');
+    });
+
+    it('treats workflow-data answers as approval for routine in-flow actions', async () => {
+      const onChangeText = jest.fn();
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<text-input>Street Address />\n',
+        interactives: [{ index: 0, type: 'text-input' as const, label: 'Street Address', fiberNode: {}, props: { onChangeText } }],
+      });
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<text-input>Street Address />\n',
+        elements: [{ index: 0, type: 'text-input' as const, label: 'Street Address', requiresConfirmation: false, fiberNode: {}, props: { onChangeText } }],
+      });
+
+      const onAskUser = jest.fn().mockResolvedValue('123 Main St');
+      const provider = new MockProvider([
+        createToolResponse('ask_user', {
+          question: 'What street address should I use?',
+          request_app_action: false,
+          grants_workflow_approval: true,
+        }),
+        createToolResponse('type', { index: 0, text: '123 Main St' }),
+        createToolResponse('done', { text: 'Address entered', success: true }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser });
+      const result = await runtime.execute('Write delivery address');
+
+      expect(result.success).toBe(true);
+      expect(onAskUser).toHaveBeenCalledTimes(1);
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'freeform',
+          question: 'What street address should I use?',
+        }),
+      );
+      expect(onChangeText).toHaveBeenCalledWith('123 Main St');
+    }, 10000);
+
+    it('does not treat ordinary clarification answers as workflow approval', async () => {
+      const onChangeText = jest.fn();
+      mockWalkFiberTree.mockReturnValue({
+        elementsText: '[0]<text-input>Street Address />\n',
+        interactives: [{ index: 0, type: 'text-input' as const, label: 'Street Address', fiberNode: {}, props: { onChangeText } }],
+      });
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'TestScreen',
+        availableScreens: ['TestScreen'],
+        elementsText: 'Screen: TestScreen\n[0]<text-input>Street Address />\n',
+        elements: [{ index: 0, type: 'text-input' as const, label: 'Street Address', requiresConfirmation: false, fiberNode: {}, props: { onChangeText } }],
+      });
+
+      const onAskUser = jest.fn().mockResolvedValue('123 Main St');
+      const provider = new MockProvider([
+        createToolResponse('ask_user', {
+          question: 'What street address should I use?',
+          request_app_action: false,
+        }),
+        createToolResponse('type', { index: 0, text: '123 Main St' }),
+      ]);
+      const runtime = createRuntime(provider, { onAskUser, maxSteps: 2 });
+      const result = await runtime.execute('Write delivery address');
+
+      expect(result.success).toBe(false);
+      expect(result.steps[1]?.action.output).toContain('APP ACTION BLOCKED');
+      expect(onChangeText).not.toHaveBeenCalled();
     });
   });
 

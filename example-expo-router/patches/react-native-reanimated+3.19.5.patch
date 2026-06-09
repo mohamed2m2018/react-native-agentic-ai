@@ -1,0 +1,123 @@
+diff --git a/node_modules/react-native-reanimated/lib/module/PlatformChecker.js b/node_modules/react-native-reanimated/lib/module/PlatformChecker.js
+index 52c8bcd..5f44a26 100644
+--- a/node_modules/react-native-reanimated/lib/module/PlatformChecker.js
++++ b/node_modules/react-native-reanimated/lib/module/PlatformChecker.js
+@@ -1,11 +1,20 @@
+ 'use strict';
+ 
+ import { version as reactVersion } from 'react';
+-import { Platform } from 'react-native';
++
+ 
+ // This type is necessary since some libraries tend to do a lib check
+ // and this file causes type errors on `global` access.
+ 
++
++function _platformOS() {
++  if (global !== undefined && global._WORKLET) return 'none';
++  try {
++    return require('react-native').Platform.OS;
++  } catch {
++    return 'none';
++  }
++}
+ export function isJest() {
+   return !!process.env.JEST_WORKER_ID;
+ }
+@@ -15,19 +24,19 @@ export function isChromeDebugger() {
+   return (!global.nativeCallSyncHook || !!global.__REMOTEDEV__) && !global.RN$Bridgeless;
+ }
+ export function isWeb() {
+-  return Platform.OS === 'web';
++  return _platformOS() === 'web';
+ }
+ export function isAndroid() {
+-  return Platform.OS === 'android';
++  return _platformOS() === 'android';
+ }
+ export function isIOS() {
+-  return Platform.OS === 'ios';
++  return _platformOS() === 'ios';
+ }
+ export function isMacOS() {
+-  return Platform.OS === 'macos';
++  return _platformOS() === 'macos';
+ }
+ function isWindows() {
+-  return Platform.OS === 'windows';
++  return _platformOS() === 'windows';
+ }
+ export function shouldBeUseWeb() {
+   return isJest() || isChromeDebugger() || isWeb() || isWindows();
+diff --git a/node_modules/react-native-reanimated/src/PlatformChecker.ts b/node_modules/react-native-reanimated/src/PlatformChecker.ts
+index d4a7cfc..c41596d 100644
+--- a/node_modules/react-native-reanimated/src/PlatformChecker.ts
++++ b/node_modules/react-native-reanimated/src/PlatformChecker.ts
+@@ -1,11 +1,37 @@
+ 'use strict';
+ import { version as reactVersion } from 'react';
+-import { Platform } from 'react-native';
+ 
+ // This type is necessary since some libraries tend to do a lib check
+ // and this file causes type errors on `global` access.
+ type localGlobal = typeof global & Record<string, unknown>;
+ 
++/**
++ * Lazily resolve Platform.OS so this module can safely be bundled into
++ * the Reanimated worklet runtime (a secondary Hermes context that has no
++ * TurboModules). The top-level `import { Platform } from 'react-native'`
++ * would trigger `TurboModuleRegistry.getEnforcing('PlatformConstants')` at
++ * module-evaluation time, crashing the worklet runtime on RN 0.76+ New
++ * Architecture.  Using a lazy require avoids the call until the function is
++ * actually invoked — which only ever happens on the main JS thread.
++ */
++function _platformOS(): string {
++  // If we are on the worklet thread, DO NOT evaluate `react-native`.
++  // The worklet context has no TurboModules, and evaluating RN throws uncatchable errors
++  // during module resolution.
++  if (global !== undefined && (global as any)._WORKLET) {
++    return 'none';
++  }
++
++  try {
++    // eslint-disable-next-line @typescript-eslint/no-var-requires
++    return (require('react-native') as { Platform: { OS: string } }).Platform
++      .OS;
++  } catch {
++    // Worklet runtime fallback: TurboModules not available, default to 'none'
++    return 'none';
++  }
++}
++
+ export function isJest(): boolean {
+   return !!process.env.JEST_WORKER_ID;
+ }
+@@ -20,23 +46,23 @@ export function isChromeDebugger(): boolean {
+ }
+ 
+ export function isWeb(): boolean {
+-  return Platform.OS === 'web';
++  return _platformOS() === 'web';
+ }
+ 
+ export function isAndroid(): boolean {
+-  return Platform.OS === 'android';
++  return _platformOS() === 'android';
+ }
+ 
+ export function isIOS(): boolean {
+-  return Platform.OS === 'ios';
++  return _platformOS() === 'ios';
+ }
+ 
+ export function isMacOS(): boolean {
+-  return Platform.OS === 'macos';
++  return _platformOS() === 'macos';
+ }
+ 
+ function isWindows(): boolean {
+-  return Platform.OS === 'windows';
++  return _platformOS() === 'windows';
+ }
+ 
+ export function shouldBeUseWeb() {

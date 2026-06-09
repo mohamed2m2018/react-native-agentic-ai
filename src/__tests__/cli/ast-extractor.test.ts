@@ -107,6 +107,30 @@ describe('AST extractor', () => {
     expect(description).not.toBe('Screen content');
   });
 
+  it('extracts mapped pressable option labels from local arrays', () => {
+    const source = `
+      const LANGUAGES = ['English', 'Arabic', 'Spanish'];
+
+      export function LanguageScreen() {
+        return (
+          <View>
+            {LANGUAGES.map((lang) => (
+              <Pressable key={lang} onPress={() => setSelected(lang)}>
+                <Text>{lang}</Text>
+              </Pressable>
+            ))}
+          </View>
+        );
+      }
+    `;
+
+    const extracted = extractContentFromAST(source, '/tmp/LanguageScreen.tsx');
+
+    expect(extracted.elements).toContain('English (button)');
+    expect(extracted.elements).toContain('Arabic (button)');
+    expect(extracted.elements).toContain('Spanish (button)');
+  });
+
   it('describes API-backed style lists with structural hints when item labels are unknown', () => {
     const source = `
       export function HomeScreen() {
