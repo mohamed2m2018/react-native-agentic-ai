@@ -95,3 +95,4 @@ export type {
   ReportedIssueCustomerStatus,
   ReportedIssueStatusUpdate,
 } from './support';
+export type { SupportStyle } from './support';

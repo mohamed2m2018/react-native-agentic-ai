@@ -33,7 +33,7 @@ import { AudioOutputService } from '../services/AudioOutputService';
 import { TelemetryService, bindTelemetryService } from '../services/telemetry';
 import { extractTouchLabel, checkRageClick } from '../services/telemetry/TouchAutoCapture';
 import { initDeviceId, getDeviceId } from '../services/telemetry/device';
-import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode, CustomerSuccessConfig, OnboardingConfig, ConversationSummary, AgentTraceEvent } from '../core/types';
+import type { AgentConfig, AgentMode, ExecutionResult, ToolDefinition, AgentStep, TokenUsage, KnowledgeBaseConfig, ChatBarTheme, AIMessage, AIProviderName, ScreenMap, ProactiveHelpConfig, InteractionMode, CustomerSuccessConfig, OnboardingConfig, ConversationSummary, AgentTraceEvent, VerifierConfig, SupportStyle } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
@@ -108,6 +108,10 @@ interface AIAgentProps {
   voiceProxyHeaders?: Record<string, string>;
   /** LLM model name (provider-specific) */
   model?: string;
+  /** Support personality preset. Default: 'warm-concise'. */
+  supportStyle?: SupportStyle;
+  /** Optional outcome verifier configuration for critical actions. */
+  verifier?: VerifierConfig;
   /** Navigation container ref (from useNavigationContainerRef) */
   navRef?: any;
 
@@ -316,6 +320,8 @@ export function AIAgent({
   voiceProxyHeaders,
   provider: providerName = 'gemini',
   model,
+  supportStyle = 'warm-concise',
+  verifier,
   navRef,
 
   maxSteps = 25,
@@ -1241,15 +1247,47 @@ export function AIAgent({
     ? 'Waiting for your approval...'
     : statusText;
 
+  const effectiveProxyHeaders = useMemo(() => {
+    if (!analyticsKey) return proxyHeaders;
+    const isAuthMissing = !proxyHeaders || !Object.keys(proxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    if (isAuthMissing) {
+      return { ...proxyHeaders, Authorization: `Bearer ${analyticsKey}` };
+    }
+    return proxyHeaders;
+  }, [proxyHeaders, analyticsKey]);
+
+  const effectiveVoiceProxyHeaders = useMemo(() => {
+    if (!analyticsKey) return voiceProxyHeaders;
+    const isAuthMissing = !voiceProxyHeaders || !Object.keys(voiceProxyHeaders).some(k => k.toLowerCase() === 'authorization');
+    if (isAuthMissing) {
+      return { ...voiceProxyHeaders, Authorization: `Bearer ${analyticsKey}` };
+    }
+    return voiceProxyHeaders;
+  }, [voiceProxyHeaders, analyticsKey]);
+
+  const resolvedProxyUrl = useMemo(() => {
+    if (proxyUrl) return proxyUrl;
+    if (analyticsKey) return ENDPOINTS.hostedTextProxy;
+    return undefined;
+  }, [proxyUrl, analyticsKey]);
+
+  const resolvedVoiceProxyUrl = useMemo(() => {
+    if (voiceProxyUrl) return voiceProxyUrl;
+    if (analyticsKey) return ENDPOINTS.hostedVoiceProxy;
+    return resolvedProxyUrl;
+  }, [voiceProxyUrl, analyticsKey, resolvedProxyUrl]);
+
   // ─── Create Runtime ──────────────────────────────────────────
 
   const config: AgentConfig = useMemo(() => ({
     apiKey,
-    proxyUrl,
+    proxyUrl: resolvedProxyUrl,
     proxyHeaders,
-    voiceProxyUrl,
+    voiceProxyUrl: resolvedVoiceProxyUrl,
     voiceProxyHeaders,
     model,
+    supportStyle,
+    verifier,
     language: 'en',
     maxSteps,
     interactiveBlacklist,
@@ -1356,13 +1394,13 @@ export function AIAgent({
       });
     },
   }), [
-    mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, model, maxSteps,
+    mode, apiKey, resolvedProxyUrl, proxyHeaders, resolvedVoiceProxyUrl, voiceProxyHeaders, model, maxSteps,
     interactiveBlacklist, interactiveWhitelist,
     onBeforeStep, onAfterStep, onBeforeTask, onAfterTask,
     transformScreenContent, customTools, instructions, stepDelay,
     mcpServerUrl, router, pathname, onTokenUsage,
     resolvedKnowledgeBase, knowledgeMaxTokens, enableUIControl, screenMap, useScreenMap,
-    maxTokenBudget, maxCostUSD, interactionMode,
+    maxTokenBudget, maxCostUSD, interactionMode, verifier, supportStyle,
   ]);
 
   useEffect(() => {
@@ -1372,27 +1410,9 @@ export function AIAgent({
     );
   }, [mode, interactionMode, mergedCustomTools]);
 
-  const effectiveProxyHeaders = useMemo(() => {
-    if (!analyticsKey) return proxyHeaders;
-    const isAuthMissing = !proxyHeaders || !Object.keys(proxyHeaders).some(k => k.toLowerCase() === 'authorization');
-    if (isAuthMissing) {
-      return { ...proxyHeaders, Authorization: `Bearer ${analyticsKey}` };
-    }
-    return proxyHeaders;
-  }, [proxyHeaders, analyticsKey]);
-
-  const effectiveVoiceProxyHeaders = useMemo(() => {
-    if (!analyticsKey) return voiceProxyHeaders;
-    const isAuthMissing = !voiceProxyHeaders || !Object.keys(voiceProxyHeaders).some(k => k.toLowerCase() === 'authorization');
-    if (isAuthMissing) {
-      return { ...voiceProxyHeaders, Authorization: `Bearer ${analyticsKey}` };
-    }
-    return voiceProxyHeaders;
-  }, [voiceProxyHeaders, analyticsKey]);
-
   const provider = useMemo(
-    () => createProvider(providerName, apiKey, model, proxyUrl, effectiveProxyHeaders),
-    [providerName, apiKey, model, proxyUrl, effectiveProxyHeaders]
+    () => createProvider(providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders),
+    [providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders]
   );
 
   const runtime = useMemo(
@@ -1487,7 +1507,7 @@ export function AIAgent({
 
   useEffect(() => {
     // @ts-ignore
-    if (typeof __DEV__ !== 'undefined' && !__DEV__ && apiKey && !proxyUrl) {
+    if (typeof __DEV__ !== 'undefined' && !__DEV__ && apiKey && !resolvedProxyUrl) {
       logger.warn(
         '[MobileAI] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
         'This exposes your LLM provider key in the app binary. ' +
@@ -1495,7 +1515,7 @@ export function AIAgent({
         'See docs for details.'
       );
     }
-  }, [apiKey, proxyUrl]);
+  }, [apiKey, resolvedProxyUrl]);
 
   // Track screen changes via navRef
   useEffect(() => {
@@ -1619,11 +1639,11 @@ export function AIAgent({
       logger.info('AIAgent', `Registering ${runtimeTools.length} tools with VoiceService: ${runtimeTools.map(t => t.name).join(', ')}`);
       // Use voice-adapted system prompt — same core rules as text mode
       // but without agent-loop directives that trigger autonomous actions
-      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system, !!knowledgeBase);
+      const voicePrompt = buildVoiceSystemPrompt('en', instructions?.system, !!knowledgeBase, supportStyle);
       logger.info('AIAgent', `📝 Voice system prompt (${voicePrompt.length} chars):\n${voicePrompt}`);
       voiceServiceRef.current = new VoiceService({
         apiKey,
-        proxyUrl: voiceProxyUrl || proxyUrl,
+        proxyUrl: resolvedVoiceProxyUrl,
         proxyHeaders: effectiveVoiceProxyHeaders || effectiveProxyHeaders,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
@@ -1877,7 +1897,7 @@ export function AIAgent({
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, apiKey, proxyUrl, proxyHeaders, voiceProxyUrl, voiceProxyHeaders, runtime, instructions]);
+  }, [mode, apiKey, resolvedVoiceProxyUrl, effectiveVoiceProxyHeaders, effectiveProxyHeaders, runtime, instructions, supportStyle, knowledgeBase]);
 
   // ─── Stop Voice Session (full cleanup) ─────────────────────
 

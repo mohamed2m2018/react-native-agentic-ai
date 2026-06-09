@@ -13,7 +13,19 @@ const MOBILEAI_BASE =
   process.env.NEXT_PUBLIC_MOBILEAI_BASE_URL ||
   'https://mobileai.cloud';
 
+function toWebSocketBase(url: string): string {
+  if (url.startsWith('https://')) return `wss://${url.slice('https://'.length)}`;
+  if (url.startsWith('http://')) return `ws://${url.slice('http://'.length)}`;
+  return url;
+}
+
 export const ENDPOINTS = {
+  /** Hosted MobileAI text proxy — used by default when analyticsKey is set */
+  hostedTextProxy: `${MOBILEAI_BASE}/api/v1/hosted-proxy/text`,
+
+  /** Hosted MobileAI voice proxy — used by default when analyticsKey is set */
+  hostedVoiceProxy: `${toWebSocketBase(MOBILEAI_BASE)}/ws/hosted-proxy/voice`,
+
   /** Telemetry event ingest — receives batched SDK events */
   telemetryIngest: `${MOBILEAI_BASE}/api/v1/events`,
 

@@ -5,6 +5,7 @@
  */
 
 import type { SupportModeConfig } from './types';
+import { buildSupportStylePrompt, resolveSupportStyle } from './supportStyle';
 
 /**
  * Build the support mode system prompt addition.
@@ -12,6 +13,8 @@ import type { SupportModeConfig } from './types';
  */
 export function buildSupportPrompt(config: SupportModeConfig): string {
   const parts: string[] = [];
+  const supportStyle = config.persona?.preset ?? 'warm-concise';
+  const stylePreset = resolveSupportStyle(supportStyle);
 
   // Core support persona
   parts.push(`
@@ -50,6 +53,8 @@ Follow this sequence. Exhaust each level before moving to the next:
    (e.g. "It looks like the delivery partner marked it as delivered prematurely").
    Ask the user if the issue is fully resolved before calling done().`);
 
+  parts.push(buildSupportStylePrompt(supportStyle));
+
   parts.push(`
 ### Consent and Liability Guard
 - Treat money movement, subscription cancellation, deletion, final submission, and account/security changes as high-risk actions.
@@ -79,11 +84,12 @@ When executing a multi-step resolution, you must communicate your progress to ke
     let personaStr = `\n### AI Persona & Tone\n`;
     if (agentName)
       personaStr += `- Your name is ${agentName}. Introduce yourself if appropriate.\n`;
-    if (tone)
-      personaStr += `- Maintain a ${tone} tone throughout the conversation.\n`;
+    personaStr += `- Maintain a ${tone || stylePreset.tone} tone throughout the conversation.\n`;
     if (signOff)
       personaStr += `- When resolving an issue, sign off with: "${signOff}".\n`;
     parts.push(personaStr);
+  } else {
+    parts.push(`\n### AI Persona & Tone\n- Maintain a ${stylePreset.tone} tone throughout the conversation.\n`);
   }
 
   // Custom system context from the consumer

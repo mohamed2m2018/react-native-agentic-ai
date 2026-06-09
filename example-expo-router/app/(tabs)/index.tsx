@@ -25,15 +25,36 @@ export default function HomeScreen() {
   const [draftZip, setDraftZip] = useState('');
   const [isExpress, setIsExpress] = useState(false);
   const [giftWrap, setGiftWrap] = useState(false);
+  const [deliveryError, setDeliveryError] = useState('');
 
   // Saved Final State
   const [savedConfig, setSavedConfig] = useState<any>(null);
 
   const handleSave = () => {
+    const trimmedAddress = draftAddress.trim();
+    const trimmedCity = draftCity.trim();
+    const trimmedZip = draftZip.trim();
+
+    if (!trimmedAddress || !trimmedCity || !trimmedZip) {
+      setDeliveryError('Delivery confirmation failed. Please complete the full shipping address before checkout.');
+      return;
+    }
+
+    if (!/^\d{5}$/.test(trimmedZip)) {
+      setDeliveryError('Delivery confirmation error: enter a valid 5-digit postal code before checkout.');
+      return;
+    }
+
+    if (isExpress && trimmedZip !== '12345') {
+      setDeliveryError('Express delivery confirmation failed. Use postal code 12345 for this demo checkout.');
+      return;
+    }
+
+    setDeliveryError('');
     setSavedConfig({
-      address: draftAddress,
-      city: draftCity,
-      zip: draftZip,
+      address: trimmedAddress,
+      city: trimmedCity,
+      zip: trimmedZip,
       express: isExpress,
       gift: giftWrap
     });
@@ -41,6 +62,7 @@ export default function HomeScreen() {
   };
 
   const handlePresentModalPress = useCallback(() => {
+    setDeliveryError('');
     bottomSheetModalRef.current?.present();
   }, []);
 
@@ -51,6 +73,12 @@ export default function HomeScreen() {
         <Text style={styles.header}>Welcome to ShopApp</Text>
         <Text style={styles.subtitle}>Browse our products</Text>
       </AIZone>
+
+      <Link href="/test-ui" asChild>
+        <Pressable style={styles.testNavButton}>
+          <Text style={styles.openSheetButtonText}>🧪 Exhaustive UI Test Screen</Text>
+        </Pressable>
+      </Link>
 
       <Pressable style={styles.openSheetButton} onPress={handlePresentModalPress}>
         <Text style={styles.openSheetButtonText}>Advanced Shipping Options</Text>
@@ -106,9 +134,34 @@ export default function HomeScreen() {
           
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Delivery Address</Text>
-            <BottomSheetTextInput placeholder="Street Address" style={styles.input} value={draftAddress} onChangeText={setDraftAddress} />
-            <BottomSheetTextInput placeholder="City" style={styles.input} value={draftCity} onChangeText={setDraftCity} />
-            <BottomSheetTextInput placeholder="Zip / Postal Code" style={styles.input} keyboardType="numeric" value={draftZip} onChangeText={setDraftZip} />
+            <BottomSheetTextInput
+              placeholder="Street Address"
+              style={styles.input}
+              value={draftAddress}
+              onChangeText={(value) => {
+                setDraftAddress(value);
+                if (deliveryError) setDeliveryError('');
+              }}
+            />
+            <BottomSheetTextInput
+              placeholder="City"
+              style={styles.input}
+              value={draftCity}
+              onChangeText={(value) => {
+                setDraftCity(value);
+                if (deliveryError) setDeliveryError('');
+              }}
+            />
+            <BottomSheetTextInput
+              placeholder="Zip / Postal Code"
+              style={styles.input}
+              keyboardType="numeric"
+              value={draftZip}
+              onChangeText={(value) => {
+                setDraftZip(value);
+                if (deliveryError) setDeliveryError('');
+              }}
+            />
           </View>
 
           <View style={styles.section}>
@@ -140,6 +193,13 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           </View>
+
+          {deliveryError ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorBannerTitle}>Delivery Confirmation Error</Text>
+              <Text style={styles.errorBannerText}>{deliveryError}</Text>
+            </View>
+          ) : null}
 
           <Pressable style={styles.submitButton} onPress={handleSave}>
              <Text style={styles.submitButtonText}>Save Details and Checkout</Text>
@@ -187,6 +247,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#3498DB',
     alignItems: 'center',
   },
+  browseButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   openSheetButton: {
     marginHorizontal: 16,
     marginBottom: 16,
@@ -195,6 +256,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     alignItems: 'center',
     shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  testNavButton: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#E74C3C',
+    alignItems: 'center',
+    shadowColor: '#E74C3C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -258,5 +331,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
   },
-  submitButtonText: { color: '#fff', fontSize: 17, fontWeight: '800' }
+  submitButtonText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  errorBanner: {
+    backgroundColor: '#FDECEC',
+    borderColor: '#E74C3C',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 14,
+  },
+  errorBannerTitle: {
+    color: '#C0392B',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  errorBannerText: {
+    color: '#922B21',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
 });

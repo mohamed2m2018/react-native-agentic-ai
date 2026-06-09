@@ -8,6 +8,8 @@
  * - CSAT (Customer Satisfaction) collection after conversation
  */
 
+import type { SupportStyle } from './supportStyle';
+
 // ─── Support Mode Config ──────────────────────────────────
 
 export interface SupportModeConfig {
@@ -53,6 +55,8 @@ export interface SupportModeConfig {
    * Options for the AI's persona and tone.
    */
   persona?: {
+    /** Preset support personality. Default: 'warm-concise'. */
+    preset?: SupportStyle;
     /** The agent's name to use in conversation. */
     agentName?: string;
     /** The tone of the AI (e.g., 'professional', 'casual', 'empathetic'). Default: 'empathetic' */
