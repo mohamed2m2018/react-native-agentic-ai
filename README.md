@@ -256,7 +256,7 @@ Your app becomes MCP-compatible with one prop. Connect any AI — Antigravity, C
 <AIAgent
   showChatBar={false}
   mcpServerUrl="ws://localhost:3101"
-  apiKey="YOUR_KEY"
+  analyticsKey="mobileai_pub_xxx"
   navRef={navRef}
 >
   <App />
@@ -553,7 +553,6 @@ Transform the AI agent into a production-grade support system. The AI resolves i
 import { SupportGreeting, buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 
 <AIAgent
-  analyticsKey="mobileai_pub_xxx"
   analyticsKey="mobileai_pub_xxx" // required for MobileAI escalation
   instructions={{
     system: buildSupportPrompt({
@@ -1070,7 +1069,6 @@ Just add `analyticsKey` — every button tap, screen navigation, and session is 
 
 ```tsx
 <AIAgent
-  apiKey="YOUR_KEY"
   analyticsKey="mobileai_pub_abc123"   // ← enables full auto-capture
   navRef={navRef}
 >
