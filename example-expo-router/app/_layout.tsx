@@ -4,6 +4,8 @@ import { Stack, useNavigationContainerRef } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { AIAgent } from '@mobileai/react-native';
 import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
@@ -106,57 +108,61 @@ function RootLayoutNav() {
   );
 
   return (
-    <AIAgent
-      apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
-      navRef={navRef}
-      mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
-      knowledgeBase={SHOP_KNOWLEDGE}
-      showChatBar={true}
-      enableUIControl={true}
-      debug={true}
-      screenMap={screenMap as any}
-      accentColor="#6C5CE7"
-      // 🔹 Analytics telemetry
-      analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
-      // 🔹 Proactive hint — pulse after 1 min, badge after 2 mins
-      proactiveHelp={{
-        enabled: true,
-        pulseAfterMinutes: 1,
-        badgeAfterMinutes: 2,
-        badgeText: 'Need help browsing? Tap to ask!',
-      }}
-      theme={{
-        backgroundColor: 'rgba(44, 30, 104, 0.95)',
-        inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
-      }}
-      instructions={{
-        system: `You are ShopApp's AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app. ${supportSystem}`,
-      }}
-      // 🔹 Escalate tool for support mode
-      customTools={{ escalate: escalateTool }}
-    >
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
-          <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
-          <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
-          <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
-          <Stack.Screen name="addresses" options={{ title: 'Addresses' }} />
-          <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
-          <Stack.Screen name="appearance" options={{ title: 'Appearance' }} />
-          <Stack.Screen name="language" options={{ title: 'Language' }} />
-          <Stack.Screen name="about" options={{ title: 'About' }} />
-          <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
-          <Stack.Screen name="help" options={{ title: 'Help Center' }} />
-          <Stack.Screen name="categories" options={{ title: 'Categories' }} />
-          <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
-          <Stack.Screen name="subcategory/[id]" options={{ title: 'Subcategory' }} />
-          <Stack.Screen name="item/[id]" options={{ title: 'Item Details' }} />
-          <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
-        </Stack>
-      </ThemeProvider>
-    </AIAgent>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <BottomSheetModalProvider>
+        <AIAgent
+          apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
+          navRef={navRef}
+          mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
+          knowledgeBase={SHOP_KNOWLEDGE}
+          showChatBar={true}
+          enableUIControl={true}
+          debug={true}
+          screenMap={screenMap as any}
+          accentColor="#6C5CE7"
+          // 🔹 Analytics telemetry
+          analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
+          // 🔹 Proactive hint — pulse after 1 min, badge after 2 mins
+          proactiveHelp={{
+            enabled: true,
+            pulseAfterMinutes: 1,
+            badgeAfterMinutes: 2,
+            badgeText: 'Need help browsing? Tap to ask!',
+          }}
+          theme={{
+            backgroundColor: 'rgba(44, 30, 104, 0.95)',
+            inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
+          }}
+          instructions={{
+            system: `You are ShopApp's AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app. ${supportSystem}`,
+          }}
+          // 🔹 Escalate tool for support mode
+          customTools={{ escalate: escalateTool }}
+        >
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
+              <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
+              <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
+              <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
+              <Stack.Screen name="addresses" options={{ title: 'Addresses' }} />
+              <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+              <Stack.Screen name="appearance" options={{ title: 'Appearance' }} />
+              <Stack.Screen name="language" options={{ title: 'Language' }} />
+              <Stack.Screen name="about" options={{ title: 'About' }} />
+              <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
+              <Stack.Screen name="help" options={{ title: 'Help Center' }} />
+              <Stack.Screen name="categories" options={{ title: 'Categories' }} />
+              <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
+              <Stack.Screen name="subcategory/[id]" options={{ title: 'Subcategory' }} />
+              <Stack.Screen name="item/[id]" options={{ title: 'Item Details' }} />
+              <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
+            </Stack>
+          </ThemeProvider>
+        </AIAgent>
+      </BottomSheetModalProvider>
+    </GestureHandlerRootView>
   );
 }
