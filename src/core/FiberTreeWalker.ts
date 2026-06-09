@@ -7,10 +7,11 @@
  *
  */
 
+import { Dimensions } from 'react-native';
 import { logger } from '../utils/logger';
 import { getChild, getSibling, getParent, getProps, getStateNode, getType, getDisplayName } from './FiberAdapter';
 import { getActiveAlert } from './NativeAlertInterceptor';
-import type { InteractiveElement, ElementType } from './types';
+import type { InteractiveElement, ElementType, WireframeComponent, WireframeSnapshot } from './types';
 
 // ─── Walk Configuration ─────────
 
@@ -1367,4 +1368,68 @@ function resolveNativeScrollRef(fiberNode: any): any {
 
   logger.debug('FiberTreeWalker', 'Could not resolve native scroll ref — returning stateNode as fallback');
   return stateNode;
+}
+
+// ─── Wireframe Capture ─────────────────────────────────────────
+
+export async function captureWireframe(
+  rootRef: React.RefObject<any>,
+  config: WalkConfig = {}
+): Promise<WireframeSnapshot | null> {
+  const result = walkFiberTree(rootRef, config);
+  const elements = result.interactives;
+  if (elements.length === 0) return null;
+
+  const promises = elements.map((el) => {
+    return new Promise<WireframeComponent | null>((resolve) => {
+      try {
+        const stateNode = getStateNode(el.fiberNode);
+        if (!stateNode || typeof stateNode.measure !== 'function') {
+          resolve(null);
+          return;
+        }
+
+        // Measure on the native bridge (async)
+        stateNode.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+          if (width > 0 && height > 0) {
+            resolve({
+              type: el.type,
+              label: el.label || el.type, // fallback to type if label is empty
+              x: pageX,
+              y: pageY,
+              width,
+              height,
+            });
+          } else {
+            resolve(null);
+          }
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+
+  // Limit to 1.5s so we don't stall the app if bridge is congested
+  const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+  
+  const results = await Promise.race([
+    Promise.all(promises),
+    timeoutPromise
+  ]);
+
+  if (!results) return null; // Timed out
+
+  const components = results.filter((c): c is WireframeComponent => c !== null);
+  if (components.length === 0) return null;
+
+  const { width: deviceWidth, height: deviceHeight } = Dimensions.get('window');
+
+  return {
+    screen: config.screenName || 'Unknown',
+    components,
+    deviceWidth,
+    deviceHeight,
+    capturedAt: new Date().toISOString(),
+  };
 }

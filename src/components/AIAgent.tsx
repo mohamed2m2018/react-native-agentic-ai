@@ -17,6 +17,7 @@ import React, {
 } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
+import { walkFiberTree, captureWireframe } from '../core/FiberTreeWalker';
 import { createProvider } from '../providers/ProviderFactory';
 import { AgentContext } from '../hooks/useAction';
 import { AgentChatBar } from './AgentChatBar';
@@ -741,7 +742,10 @@ export function AIAgent({
         if (ticketId) {
           if (!humanFrtFiredRef.current[ticketId]) {
             humanFrtFiredRef.current[ticketId] = true;
-            telemetryRef.current?.track('human_first_response', { ticketId });
+            telemetryRef.current?.track('human_first_response', {
+              canonical_type: 'human_first_response_sent',
+              ticketId,
+            });
           }
 
           // Always update the ticket's history (source of truth for ticket cards)
@@ -1448,6 +1452,8 @@ export function AIAgent({
           // Proactive behavior triggers
           if (
             event.type === 'rage_tap' ||
+            event.type === 'rage_click' ||
+            event.type === 'rage_click_detected' ||
             event.type === 'error_screen' ||
             event.type === 'repeated_navigation'
           ) {
@@ -1455,7 +1461,11 @@ export function AIAgent({
           }
 
           // Customer Success features
-          if (customerSuccess?.enabled && event.type === 'user_interaction' && event.data) {
+          if (
+            customerSuccess?.enabled &&
+            (event.type === 'user_interaction' || event.type === 'user_action') &&
+            event.data
+          ) {
             const action = String(event.data.label || event.data.action || '');
 
             // Check milestones
@@ -1523,6 +1533,19 @@ export function AIAgent({
 
     const checkScreenMilestone = (screenName: string) => {
       telemetryRef.current?.setScreen(screenName);
+
+      // Auto-capture wireframe snapshot for privacy-safe heatmaps
+      if (rootViewRef.current) {
+        captureWireframe(rootViewRef, { screenName })
+          .then((wireframe) => {
+            if (wireframe && telemetryRef.current) {
+              telemetryRef.current.trackWireframe(wireframe);
+            }
+          })
+          .catch((err) => {
+            if (debug) logger.debug('AIAgent', 'Wireframe capture failed:', err);
+          });
+      }
 
       if (customerSuccess?.enabled) {
         customerSuccess.successMilestones?.forEach(m => {
@@ -2049,6 +2072,7 @@ export function AIAgent({
     setIsThinking(true);
     setStatusText('Thinking...');
     setLastResult(null);
+    const requestStartedAt = Date.now();
     logger.info(
       'AIAgent',
       `📨 New user request received in ${mode} mode | interactionMode=${interactionMode || 'copilot(default)'} | text="${message.trim()}"`
@@ -2056,8 +2080,10 @@ export function AIAgent({
 
     // Telemetry: track agent request
     telemetryRef.current?.track('agent_request', {
+      canonical_type: 'ai_question_asked',
       query: message.trim(),
       transcript: message.trim(),
+      request_topic: message.trim().slice(0, 120),
       mode,
     });
     telemetryRef.current?.track('agent_trace', {
@@ -2079,7 +2105,13 @@ export function AIAgent({
       if (escalateTool && !selectedTicketId) {
         if (HIGH_RISK_ESCALATION_REGEX.test(message)) {
           logger.warn('AIAgent', 'High-risk support signal detected — auto-escalating to human');
-          telemetryRef.current?.track('business_escalation', { message, trigger: 'high_risk' });
+          telemetryRef.current?.track('business_escalation', {
+            canonical_type: 'support_escalated',
+            message,
+            trigger: 'high_risk',
+            escalation_reason: 'high_risk',
+            topic: message.trim().slice(0, 120),
+          });
 
           const escalationResult = await escalateTool.execute({
             reason: `Customer needs human support: ${message.trim()}`,
@@ -2207,7 +2239,9 @@ export function AIAgent({
       if (telemetryRef.current) {
         if (!agentFrtFiredRef.current) {
           agentFrtFiredRef.current = true;
-          telemetryRef.current.track('agent_first_response');
+          telemetryRef.current.track('agent_first_response', {
+            canonical_type: 'ai_first_response_sent',
+          });
         }
 
         for (const step of normalizedResult.steps ?? []) {
@@ -2225,7 +2259,12 @@ export function AIAgent({
           });
         }
         telemetryRef.current.track('agent_complete', {
+          canonical_type: normalizedResult.success ? 'ai_answer_completed' : 'ai_answer_failed',
           success: normalizedResult.success,
+          resolved: normalizedResult.success,
+          resolution_type: normalizedResult.success ? 'ai_resolved' : 'needs_follow_up',
+          latency_ms: Date.now() - requestStartedAt,
+          request_topic: message.trim().slice(0, 120),
           steps: normalizedResult.steps?.length ?? 0,
           tokens: normalizedResult.tokenUsage?.totalTokens ?? 0,
           cost: normalizedResult.tokenUsage?.estimatedCostUSD ?? 0,
@@ -2326,7 +2365,12 @@ export function AIAgent({
 
       // Telemetry: track agent failure
       telemetryRef.current?.track('agent_complete', {
+        canonical_type: 'ai_answer_failed',
         success: false,
+        resolved: false,
+        resolution_type: 'execution_error',
+        latency_ms: Date.now() - requestStartedAt,
+        request_topic: message.trim().slice(0, 120),
         error: error.message,
         response: `Error: ${error.message}`,
         conversation: {
@@ -2425,9 +2469,12 @@ export function AIAgent({
             if (telemetryRef.current && !telemetryRef.current.isAgentActing) {
               const label = extractTouchLabel(event);
               if (label && label !== 'Unknown Element' && label !== '[pressable]') {
-                telemetryRef.current.track('user_interaction', {
+                telemetryRef.current.track('user_action', {
+                  canonical_type: 'button_tapped',
                   type: 'tap',
+                  action: label,
                   label,
+                  element_label: label,
                   actor: 'user',
                   x: Math.round(event.nativeEvent.pageX),
                   y: Math.round(event.nativeEvent.pageY),
@@ -2438,9 +2485,11 @@ export function AIAgent({
               } else {
                 // Tapped an unlabelled/empty area
                 telemetryRef.current.track('dead_click', {
+                  canonical_type: 'dead_click_detected',
                   x: Math.round(event.nativeEvent.pageX),
                   y: Math.round(event.nativeEvent.pageY),
                   screen: telemetryRef.current.screen,
+                  screen_area: 'unknown',
                 });
               }
             }

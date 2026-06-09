@@ -12,6 +12,7 @@
 export type AutoEventType =
   | 'screen_view'
   | 'user_action'
+  | 'user_interaction'
   | 'scroll_depth'
   | 'idle_detected'
   | 'session_start'
@@ -30,7 +31,18 @@ export type AutoEventType =
   | 'fcr_achieved'
   | 'engagement_signal'
   | 'health_signal'
-  | 'onboarding_step';
+  | 'onboarding_step'
+  | 'business_escalation'
+  | 'dead_click'
+  | 'dead_click_detected'
+  | 'rage_click'
+  | 'rage_click_detected'
+  | 'error_screen'
+  | 'repeated_navigation'
+  | 'checkout_started'
+  | 'purchase_complete'
+  | 'purchase_completed'
+  | 'wireframe_snapshot';
 
 /** All event types (auto + custom) */
 export type EventType = AutoEventType | string;
