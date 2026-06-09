@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "generate-map": "node ../bin/generate-map.cjs --dir=. --exclude=\"product/**,category/**,subcategory/**,item/**,item-reviews/**,write-review/**,review-thanks/**,rewards,invite-friends,categories,test-ui,modal,lib/**,(tabs)/two,(tabs)/settings,(tabs)/chat\"",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",

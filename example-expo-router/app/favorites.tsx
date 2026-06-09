@@ -1,25 +1,28 @@
+import { Link } from 'expo-router';
 import { StyleSheet, FlatList } from 'react-native';
 import { Text, View } from '@/components/Themed';
-
-const FAVORITES = [
-  { id: '1', name: 'Wireless Headphones', price: 79.99 },
-  { id: '3', name: 'Laptop Stand', price: 49.99 },
-  { id: '5', name: 'Yoga Mat', price: 39.99 }, // 🐛 BUG: price is 39.99 here but 34.99 on home/detail page
-];
+import { useFoodDelivery } from '@/app/lib/delivery-demo';
 
 export default function FavoritesScreen() {
+  const { restaurants } = useFoodDelivery();
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Your Favorites</Text>
+      <Text style={styles.title}>Saved Restaurants</Text>
       <FlatList
-        data={FAVORITES}
+        data={restaurants}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <View style={styles.row}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.price}>${item.price}</Text>
-          </View>
+          <Link href={`/store/${item.id}`} asChild>
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{item.name}</Text>
+                <Text style={styles.cuisine}>{item.cuisine}</Text>
+              </View>
+              <Text style={styles.price}>{item.rating.toFixed(1)}★</Text>
+            </View>
+          </Link>
         )}
       />
     </View>
@@ -36,5 +39,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(150,150,150,0.3)',
   },
   name: { fontSize: 16, flex: 1 },
-  price: { fontSize: 16, fontWeight: '600', color: '#27AE60' },
+  cuisine: { fontSize: 12, color: '#6c757d', marginTop: 2 },
+  price: { fontSize: 16, fontWeight: '600', color: '#0F766E' },
 });

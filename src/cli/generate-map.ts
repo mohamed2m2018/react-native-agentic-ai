@@ -47,11 +47,12 @@ function main() {
   const scannedScreens = framework === 'expo-router'
     ? scanExpoRouterApp(projectRoot)
     : scanReactNavigationApp(projectRoot);
+  const filteredScreens = filterScreensByRoutePatterns(scannedScreens, args);
 
-  console.log(`📄 Found ${scannedScreens.length} screen(s)`);
+  console.log(`📄 Found ${filteredScreens.length} screen(s)`);
 
   // Build output — per-screen navigatesTo, filtered to known routes only
-  const allRouteSet = new Set(scannedScreens.map(s => s.routeName));
+  const allRouteSet = new Set(filteredScreens.map(s => s.routeName));
   const screenMap: ScreenMap = {
     generatedAt: new Date().toISOString(),
     framework,
@@ -59,11 +60,11 @@ function main() {
   };
 
   const screenLinks = Object.fromEntries(
-    scannedScreens.map(screen => [screen.routeName, screen.navigationLinks])
+    filteredScreens.map(screen => [screen.routeName, screen.navigationLinks])
   );
   const navigationGraph = buildNavigationGraph(screenLinks, [...allRouteSet]);
 
-  for (const screen of scannedScreens) {
+  for (const screen of filteredScreens) {
     const validLinks = [...(navigationGraph.edges.get(screen.routeName) ?? new Set<string>())];
     if (screen.navigationLinks.length > 0) {
       const noise = screen.navigationLinks.length - validLinks.length;
@@ -112,20 +113,60 @@ function detectFramework(projectRoot: string): 'expo-router' | 'react-navigation
 interface CLIArgs {
   dir: string;
   watch: boolean;
+  include: string[];
+  exclude: string[];
 }
 
 function parseArgs(argv: string[]): CLIArgs {
   const args: CLIArgs = {
     dir: '',
     watch: false,
+    include: [],
+    exclude: [],
   };
 
   for (const arg of argv) {
     if (arg === '--watch' || arg === '-w') args.watch = true;
     if (arg.startsWith('--dir=')) args.dir = arg.split('=')[1]!;
+    if (arg.startsWith('--include=')) {
+      args.include = arg.slice('--include='.length).split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
+    if (arg.startsWith('--exclude=')) {
+      args.exclude = arg.slice('--exclude='.length).split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
   }
 
   return args;
+}
+
+function routeMatchesPattern(routeName: string, pattern: string): boolean {
+  if (!pattern) return false;
+  if (pattern === routeName) return true;
+  if (!pattern.includes('*')) {
+    return routeName === pattern;
+  }
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`);
+  return regex.test(routeName);
+}
+
+function routeMatchesAnyPattern(routeName: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => routeMatchesPattern(routeName, pattern));
+}
+
+function filterScreensByRoutePatterns<T extends { routeName: string }>(
+  screens: T[],
+  args: CLIArgs,
+): T[] {
+  return screens.filter((screen) => {
+    if (args.include.length > 0 && !routeMatchesAnyPattern(screen.routeName, args.include)) {
+      return false;
+    }
+    if (args.exclude.length > 0 && routeMatchesAnyPattern(screen.routeName, args.exclude)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 // Run

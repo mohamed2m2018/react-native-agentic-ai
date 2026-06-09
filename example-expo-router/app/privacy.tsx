@@ -21,8 +21,9 @@ export default function PrivacyScreen() {
 
       <Text style={styles.heading}>Third-Party Services</Text>
       <Text style={styles.body}>
-        This app uses Google Gemini API for AI processing. Please refer to Google's privacy policy
-        for information about how they handle data.
+        This app sends AI requests through the MobileAI dashboard proxy, which forwards them to
+        the configured Gemini model. Please refer to your MobileAI deployment and Gemini privacy
+        policies for details about how request data is handled.
       </Text>
     </ScrollView>
   );

@@ -11,6 +11,7 @@ import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 import type { KnowledgeEntry } from '@mobileai/react-native';
 import screenMap from '../ai-screen-map.json';
 import { useColorScheme } from '@/components/useColorScheme';
+import { FoodDeliveryProvider, getSupportContext } from '@/app/lib/delivery-demo';
 
 export {
   ErrorBoundary,
@@ -22,47 +23,38 @@ export const unstable_settings = {
 
 SplashScreen.preventAutoHideAsync();
 
-// ─── Knowledge Base ─────────────────────────────────────────
-const SHOP_KNOWLEDGE: KnowledgeEntry[] = [
+const DASHBITE_KNOWLEDGE: KnowledgeEntry[] = [
   {
-    id: 'return-policy',
-    title: 'Return & Refund Policy',
+    id: 'delivery-policies',
+    title: 'Delivery and ETA Policy',
     content:
-      'We offer a 30-day return policy on all items. '
-      + 'Items must be unused and in original packaging. '
-      + 'Refunds are processed within 5-7 business days to the original payment method. '
-      + 'Electronics must be returned within 15 days.',
-    tags: ['return', 'refund', 'exchange', 'policy'],
+      'DashBite estimates live delivery windows, but weather, traffic, and rider route changes can shift ETA. '
+      + 'Couriers are actively reassigned before order handoff if the route changes.',
+    tags: ['delivery', 'eta', 'courier'],
   },
   {
-    id: 'shipping-info',
-    title: 'Shipping Information',
+    id: 'delivery-support',
+    title: 'Delivery Support Playbook',
     content:
-      'Standard shipping: 5-7 business days ($4.99). '
-      + 'Express shipping: 2-3 business days ($12.99). '
-      + 'Free shipping on orders over $75. '
-      + 'We ship to all 50 US states. International shipping available for select countries.',
-    tags: ['shipping', 'delivery', 'tracking', 'international'],
+      'When support requests arrive, confirm order id, restaurant confirmation, and current tracking step first. '
+      + 'If ETA is delayed by 15+ minutes or more, validate rider location and ask a few context questions before escalating.',
+    tags: ['support', 'delivery', 'eta', 'escalation'],
   },
   {
-    id: 'warranty',
-    title: 'Warranty Policy',
+    id: 'missing-wrong-items',
+    title: 'Missing or Wrong Items',
     content:
-      'All electronics come with a 1-year manufacturer warranty. '
-      + 'Footwear has a 6-month warranty against defects. '
-      + 'Accessories and home items have a 90-day warranty. '
-      + 'Warranty does not cover normal wear and tear.',
-    tags: ['warranty', 'guarantee', 'defect', 'repair'],
+      'When an item is missing or incorrect, capture quantity, item modifiers, and any substitution evidence from the user. '
+      + 'Always ask whether the item is still cook-in-progress or already consumed before closing with a payout action.',
+    tags: ['order accuracy', 'refund'],
   },
   {
-    id: 'store-hours',
-    title: 'Customer Support Hours',
+    id: 'refund-safety',
+    title: 'Refund and Safety Cases',
     content:
-      'Live chat: Monday-Friday 9AM-9PM EST. '
-      + 'Phone support: Monday-Friday 10AM-6PM EST at 1-800-SHOP-APP. '
-      + 'Email: support@shopapp.com (response within 24 hours). '
-      + 'Weekend support available via email only.',
-    tags: ['support', 'contact', 'hours', 'phone', 'email'],
+      'Food quality, allergy, duplicate charge, and courier safety concerns should be escalated immediately to live support with '
+      + 'order metadata and customer statement. Refunds can be initiated after order evidence is confirmed.',
+    tags: ['refund', 'safety', 'escalation'],
   },
 ];
 
@@ -91,78 +83,113 @@ function RootLayoutNav() {
   // 🔹 Support mode
   const supportSystem = buildSupportPrompt({
     enabled: true,
-    systemContext: 'You are a support agent for ShopApp. Help with returns, shipping, and warranty.',
-    autoEscalateTopics: ['billing dispute', 'account deletion', 'fraud'],
+    persona: {
+      agentName: 'Nora',
+      preset: 'wow-service',
+      tone: 'warm, reassuring, and practical',
+    },
+    systemContext:
+      'You are Nora, a warm support teammate for DashBite, a delivery-focused food marketplace. '
+      + 'Start by reassuring the customer and showing that you understand what went wrong. '
+      + 'Use the app context to resolve order status and delivery issues clearly, without sounding cold or robotic. '
+      + 'Be precise with order IDs and recent status, but keep your wording calm, friendly, and human.',
+    autoEscalateTopics: [
+      'food allergy',
+      'courier safety',
+      'duplicate charge',
+      'undelivered',
+      'refund',
+      'safety concern',
+    ],
   });
 
   const escalateTool = createEscalateTool(
     {
-      onEscalate: (ctx) => console.log('[Support] Escalating:', ctx.conversationSummary),
-      escalationMessage: 'Connecting you to a live agent...',
-    },
-    () => ({
-      currentScreen: 'unknown',
-      originalQuery: '',
-      stepsBeforeEscalation: 0,
-    })
+      config: {
+        buttonLabel: 'Talk to live support',
+        onEscalate: (ctx) => console.log('[DashBite Support] Escalating:', ctx.conversationSummary),
+        escalationMessage: 'Connecting you to our live support specialist...',
+      },
+      analyticsKey: process.env.EXPO_PUBLIC_MOBILEAI_KEY,
+      getContext: () => {
+        const supportContext = getSupportContext();
+        return {
+          currentScreen: supportContext?.screen || supportContext?.source || 'unknown',
+          originalQuery:
+            supportContext?.orderId
+              ? `Order ${supportContext.orderId} (${supportContext.issueType ?? 'support request'}) from ${supportContext.restaurant ?? 'DashBite'}`
+              : '',
+          stepsBeforeEscalation: 0,
+        };
+      },
+      getHistory: () => [],
+      onEscalationStarted: () => {},
+      getScreenFlow: () => [],
+    }
   );
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <PaperProvider>
-          <AIAgent
-          apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''}
-          navRef={navRef}
-          mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
-          knowledgeBase={SHOP_KNOWLEDGE}
-          showChatBar={true}
-          enableUIControl={true}
-          debug={true}
-          screenMap={screenMap as any}
-          accentColor="#6C5CE7"
-          // 🔹 Analytics telemetry
-          analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
-          // 🔹 Proactive hint — pulse after 1 min, badge after 2 mins
-          proactiveHelp={{
-            enabled: true,
-            pulseAfterMinutes: 1,
-            badgeAfterMinutes: 2,
-            badgeText: 'Need help browsing? Tap to ask!',
-          }}
-          theme={{
-            backgroundColor: 'rgba(44, 30, 104, 0.95)',
-            inputBackgroundColor: 'rgba(255, 255, 255, 0.12)',
-          }}
-          instructions={{
-            system: `You are ShopApp's AI assistant. Help users browse products, answer questions about policies and shipping, and navigate the app. ${supportSystem}`,
-          }}
-          // 🔹 Escalate tool for support mode
-          customTools={{ escalate: escalateTool }}
-        >
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="product/[id]" options={{ title: 'Product Details' }} />
-              <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
-              <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
-              <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
-              <Stack.Screen name="addresses" options={{ title: 'Addresses' }} />
-              <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
-              <Stack.Screen name="appearance" options={{ title: 'Appearance' }} />
-              <Stack.Screen name="language" options={{ title: 'Language' }} />
-              <Stack.Screen name="about" options={{ title: 'About' }} />
-              <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
-              <Stack.Screen name="help" options={{ title: 'Help Center' }} />
-              <Stack.Screen name="categories" options={{ title: 'Categories' }} />
-              <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
-              <Stack.Screen name="subcategory/[id]" options={{ title: 'Subcategory' }} />
-              <Stack.Screen name="item/[id]" options={{ title: 'Item Details' }} />
-              <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
-            </Stack>
-          </ThemeProvider>
-          </AIAgent>
+          <FoodDeliveryProvider>
+            <AIAgent
+              provider="gemini"
+              navRef={navRef}
+              mcpServerUrl={__DEV__ ? 'ws://localhost:3101' : undefined}
+              knowledgeBase={DASHBITE_KNOWLEDGE}
+              showChatBar={true}
+              enableUIControl={true}
+              debug={true}
+              screenMap={screenMap as any}
+              accentColor="#F97316"
+              analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY}
+              supportStyle="wow-service"
+              proactiveHelp={{
+                enabled: true,
+                pulseAfterMinutes: 1,
+                badgeAfterMinutes: 2,
+                badgeText: 'Need help with your order? Ask me.',
+              }}
+              theme={{
+                backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                inputBackgroundColor: 'rgba(255, 255, 255, 0.14)',
+              }}
+              instructions={{
+                system: `You are DashBite's AI host assistant. Help users discover restaurants and place food orders quickly, then handle support with a warm, calming tone and clear next steps. Lead with empathy, avoid abrupt wording, and make the user feel taken care of. ${supportSystem}`,
+              }}
+              customTools={{ escalate: escalateTool }}
+            >
+              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                <Stack>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="store/[id]" options={{ title: 'Restaurant' }} />
+                  <Stack.Screen name="menu-item/[id]" options={{ title: 'Menu Item' }} />
+                  <Stack.Screen name="cart" options={{ title: 'Cart' }} />
+                  <Stack.Screen name="checkout" options={{ title: 'Checkout' }} />
+                  <Stack.Screen name="order/[id]/tracking" options={{ title: 'Track Order' }} />
+                  <Stack.Screen name="order/[id]/help" options={{ title: 'Order Help' }} />
+                  <Stack.Screen name="support/article/[id]" options={{ title: 'Support Article' }} />
+                  <Stack.Screen name="payment-methods" options={{ title: 'Payment Methods' }} />
+                  <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
+                  <Stack.Screen name="favorites" options={{ title: 'Saved Restaurants' }} />
+                  <Stack.Screen name="addresses" options={{ title: 'Saved Addresses' }} />
+                  <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+                  <Stack.Screen name="appearance" options={{ title: 'Appearance' }} />
+                  <Stack.Screen name="language" options={{ title: 'Language' }} />
+                  <Stack.Screen name="about" options={{ title: 'About DashBite' }} />
+                  <Stack.Screen name="privacy" options={{ title: 'Privacy Policy' }} />
+                  <Stack.Screen name="help" options={{ title: 'Help Center' }} />
+                  <Stack.Screen name="categories" options={{ title: 'Categories' }} />
+                  <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
+                  <Stack.Screen name="subcategory/[id]" options={{ title: 'Subcategory' }} />
+                  <Stack.Screen name="item/[id]" options={{ title: 'Item Details' }} />
+                  <Stack.Screen name="item-reviews/[id]" options={{ title: 'Reviews' }} />
+                </Stack>
+              </ThemeProvider>
+            </AIAgent>
+          </FoodDeliveryProvider>
         </PaperProvider>
       </BottomSheetModalProvider>
     </GestureHandlerRootView>

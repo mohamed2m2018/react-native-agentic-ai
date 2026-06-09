@@ -38,6 +38,7 @@ import { DiscoveryTooltip } from './DiscoveryTooltip';
 
 interface AgentChatBarProps {
   onSend: (message: string) => void;
+  onCancel?: () => void;
   isThinking: boolean;
   statusText?: string;
   lastResult: ExecutionResult | null;
@@ -302,6 +303,7 @@ function TextInputRow({
   text,
   setText,
   onSend,
+  onCancel,
   isThinking,
   isArabic,
   theme,
@@ -309,6 +311,7 @@ function TextInputRow({
   text: string;
   setText: (t: string) => void;
   onSend: () => void;
+  onCancel?: () => void;
   isThinking: boolean;
   isArabic: boolean;
   theme?: ChatBarTheme;
@@ -321,6 +324,15 @@ function TextInputRow({
     // ignored by the iOS native layer when editable flips to false in the same
     // render batch.
     inputRef.current?.clear();
+  };
+
+  const handlePrimaryAction = () => {
+    if (isThinking) {
+      onCancel?.();
+      return;
+    }
+    if (!text.trim()) return;
+    handleSendWithClear();
   };
 
   return (
@@ -354,11 +366,11 @@ function TextInputRow({
           isThinking && styles.sendButtonDisabled,
           theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
         ]}
-        onPress={handleSendWithClear}
-        disabled={isThinking || !text.trim()}
-        accessibilityLabel="Send request to AI Agent"
+        onPress={handlePrimaryAction}
+        disabled={!isThinking && !text.trim()}
+        accessibilityLabel={isThinking ? 'Stop AI Agent request' : 'Send request to AI Agent'}
       >
-        {isThinking ? <LoadingDots size={18} color={theme?.textColor || '#fff'} /> : <SendArrowIcon size={18} color={theme?.textColor || '#fff'} />}
+        {isThinking ? <StopIcon size={18} color={theme?.textColor || '#fff'} /> : <SendArrowIcon size={18} color={theme?.textColor || '#fff'} />}
       </Pressable>
     </View>
   );
@@ -457,6 +469,7 @@ function VoiceControlsRow({
 
 export function AgentChatBar({
   onSend,
+  onCancel,
   isThinking,
   statusText,
   lastResult,
@@ -955,6 +968,7 @@ export function AgentChatBar({
                 text={text}
                 setText={setText}
                 onSend={handleSend}
+                onCancel={onCancel}
                 isThinking={isThinking}
                 isArabic={isArabic}
                 theme={theme}
