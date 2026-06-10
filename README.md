@@ -921,6 +921,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | `knowledgeBase` | `KnowledgeEntry[] \| { retrieve }` | — | Domain knowledge the AI can query via `query_knowledge`. |
 | `knowledgeMaxTokens` | `number` | `2000` | Max tokens for knowledge results. |
 | `transformScreenContent` | `(content: string) => string` | — | Transform/mask screen content before the LLM sees it. |
+| `blocks` | `Array<BlockDefinition \| React.ComponentType<any>>` | — | Register built-in/custom rich blocks for chat and screen injection. |
+| `richUITheme` | `Partial<RichUITheme>` | — | Global rich UI theme overrides. |
+| `richUISurfaceThemes` | `{ chat?: Partial<RichUITheme>, zone?: Partial<RichUITheme>, support?: Partial<RichUITheme> }` | — | Optional per-surface theme overrides. |
+| `blockActionHandlers` | `Record<string, (payload: Record<string, unknown>) => void>` | — | Register block action handlers for button/toggle/chip interactions. |
 
 #### Security
 
@@ -1052,9 +1056,14 @@ import { useAI } from '@mobileai/react-native'; // or 'react-native-agentic-ai'
 function CustomChat() {
   const { send, isLoading, status, messages } = useAI();
 
+  const summary = (msg) =>
+    msg.content
+      .map((node) => (node.type === 'text' ? node.content : `[${node.blockType}]`))
+      .join('\n');
+
   return (
     <View style={{ flex: 1 }}>
-      <FlatList data={messages} renderItem={({ item }) => <Text>{item.content}</Text>} />
+      <FlatList data={messages} renderItem={({ item }) => <Text>{summary(item)}</Text>} />
       {isLoading && <Text>{status}</Text>}
       <TextInput onSubmitEditing={(e) => send(e.nativeEvent.text)} placeholder="Ask the AI..." />
     </View>
@@ -1220,10 +1229,10 @@ server.on('upgrade', geminiProxy.upgrade);
 
 ## 🧩 AIZone — Contextual AI Regions
 
-`AIZone` marks specific sections of your UI so the AI can operate within them with special capabilities: simplify cluttered areas, inject contextual cards, or highlight elements.
+`AIZone` marks specific sections of your UI so the AI can operate within them with special capabilities: simplify cluttered areas, render rich blocks, or highlight elements.
 
 ```tsx
-import { AIZone } from '@mobileai/react-native';
+import { AIZone, FactCard, ProductCard } from '@mobileai/react-native';
 
 // Allow AI to simplify this zone if it's too cluttered
 <AIZone id="product-details" allowSimplify>
@@ -1234,9 +1243,20 @@ import { AIZone } from '@mobileai/react-native';
   </View>
 </AIZone>
 
-// Allow AI to inject contextual cards (e.g. "Need help?" dialogs)
-<AIZone id="checkout-summary" allowInjectCard allowHighlight>
+// Allow AI to inject contextual cards from a safe template whitelist
+<AIZone
+  id="checkout-summary"
+  allowInjectBlock
+  allowHighlight
+  blocks={[FactCard, ProductCard]}
+  proactiveIntervention={false}
+>
   <CheckoutSummary />
+</AIZone>
+
+// Deprecated migration path (still supported):
+<AIZone id="legacy" allowInjectCard templates={[InfoCard, ReviewSummary]}>
+  <LegacyPanel />
 </AIZone>
 ```
 
@@ -1257,7 +1277,21 @@ Tag any element with `aiPriority` to control AI visibility:
 | `allowSimplify` | `boolean` | AI can call `simplify_zone(id)` to hide `aiPriority="low"` elements |
 | `allowHighlight` | `boolean` | AI can visually highlight elements inside this zone |
 | `allowInjectHint` | `boolean` | AI can inject a contextual text hint into this zone |
-| `allowInjectCard` | `boolean` | AI can inject a pre-built card template into this zone |
+| `allowInjectBlock` | `boolean` | AI can render registered rich blocks into this zone |
+| `allowInjectCard` | `boolean` | **Deprecated** alias for `allowInjectBlock` |
+| `blocks` | `BlockDefinition[] \| React.ComponentType<any>[]` | Whitelist of blocks the zone may render; required when block rendering is enabled |
+| `templates` | `React.ComponentType<any>[]` | **Deprecated** alias for `blocks` |
+| `interventionEligible` | `boolean` | Enables strict screen-intervention mode checks for this zone |
+| `proactiveIntervention` | `boolean` | Enables optional proactive `render_block` calls in this zone |
+
+When using block rendering, always pass a whitelist via `blocks` (or `templates` for legacy apps).
+The AI can only instantiate registered blocks and props; it never generates raw JSX.
+
+Built-in block names: `FactCard`, `ProductCard`, `ActionCard`, `ComparisonCard`, `FormCard`.
+
+Compatibility wrappers remain for migration:
+- `InfoCard` (maps to `FactCard`)
+- `ReviewSummary` (maps to `ProductCard`)
 
 ---
 
@@ -1275,11 +1309,32 @@ Tag any element with `aiPriority` to control AI visibility:
 | `navigate(screen)` | Navigate to any screen |
 | `wait(seconds)` | Wait for loading states before acting |
 | `capture_screenshot(reason)` | Capture the SDK root component as an image (requires `react-native-view-shot`) |
-| `done(text)` | Finish the task with a response |
+| `render_block(zoneId, blockType, props)` | Render a registered block into an `AIZone` as a contextual intervention |
+| `inject_card(zoneId, blockType, props)` | Deprecated alias of `render_block` for migration |
+| `done(reply, previewText?, success?)` | Return mixed chat content (text and block nodes) with a preview string |
+| `done(text, success)` | Deprecated compatibility form for text-only responses |
 | `ask_user(question)` | Ask the user for clarification |
 | `query_knowledge(question)` | Search the knowledge base |
 
 ---
+
+## 🧪 Test in Feedyum
+
+1. Restart the app stack with fresh bundle cache.
+   - `cd /Users/mohamedsalah/mobileai-suite-copy/react-native-ai-agent && npm run build`
+   - `cd /Users/mohamedsalah/mobileai-suite-copy/feedyum-fullstack/feedyum && npx expo start -c`
+2. Open a dish detail screen from Feedyum.
+3. Open AI chat and send: `Can you quickly show me a summary of this dish in context.`
+4. Expected result:
+   - short assistant text confirming placement
+   - `ProductCard`/`FactCard` rendered in the `dish-detail-summary` zone
+   - card includes dismiss affordance
+5. In logs, confirm a `render_block` call or `inject_card` alias call and zone injection.
+
+If you only get text, check these fast:
+- app is attached to latest Metro session
+- `AIZone` on this screen has `allowInjectBlock`, `blocks`, and `interventionEligible={true}`
+- query is an intervention-worthy request in context, not a pure factual question
 
 ## 📋 Requirements
 

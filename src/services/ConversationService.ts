@@ -11,13 +11,15 @@
 
 import { ENDPOINTS } from '../config/endpoints';
 import type { AIMessage, ConversationSummary } from '../core/types';
+import { createAIMessage, normalizeRichContent, richContentToPlainText } from '../core/richContent';
 import { logger } from '../utils/logger';
 
 // ─── Types ───────────────────────────────────────────────────────
 
 interface MessagePayload {
   role: string;
-  content: string;
+  content: string | unknown[];
+  previewText: string;
   timestamp: number;
 }
 
@@ -51,10 +53,11 @@ interface FetchConversationParams {
 function toPayload(msgs: AIMessage[]): MessagePayload[] {
   return msgs
     .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0)
+    .filter((m) => m.previewText.trim().length > 0)
     .map((m) => ({
       role: m.role,
-      content: typeof m.content === 'string' ? m.content : String(m.content),
+      content: m.content,
+      previewText: m.previewText,
       timestamp: m.timestamp,
     }));
 }
@@ -185,12 +188,14 @@ export async function fetchConversation({
 
     const data = await res.json();
     const msgs: AIMessage[] = (data.messages ?? []).map(
-      (m: { id: string; role: string; content: string; timestamp: number }) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: m.timestamp,
-      }),
+      (m: { id: string; role: string; content: string | unknown[]; previewText?: string; timestamp: number }) =>
+        createAIMessage({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: normalizeRichContent(m.content as any),
+          previewText: m.previewText || richContentToPlainText(m.content as any),
+          timestamp: m.timestamp,
+        }),
     );
     return msgs;
   } catch (err) {

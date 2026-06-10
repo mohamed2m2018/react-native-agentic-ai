@@ -18,7 +18,9 @@ import {
   Keyboard,
 } from 'react-native';
 import type { AIMessage } from '../core/types';
+import { createAIMessage } from '../core/richContent';
 import { CloseIcon, SendArrowIcon, LoadingDots } from '../components/Icons';
+import { RichContentRenderer } from '../components/rich-content/RichContentRenderer';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -90,12 +92,15 @@ export function SupportChatModal({
   const isClosed = !!ticketStatus && CLOSED_STATUSES.includes(ticketStatus);
   const [text, setText] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const seededIntroMessageRef = useRef<AIMessage>({
-    id: 'support-intro-message',
-    role: 'assistant',
-    content: 'A support agent will help you solve this problem soon.',
-    timestamp: Date.now(),
-  });
+  const seededIntroMessageRef = useRef<AIMessage>(
+    createAIMessage({
+      id: 'support-intro-message',
+      role: 'assistant',
+      content: 'A support agent will help you solve this problem soon.',
+      previewText: 'A support agent will help you solve this problem soon.',
+      timestamp: Date.now(),
+    })
+  );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scrollRef = useRef<any>(null);
   const renderedMessages = messages.length > 0 ? messages : [seededIntroMessageRef.current];
@@ -203,9 +208,12 @@ export function SupportChatModal({
                         isUser ? s.bubbleUser : s.bubbleAgent,
                       ]}
                     >
-                      <Text style={[s.bubbleText, !isUser && s.bubbleTextAgent]}>
-                        {msg.content}
-                      </Text>
+                      <RichContentRenderer
+                        content={msg.content}
+                        surface="support"
+                        isUser={isUser}
+                        textStyle={[s.bubbleText, !isUser && s.bubbleTextAgent]}
+                      />
                     </View>
                     <Text style={[s.timestamp, isUser && s.timestampUser]}>
                       {formatRelativeTime(msg.timestamp)}

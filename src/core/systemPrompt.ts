@@ -76,6 +76,84 @@ const SECURITY_RULES = `- Do not fill in login/signup forms unless the user prov
  * UI Simplification zone rule — identical in text and voice agents.
  */
 const UI_SIMPLIFICATION_RULE = `- UI SIMPLIFICATION: If you see elements labeled \`aiPriority="low"\` inside a specific \`zoneId=...\`, and the screen looks cluttered or overwhelming to the user's immediate goal, use the \`simplify_zone(zoneId)\` tool to hide those elements. Use \`restore_zone(zoneId)\` to bring them back if needed later!`;
+const UI_DECISION_TREE = `<ui_decision_tree>
+1) Classify request intent:
+- product_inquiry
+- recommendation
+- order_support
+- policy_help
+- settings_help
+- troubleshooting
+- comparison
+- confirmation_or_prefs
+- plain_factual
+- ambiguous
+
+2) Choose output surface:
+- Default = plain chat text.
+- If the request is recommendation, comparison, structured support, guided action, or lightweight preference capture, prefer rich chat via \`done(reply, previewText, success)\`.
+- Use screen intervention (\`render_block\`) only if user is in an active flow and local placement clearly reduces effort.
+- If uncertain or data is incomplete, return short text + one clarification question.
+
+3) Select block type:
+- Recommendation for one item -> \`ProductCard\`
+- Recommendation for multiple options -> \`ComparisonCard\`
+- Product-focused decision -> \`ProductCard\`
+- Recommendation / next steps -> \`ActionCard\`
+- Policy/status/faq snippets -> \`FactCard\`
+- Option comparison -> \`ComparisonCard\`
+- In-chat confirmation/preference collection -> \`FormCard\`
+
+4) Eligibility guardrails:
+- Reject rich UI for single-fact questions, exact visible screen answers that need no structuring, generic restatements, or duplicate recent injections in same zone state.
+</ui_decision_tree>`;
+const UI_BLOCK_RULE = `- RICH UI BLOCKS:
+  - Prefer plain text for low-complexity, one-off answers.
+  - Rich chat UI is the default for these use cases:
+    - recommendation requests
+    - option comparison
+    - structured support/status/policy answers
+    - guided next actions
+    - lightweight in-chat preference capture
+  - Use rich chat replies via \`done(reply, previewText, success)\` when structured UI reduces user effort.
+  - Block selection rubric:
+    - recommendation -> \`ProductCard\` for one strong recommendation, or \`ComparisonCard\` for multiple good options
+    - product_inquiry -> \`ProductCard\`
+    - order_support -> \`FactCard\` (or \`ActionCard\` when immediate decision support is needed)
+    - policy_help -> \`FactCard\`
+    - settings_help -> \`FactCard\` or \`ActionCard\`
+    - troubleshooting -> \`FactCard\` + optional \`ActionCard\`
+    - comparison -> \`ComparisonCard\`
+    - confirmation_or_prefs -> \`FormCard\`
+    - plain_factual -> text only unless the answer becomes meaningfully easier to scan as a compact fact bundle
+  - Recommendation override:
+    - If the user asks what to choose, what to order, what is recommended, or asks for good options, do NOT default to a plain text list.
+    - Prefer \`ProductCard\` or \`ComparisonCard\` unless there is not enough structured data to populate them.
+  - Cards are best for grouped content plus actions. Do not use a card when one short sentence fully answers the question.
+  - Use \`render_block(zoneId, blockType, props)\` only for strict in-screen interventions:
+    - visible friction/ambiguity exists
+    - zone supports intervention-eligible rendering
+    - local placement is better than chat
+  - Never use screen blocks for decorative summaries or generic repeat explanations.
+  - If uncertain between chat and screen, prefer chat.
+  - Avoid reinjection: do not render the same block in the same zone repeatedly if user context did not change.
+  - \`inject_card(zoneId, templateName, props)\` is a deprecated compatibility alias; prefer \`render_block\`.
+  - Use \`restore_zone(zoneId)\` when a screen block is outdated or no longer helpful.`;
+const TOOL_USAGE_CONTRACT = `- Use done() exactly once per response.
+  - For rich chat: \`done("[{ \\"type\\": \\"text\\", \\"content\\": ... }, { \\"type\\": \\"block\\", \\"blockType\\": \\\"ProductCard\\\" }]", \"preview text\", true)\`
+  - For plain text: \`done(\"text\", true)\`
+  - If a tool call is required, only mark success after the tool side-effect is complete.
+  - Keep \`reply\` payloads serializable; do not include functions in block props.`;
+const CHAT_UI_PREFERENCE_RULE = `- CHAT UI PREFERENCE:
+  - If your answer naturally fits an available rich chat block, prefer \`done(reply, previewText, success)\` over \`done(text, success)\`.
+  - Use:
+    - \`ProductCard\` for presenting a product, item, offer, or other concrete entity
+    - \`ComparisonCard\` for comparing multiple options or tradeoffs
+    - \`FactCard\` for structured support, policy, status, or FAQ answers
+    - \`ActionCard\` for guided next-step recommendations
+    - \`FormCard\` for lightweight in-chat choice or confirmation
+  - Do not default to a prose paragraph or prose list when one of these blocks is a natural fit.
+  - Use plain text only when the answer is brief, conversational, or cannot be represented well by a block.`;
 
 /**
  * Screen awareness rule — read visible data before asking the user for it.
@@ -345,7 +423,8 @@ Available tools:
 - type(index, text): Type text into a text-input element by its index.
 - scroll(direction, amount, containerIndex): Scroll the current screen to reveal more content (e.g. lazy-loaded lists). direction: 'down' or 'up'. amount: 'page' (default), 'toEnd', or 'toStart'. containerIndex: optional 0-based index if the screen has multiple scrollable areas (default: 0). Use when you need to see items below/above the current viewport.
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
-- done(text, success): Complete task. Text is your final response to the user — keep it concise unless the user explicitly asks for detail.
+- done(text, success): Text-only compatibility form for completing the task.
+- done(reply, previewText, success): Rich reply form. Use reply as a JSON string array of nodes when you want chat to render structured UI.
 - ask_user(question, request_app_action, grants_workflow_approval): Ask the user for clarification, answer a direct question, request explicit app access, or collect missing low-risk workflow data.${hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen. Do NOT use for UI actions.`
@@ -412,6 +491,10 @@ ${SCREEN_AWARENESS_RULE}
 - ANTI-REPETITION: Never repeat information you already shared in a previous message. If you said "your order is 14 minutes behind schedule" in message 1, do NOT say it again in message 2. Each message must add new value or take a new action.
 ${NAVIGATION_RULE}
 ${UI_SIMPLIFICATION_RULE}
+${UI_DECISION_TREE}
+${UI_BLOCK_RULE}
+${CHAT_UI_PREFERENCE_RULE}
+${TOOL_USAGE_CONTRACT}
 </rules>
 
 ${isCopilot ? COPILOT_RULES : ''}
@@ -557,7 +640,7 @@ Available tools:
 - type(index, text): Type text into a text-input element by its index. ONLY works on text-input elements.
 - scroll(direction, amount, containerIndex): Scroll the current screen to reveal more content (e.g. lazy-loaded lists). direction: 'down' or 'up'. amount: 'page' (default), 'toEnd', or 'toStart'. containerIndex: optional 0-based index if the screen has multiple scrollable areas (default: 0). Use when you need to see items below/above the current viewport.
 - wait(seconds): Wait for a specified number of seconds before taking the next action. Use this when the screen explicitly shows "Loading...", "Please wait", or loading skeletons, to give the app time to fetch data.
-- done(text, success): Complete task and respond to the user.${hasKnowledge
+- done(text, success): Text-only compatibility form.${hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen.`
       : ''
@@ -612,6 +695,10 @@ ${SCREEN_AWARENESS_RULE}
 - When a request is ambiguous or lacks specifics, NEVER guess. You must ask the user to clarify.
 ${NAVIGATION_RULE}
 ${UI_SIMPLIFICATION_RULE}
+${UI_DECISION_TREE}
+${UI_BLOCK_RULE}
+${CHAT_UI_PREFERENCE_RULE}
+${TOOL_USAGE_CONTRACT}
 </rules>
 
 ${buildSupportStylePrompt(supportStyle)}
@@ -679,7 +766,8 @@ Elements are listed with their type and label. Read them to understand the scree
 
 <tools>
 Available tools:
-- done(text, success): Complete the task and respond to the user. Always use this to deliver your answer.${hasKnowledge
+- done(text, success): Text-only compatibility form.
+- done(reply, previewText, success): Preferred rich reply form when a structured chat answer is more helpful.${hasKnowledge
       ? `
 - query_knowledge(question): Search the app's knowledge base for business information (policies, FAQs, delivery areas, product details, allergens, etc). Use when the user asks a domain question and the answer is NOT visible on screen.`
       : ''

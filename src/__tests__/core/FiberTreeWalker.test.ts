@@ -185,6 +185,26 @@ describe('FiberTreeWalker', () => {
       expect(result.interactives).toHaveLength(1);
       expect(result.interactives[0]!.type).toBe('slider');
     });
+
+    it('emits zone headers with card template names for AIZone boundaries', () => {
+      const InfoCard = { displayName: 'InfoCard' };
+      const ReviewSummary = { displayName: 'ReviewSummary' };
+      const zone = createFiberNode('AIZone', {
+        id: 'dish-detail-summary',
+        allowInjectCard: true,
+        allowHighlight: true,
+        templates: [InfoCard, ReviewSummary],
+      }, [
+        createFiberNode('Text', { children: 'Dish summary content' }),
+      ]);
+      const root = createFiberNode('View', {}, [zone]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      expect(result.elementsText).toContain('[zone: dish-detail-summary');
+      expect(result.elementsText).toContain('permissions: highlight, block');
+      expect(result.elementsText).toContain('blocks: InfoCard, ReviewSummary');
+    });
   });
 
   describe('label extraction', () => {

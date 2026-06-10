@@ -9,10 +9,28 @@
 export { AIAgent } from './components/AIAgent';
 export { AIZone } from './components/AIZone';
 export { AIConsentDialog, useAIConsent } from './components/AIConsentDialog';
-// Built-in card templates for AIZone injection
-// Note: displayName is set explicitly on each — required for minification-safe template lookup.
+export { RichContentRenderer } from './components/rich-content/RichContentRenderer';
+export { RichUIProvider } from './components/rich-content/RichUIContext';
+// Built-in compatibility wrappers and rich blocks
 export { InfoCard } from './components/cards/InfoCard';
 export { ReviewSummary } from './components/cards/ReviewSummary';
+export {
+  FactCard,
+  ProductCard,
+  ActionCard,
+  ComparisonCard,
+  FormCard,
+} from './components/blocks';
+export {
+  CardSurface,
+  MediaFrame,
+  PriceTag,
+  BadgeRow,
+  MetaRow,
+  ActionRow,
+  FieldRow,
+  SectionTitle,
+} from './components/blocks/primitives';
 
 // ─── Providers ───────────────────────────────────────────────
 export { GeminiProvider } from './providers/GeminiProvider';
@@ -50,12 +68,15 @@ export type {
   KnowledgeBaseConfig,
   ChatBarTheme,
   AIMessage,
+  AIRichNode,
+  BlockDefinition,
   AIProviderName,
   ScreenMap,
   ScreenMapEntry,
   InteractionMode,
   ConversationSummary,
 } from './core/types';
+export type { RichUITheme, RichUIThemeOverride } from './theme/RichUITheme';
 
 export type { MobileAIKnowledgeRetrieverOptions } from './services/MobileAIKnowledgeRetriever';
 

@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 export function createRestoreTool(): ToolDefinition {
   return {
     name: 'restore_zone',
-    description: 'Restore a specific Zone to its default state, reversing any previous simplify_zone or inject_card operations.',
+    description: 'Restore a specific Zone to its default state, reversing any previous simplify_zone, render_block, or inject_card operations.',
     parameters: {
       zoneId: { 
         type: 'string', 

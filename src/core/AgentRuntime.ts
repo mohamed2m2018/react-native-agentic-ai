@@ -34,6 +34,8 @@ import {
   createKeyboardTool,
   createGuideTool,
   createSimplifyTool,
+  createRenderBlockTool,
+  createInjectCardTool,
   createRestoreTool,
 } from '../tools';
 import type { ToolContext } from '../tools';
@@ -50,6 +52,7 @@ import type {
 import { actionRegistry } from './ActionRegistry';
 import { createProvider } from '../providers/ProviderFactory';
 import { formatActionToolResult } from '../utils/actionResult';
+import { normalizeRichContent, richContentToPlainText } from './richContent';
 
 const DEFAULT_MAX_STEPS = 25;
 
@@ -411,6 +414,8 @@ export class AgentRuntime {
       createKeyboardTool(),
       createGuideTool(toolContext),
       createSimplifyTool(),
+      createRenderBlockTool(),
+      createInjectCardTool(),
       createRestoreTool(),
     ];
 
@@ -490,14 +495,43 @@ export class AgentRuntime {
     // done — complete the task
     this.tools.set('done', {
       name: 'done',
-      description: 'Complete the task with a message to the user.',
+      description: 'Complete the task with a user-facing response. Use text for simple replies, or use reply (JSON string) plus previewText for rich chat replies.',
       parameters: {
-        text: { type: 'string', description: 'Response message to the user', required: true },
+        text: { type: 'string', description: 'Response message to the user', required: false },
+        reply: {
+          type: 'string',
+          description: 'Optional JSON string representing an array of rich reply nodes for chat rendering.',
+          required: false,
+        },
+        previewText: {
+          type: 'string',
+          description: 'Plain text preview used for history, notifications, and transcript previews.',
+          required: false,
+        },
         message: { type: 'string', description: 'Alternative to text parameter', required: false },
         success: { type: 'boolean', description: 'Whether the task was completed successfully', required: true },
       },
       execute: async (args) => {
-        let cleanText = args.text || args.message || '';
+        let cleanText = args.previewText || args.text || args.message || '';
+        const structuredCandidate =
+          typeof args.reply === 'string'
+            ? args.reply
+            : typeof args.text === 'string'
+              ? args.text
+              : typeof args.message === 'string'
+                ? args.message
+                : '';
+        if (!args.previewText && typeof structuredCandidate === 'string') {
+          try {
+            const parsed = JSON.parse(structuredCandidate);
+            cleanText = richContentToPlainText(
+              normalizeRichContent(parsed, cleanText),
+              cleanText
+            );
+          } catch {
+            // Fall through to normal text cleaning when the payload is not JSON.
+          }
+        }
         if (typeof cleanText === 'string') {
           // Strip bracketed indices safely avoiding regex stack overflows on large strings
           cleanText = cleanText.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
@@ -2060,9 +2094,38 @@ ${screen.elementsText}
             }, step);
             continue;
           }
+          const fallbackReplySource =
+            toolCall.args.reply || toolCall.args.text || toolCall.args.message || output || reasoning.plan || '';
+          let reply = normalizeRichContent(
+            fallbackReplySource,
+            toolCall.args.text || toolCall.args.message || output || reasoning.plan || ''
+          );
+          const structuredReplyCandidate =
+            typeof toolCall.args.reply === 'string'
+              ? toolCall.args.reply
+              : typeof toolCall.args.text === 'string'
+                ? toolCall.args.text
+                : typeof toolCall.args.message === 'string'
+                  ? toolCall.args.message
+                  : '';
+          if (typeof structuredReplyCandidate === 'string' && structuredReplyCandidate.trim()) {
+            try {
+              const parsedReply = JSON.parse(structuredReplyCandidate);
+              reply = normalizeRichContent(parsedReply, toolCall.args.text || toolCall.args.message || output || reasoning.plan || '');
+            } catch {
+              reply = normalizeRichContent(fallbackReplySource, toolCall.args.text || toolCall.args.message || output || reasoning.plan || '');
+            }
+          }
+          const previewText = toolCall.args.previewText
+            || richContentToPlainText(
+              reply,
+              toolCall.args.text || toolCall.args.message || output || reasoning.plan || ''
+            );
           const result: ExecutionResult = {
             success: toolCall.args.success !== false,
-            message: toolCall.args.text || toolCall.args.message || output || reasoning.plan || (toolCall.args.success === false ? 'Action stopped.' : 'Action completed.'),
+            message: previewText || (toolCall.args.success === false ? 'Action stopped.' : 'Action completed.'),
+            previewText,
+            reply,
             steps: this.history,
             tokenUsage: sessionUsage,
           };

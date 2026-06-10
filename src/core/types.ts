@@ -1,6 +1,7 @@
 /**
  * Core types for the React Native AI SDK.
  */
+import type React from 'react';
 
 // ─── Agent Modes ──────────────────────────────────────────────
 
@@ -465,6 +466,10 @@ export interface AgentConfig {
 export interface ExecutionResult {
   success: boolean;
   message: string;
+  /** Preview text used for history, search, and notifications */
+  previewText?: string;
+  /** Structured reply content rendered in chat surfaces */
+  reply?: AIRichNode[];
   steps: AgentStep[];
   /** Accumulated token usage for the entire task */
   tokenUsage?: TokenUsage;
@@ -538,14 +543,59 @@ export type KnowledgeBaseConfig = KnowledgeEntry[] | KnowledgeRetriever;
 
 // ─── Chat Messages ───────────────────────────────────────────
 
+export type AIRichBlockPlacement = 'chat' | 'zone';
+export type AIRichBlockLifecycle = 'persistent' | 'dismissible';
+export type BlockInterventionType =
+  | 'error_prevention'
+  | 'decision_support'
+  | 'contextual_help'
+  | 'recovery'
+  | 'none';
+
+export interface AIRichTextNode {
+  type: 'text';
+  content: string;
+  id?: string;
+}
+
+export interface AIRichBlockNode {
+  type: 'block';
+  blockType: string;
+  props: Record<string, unknown>;
+  id: string;
+  placement?: AIRichBlockPlacement;
+  lifecycle?: AIRichBlockLifecycle;
+}
+
+export type AIRichNode = AIRichTextNode | AIRichBlockNode;
+
+export interface BlockPropDefinition {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  required?: boolean;
+  description?: string;
+}
+
+export interface BlockDefinition {
+  name: string;
+  component: React.ComponentType<any>;
+  allowedPlacements: AIRichBlockPlacement[];
+  propSchema?: Record<string, BlockPropDefinition>;
+  previewTextBuilder?: (props: Record<string, unknown>) => string;
+  interventionType?: BlockInterventionType;
+  interventionEligible?: boolean;
+  styleSlots?: string[];
+}
+
 /** A single message in the conversation history. */
 export interface AIMessage {
   /** Unique message ID */
   id: string;
   /** Who sent this message */
   role: 'user' | 'assistant';
-  /** Text content */
-  content: string;
+  /** Structured rich content */
+  content: AIRichNode[];
+  /** Preview text used for transcript previews/history */
+  previewText: string;
   /** Unix timestamp (ms) */
   timestamp: number;
   /** Attached execution result (assistant messages only) */
@@ -659,13 +709,21 @@ export interface AIZoneConfig {
   allowInjectHint?: boolean;
   /** Whether the AI is allowed to hide children marked with aiPriority="low" */
   allowSimplify?: boolean;
-  /** Whether the AI is allowed to inject custom cards here */
+  /** Whether the AI is allowed to inject structured blocks here */
+  allowInjectBlock?: boolean;
+  /** Whether this zone may be used for screen interventions */
+  interventionEligible?: boolean;
+  /** Whether proactive screen interventions are allowed in this zone */
+  proactiveIntervention?: boolean;
+  /**
+   * Whitelist of registered UI blocks the AI can instantiate in this zone.
+   * IMPORTANT: The AI only receives the block names and prop schema.
+   */
+  blocks?: BlockDefinition[];
+  /** @deprecated Use allowInjectBlock */
   allowInjectCard?: boolean;
   /**
-   * Whitelist of React component templates the AI can instantiate.
-   * Required if allowInjectCard is true.
-   * IMPORTANT: The AI receives the displayName of these components
-   * and can only produce props for them. It cannot generate JSX.
+   * @deprecated Use blocks.
    */
   templates?: React.ComponentType<any>[];
 }
