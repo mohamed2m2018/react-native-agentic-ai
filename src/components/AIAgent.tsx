@@ -82,6 +82,21 @@ type AndroidWindowMetrics = {
   height: number;
 };
 
+type SupportHistoryEntry =
+  import('../support/types').SupportTicket['history'][number];
+
+const UI_ACTION_TOOL_NAMES = new Set([
+  'tap',
+  'type',
+  'scroll',
+  'navigate',
+  'long_press',
+  'adjust_slider',
+  'select_picker',
+  'set_date',
+  'dismiss_keyboard',
+]);
+
 // ─── Context ───────────────────────────────────────────────────
 
 // ─── AsyncStorage Helper (same pattern as TicketStore) ─────────
@@ -120,6 +135,35 @@ function sanitizeWireframeScreenshot(value: string | null | undefined): string |
     : trimmed;
 
   return base64.length > 0 ? base64 : null;
+}
+
+function mergeSupportHistory(
+  serverHistory: SupportHistoryEntry[] = [],
+  localHistory: SupportHistoryEntry[] = []
+): SupportHistoryEntry[] {
+  const combined = [...serverHistory, ...localHistory];
+  const deduped: Array<SupportHistoryEntry & { __index: number }> = [];
+  const seen = new Set<string>();
+
+  combined.forEach((entry, index) => {
+    const key = `${entry.role}|${entry.content}|${entry.timestamp ?? `missing-${index}`}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push({ ...entry, __index: index });
+  });
+
+  deduped.sort((a, b) => {
+    const aTime = a.timestamp ? new Date(a.timestamp).getTime() : NaN;
+    const bTime = b.timestamp ? new Date(b.timestamp).getTime() : NaN;
+
+    if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+      return aTime - bTime;
+    }
+
+    return a.__index - b.__index;
+  });
+
+  return deduped.map(({ __index, ...entry }) => entry);
 }
 
 async function captureHeatmapScreenshot(
@@ -333,12 +377,16 @@ interface AIAgentProps {
 
   /**
    * Controls how the agent handles irreversible UI actions.
-   * 'copilot' (default): AI pauses before final commit actions (place order, delete, submit).
+   * 'copilot' (default): AI may ask once before entering an app-action flow, then works
+   * silently through routine steps and pauses again only for irreversible final commits
+   * (place order, delete, submit, pay, cancel).
    * 'autopilot': Full autonomy — all actions execute without confirmation.
    *
-   * In copilot mode, the AI works silently (navigates, fills forms, scrolls) and
-   * pauses ONCE before the final irreversible action. Elements with aiConfirm={true}
-   * also trigger a code-level confirmation gate as a safety net.
+   * In copilot mode, the AI can collect low-risk workflow details, request one approval
+   * to start routine app actions when needed, execute navigation/fill/selection steps
+   * silently, and then request a separate confirmation only before an irreversible
+   * commit. Elements with aiConfirm={true} also trigger a code-level confirmation gate
+   * as a safety net.
    */
   interactionMode?: InteractionMode;
 
@@ -474,6 +522,7 @@ export function AIAgent({
 
   const rootViewRef = useRef<any>(null);
   const [isThinking, setIsThinking] = useState(false);
+  const [isActing, setIsActing] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
@@ -1190,8 +1239,7 @@ export function AIAgent({
         setTickets(fetchedTickets);
         setUnreadCounts(initialUnreadCounts);
 
-        // Show the ticket list without auto-selecting — user taps in (Intercom-style).
-        // setMode switches the widget to human mode so the list is immediately visible.
+        // Switch the widget to human mode so support is immediately available.
         setMode('human');
         setAutoExpandTrigger((prev) => prev + 1);
 
@@ -1200,10 +1248,18 @@ export function AIAgent({
           openSSE(t.id);
         }
 
-        // If there is exactly one ticket, pre-wire its WebSocket so it is ready
-        // the moment the user taps the card (no extra connect delay).
+        // If there is exactly one ticket, open it immediately so live agent replies
+        // render into the visible chat instead of sitting in the unread bucket.
         if (fetchedTickets.length === 1) {
           const ticket = fetchedTickets[0]!;
+          setSelectedTicketId(ticket.id);
+          setUnreadCounts((prev) => {
+            if (!prev[ticket.id]) return prev;
+            const next = { ...prev };
+            delete next[ticket.id];
+            return next;
+          });
+          setChatScrollTrigger((prev) => prev + 1);
 
           if (ticket.history?.length) {
             const restored: AIMessage[] = ticket.history.map(
@@ -1221,7 +1277,7 @@ export function AIAgent({
                   : Date.now(),
               })
             );
-            setMessages(restored);
+            setSupportMessages(restored);
           }
 
           const socket = new EscalationSocket({
@@ -1253,7 +1309,7 @@ export function AIAgent({
                   content: reply,
                   timestamp: Date.now(),
                 };
-                setMessages((prev) => [...prev, msg]);
+                setSupportMessages((prev) => [...prev, msg]);
                 setLastResult({
                   success: true,
                   message: `👤 ${reply}`,
@@ -1280,11 +1336,10 @@ export function AIAgent({
               ticket.id
             );
           }
-          // Cache in pendingSocketsRef so handleTicketSelect reuses it without reconnecting
-          pendingSocketsRef.current.set(ticket.id, socket);
+          setSupportSocket(socket);
           logger.info(
             'AIAgent',
-            '★ Single ticket restored and socket cached:',
+            '★ Single ticket restored and opened:',
             ticket.id
           );
         }
@@ -1414,12 +1469,16 @@ export function AIAgent({
           if (data.wsUrl) {
             freshWsUrl = data.wsUrl; // always prefer the live server value
           }
-          const history: Array<{
+          const serverHistory: Array<{
             role: string;
             content: string;
             timestamp?: string;
           }> = Array.isArray(data.history) ? data.history : [];
-          const restored: AIMessage[] = history.map((entry, i) => ({
+          const mergedHistory = mergeSupportHistory(
+            serverHistory,
+            ticket.history || []
+          );
+          const restored: AIMessage[] = mergedHistory.map((entry, i) => ({
             id: `restored-${ticketId}-${i}`,
             role: (entry.role === 'live_agent'
               ? 'assistant'
@@ -1434,7 +1493,15 @@ export function AIAgent({
           if (data.wsUrl) {
             setTickets((prev) =>
               prev.map((t) =>
-                t.id === ticketId ? { ...t, history, wsUrl: data.wsUrl } : t
+                t.id === ticketId
+                  ? { ...t, history: mergedHistory, wsUrl: data.wsUrl }
+                  : t
+              )
+            );
+          } else {
+            setTickets((prev) =>
+              prev.map((t) =>
+                t.id === ticketId ? { ...t, history: mergedHistory } : t
               )
             );
           }
@@ -1797,6 +1864,7 @@ export function AIAgent({
                     'AIAgent',
                     `⚡ Auto-resolving ask_user with queued message: "${queued}"`
                   );
+                  setAutoExpandTrigger((prev) => prev + 1);
                   // Show the AI question in chat, clear the approval buttons (no resolver for them),
                   // then immediately resolve the Promise with the queued message.
                   setMessages((prev) => [
@@ -1821,6 +1889,7 @@ export function AIAgent({
                 setPendingApprovalQuestion(
                   forcedKind === 'approval' ? question : null
                 );
+                setAutoExpandTrigger((prev) => prev + 1);
                 // Add AI question to the message thread so it appears in chat
                 setMessages((prev) => [
                   ...prev,
@@ -1839,7 +1908,8 @@ export function AIAgent({
             },
       // Toggle isAgentActing flag on TelemetryService before/after every tool
       // so that AI-driven taps are never tracked as user_interaction events.
-      onToolExecute: (active: boolean) => {
+      onToolExecute: (active: boolean, toolName?: string) => {
+        setIsActing(active && !!toolName && UI_ACTION_TOOL_NAMES.has(toolName));
         telemetryRef.current?.setAgentActing(active);
       },
       onTrace: (event: AgentTraceEvent) => {
@@ -2413,6 +2483,7 @@ export function AIAgent({
         try {
           // Trigger visual 'thinking' overlay down to ChatBar so user knows action is happening
           setIsThinking(true);
+          setIsActing(UI_ACTION_TOOL_NAMES.has(toolCall.name));
           const toolNameFriendly = toolCall.name.replace(/_/g, ' ');
           setStatusText(`Executing ${toolNameFriendly}...`);
 
@@ -2453,6 +2524,7 @@ export function AIAgent({
           );
         } finally {
           toolLockRef.current = false;
+          setIsActing(false);
           setIsThinking(false);
           setStatusText('');
 
@@ -3095,6 +3167,7 @@ export function AIAgent({
           steps: [],
         });
       } finally {
+        setIsActing(false);
         setIsThinking(false);
         setStatusText('');
       }
@@ -3280,6 +3353,7 @@ export function AIAgent({
                 onSend={handleSend}
                 onCancel={handleCancel}
                 isThinking={isThinking}
+                isActing={isActing}
                 statusText={overlayStatusText}
                 lastResult={lastResult}
                 lastUserMessage={lastUserMessage}
@@ -3431,6 +3505,7 @@ export function AIAgent({
                   onSend={handleSend}
                   onCancel={handleCancel}
                   isThinking={isThinking}
+                  isActing={isActing}
                   statusText={overlayStatusText}
                   lastResult={lastResult}
                   lastUserMessage={lastUserMessage}

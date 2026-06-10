@@ -43,6 +43,7 @@ interface AgentChatBarProps {
   onSend: (message: string) => void;
   onCancel?: () => void;
   isThinking: boolean;
+  isActing?: boolean;
   statusText?: string;
   lastResult: ExecutionResult | null;
   language: 'en' | 'ar';
@@ -492,6 +493,7 @@ export function AgentChatBar({
   onSend,
   onCancel,
   isThinking,
+  isActing = false,
   statusText,
   lastResult,
   language,
@@ -546,7 +548,7 @@ export function AgentChatBar({
   );
   const [panelHeight, setPanelHeight] = useState(0);
   const preKeyboardYRef = useRef<number | null>(null);
-  const previousThinkingRef = useRef(false);
+  const previousActingRef = useRef(false);
   const autoCollapsedForThinkingRef = useRef(false);
   const dragOriginRef = useRef({ x: 0, y: 0 });
   const panPositionRef = useRef({ x: 10, y: height - 200 });
@@ -728,19 +730,31 @@ export function AgentChatBar({
   }, []);
 
   useEffect(() => {
-    const wasThinking = previousThinkingRef.current;
+    const wasActing = previousActingRef.current;
+
+    if (
+      !wasActing &&
+      isActing &&
+      isExpanded &&
+      !pendingApprovalQuestion &&
+      !consentVisible
+    ) {
+      autoCollapsedForThinkingRef.current = true;
+      setShowHistory(false);
+      setIsExpanded(false);
+    }
 
     if (pendingApprovalQuestion) {
       setIsExpanded(true);
       autoCollapsedForThinkingRef.current = false;
     }
 
-    if (wasThinking && !isThinking) {
+    if (wasActing && !isActing) {
       autoCollapsedForThinkingRef.current = false;
     }
 
-    previousThinkingRef.current = isThinking;
-  }, [isThinking, isExpanded, mode, pendingApprovalQuestion]);
+    previousActingRef.current = isActing;
+  }, [consentVisible, isActing, isExpanded, pendingApprovalQuestion]);
 
   const pan = useRef(new Animated.ValueXY({ x: 10, y: height - 200 })).current;
 
