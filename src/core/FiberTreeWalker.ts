@@ -9,9 +9,26 @@
 
 import { Dimensions } from 'react-native';
 import { logger } from '../utils/logger';
-import { getChild, getSibling, getParent, getProps, getStateNode, getType, getDisplayName } from './FiberAdapter';
+import {
+  getChild,
+  getSibling,
+  getParent,
+  getProps,
+  getStateNode,
+  getType,
+  getDisplayName,
+} from './FiberAdapter';
 import { getActiveAlert } from './NativeAlertInterceptor';
-import type { InteractiveElement, ElementType, WireframeComponent, WireframeSnapshot } from './types';
+import type {
+  InteractiveElement,
+  ElementType,
+  WireframeComponent,
+  WireframeSnapshot,
+} from './types';
+import {
+  chooseBestAnalyticsTarget,
+  getAnalyticsElementKind,
+} from '../services/telemetry/analyticsLabeling';
 
 // ─── Walk Configuration ─────────
 
@@ -38,37 +55,94 @@ const PRESSABLE_TYPES = new Set([
   'Button',
 ]);
 
-const TEXT_INPUT_TYPES = new Set(['TextInput', 'RCTSinglelineTextInputView', 'RCTMultilineTextInputView']);
+const TEXT_INPUT_TYPES = new Set([
+  'TextInput',
+  'RCTSinglelineTextInputView',
+  'RCTMultilineTextInputView',
+]);
 const SWITCH_TYPES = new Set(['Switch', 'RCTSwitch']);
 const SLIDER_TYPES = new Set(['Slider', 'RNCSlider', 'RCTSlider']);
-const PICKER_TYPES = new Set(['Picker', 'RNCPicker', 'RNPickerSelect', 'DropDownPicker', 'SelectDropdown']);
-const DATE_PICKER_TYPES = new Set(['DateTimePicker', 'RNDateTimePicker', 'DatePicker', 'RNDatePicker']);
+const PICKER_TYPES = new Set([
+  'Picker',
+  'RNCPicker',
+  'RNPickerSelect',
+  'DropDownPicker',
+  'SelectDropdown',
+]);
+const DATE_PICKER_TYPES = new Set([
+  'DateTimePicker',
+  'RNDateTimePicker',
+  'DatePicker',
+  'RNDatePicker',
+]);
 const TEXT_TYPES = new Set(['Text', 'RCTText']);
-const RADIO_TYPES = new Set(['Radio', 'RadioButton', 'RadioItem', 'RadioButtonItem', 'RadioGroupItem']);
+const RADIO_TYPES = new Set([
+  'Radio',
+  'RadioButton',
+  'RadioItem',
+  'RadioButtonItem',
+  'RadioGroupItem',
+]);
 
 // Media component types for Component-Context Media Inference
 const IMAGE_TYPES = new Set([
-  'Image', 'RCTImageView', 'ExpoImage', 'FastImage', 'CachedImage',
+  'Image',
+  'RCTImageView',
+  'ExpoImage',
+  'FastImage',
+  'CachedImage',
 ]);
 const VIDEO_TYPES = new Set([
-  'Video', 'ExpoVideo', 'RCTVideo', 'VideoPlayer', 'VideoView',
+  'Video',
+  'ExpoVideo',
+  'RCTVideo',
+  'VideoPlayer',
+  'VideoView',
 ]);
-
-
 
 // Known RN internal component names to skip when walking up for context
 const RN_INTERNAL_NAMES = new Set([
-  'View', 'RCTView', 'Pressable', 'TouchableOpacity', 'TouchableHighlight',
-  'ScrollView', 'RCTScrollView', 'FlatList', 'SectionList',
-  'SafeAreaView', 'RNCSafeAreaView', 'KeyboardAvoidingView',
-  'Modal', 'StatusBar', 'Text', 'RCTText', 'AnimatedComponent',
-  'AnimatedComponentWrapper', 'Animated',
+  'View',
+  'RCTView',
+  'Pressable',
+  'TouchableOpacity',
+  'TouchableHighlight',
+  'ScrollView',
+  'RCTScrollView',
+  'FlatList',
+  'SectionList',
+  'SafeAreaView',
+  'RNCSafeAreaView',
+  'KeyboardAvoidingView',
+  'Modal',
+  'StatusBar',
+  'Text',
+  'RCTText',
+  'AnimatedComponent',
+  'AnimatedComponentWrapper',
+  'Animated',
 ]);
 
 const LOW_SIGNAL_RUNTIME_LABELS = new Set([
-  'button', 'buttons', 'label', 'labels', 'title', 'titles', 'name',
-  'text', 'value', 'values', 'content', 'card', 'cards', 'row', 'rows',
-  'item', 'items', 'component', 'screen',
+  'button',
+  'buttons',
+  'label',
+  'labels',
+  'title',
+  'titles',
+  'name',
+  'text',
+  'value',
+  'values',
+  'content',
+  'card',
+  'cards',
+  'row',
+  'rows',
+  'item',
+  'items',
+  'component',
+  'screen',
 ]);
 
 const EXTERNALLY_LABELED_TYPES = new Set<ElementType>([
@@ -91,15 +165,15 @@ type RuntimeLabelSource =
 interface InteractionSignature {
   type: ElementType;
   channel:
-  | 'onPress'
-  | 'onLongPress'
-  | 'onChangeText'
-  | 'onValueChange'
-  | 'onSlidingComplete'
-  | 'onChange'
-  | 'onDateChange'
-  | 'onCheckedChange'
-  | 'onSelect';
+    | 'onPress'
+    | 'onLongPress'
+    | 'onChangeText'
+    | 'onValueChange'
+    | 'onSlidingComplete'
+    | 'onChange'
+    | 'onDateChange'
+    | 'onCheckedChange'
+    | 'onSelect';
   handler: Function;
 }
 
@@ -117,8 +191,22 @@ interface RadioSelectionHandler {
 // ─── State Extraction ──
 
 /** Props to extract as state attributes — covers lazy devs who skip accessibility */
-const STATE_PROPS = ['value', 'checked', 'selected', 'active', 'on', 'isOn', 'toggled', 'enabled'];
-const RADIO_SELECTION_KEYS = ['checked', 'selected', 'isChecked', 'isSelected'] as const;
+const STATE_PROPS = [
+  'value',
+  'checked',
+  'selected',
+  'active',
+  'on',
+  'isOn',
+  'toggled',
+  'enabled',
+];
+const RADIO_SELECTION_KEYS = [
+  'checked',
+  'selected',
+  'isChecked',
+  'isSelected',
+] as const;
 const RADIO_TRUE_VALUES = new Set(['true', 'checked', 'selected', 'on']);
 const RADIO_FALSE_VALUES = new Set(['false', 'unchecked', 'unselected', 'off']);
 const RADIO_DECORATION_PATTERN = /(indicator|icon|label|provider|context)$/i;
@@ -133,7 +221,10 @@ function extractStateAttributes(props: any): string {
   const parts: string[] = [];
 
   // Priority 1: accessibilityState (proper ARIA equivalent)
-  if (props.accessibilityState && typeof props.accessibilityState === 'object') {
+  if (
+    props.accessibilityState &&
+    typeof props.accessibilityState === 'object'
+  ) {
     for (const [k, v] of Object.entries(props.accessibilityState)) {
       if (v !== undefined) parts.push(`${k}="${v}"`);
     }
@@ -146,7 +237,11 @@ function extractStateAttributes(props: any): string {
 
   // Priority 3: Direct scalar props fallback (lazy developer support)
   for (const key of STATE_PROPS) {
-    if (props[key] !== undefined && typeof props[key] !== 'function' && typeof props[key] !== 'object') {
+    if (
+      props[key] !== undefined &&
+      typeof props[key] !== 'function' &&
+      typeof props[key] !== 'object'
+    ) {
       parts.push(`${key}="${props[key]}"`);
     }
   }
@@ -173,7 +268,10 @@ export function hasAnyEventHandler(props: any): boolean {
  * Skips known React Native internal component names.
  * This provides semantic context for media elements (e.g., an Image inside "ProfileHeader").
  */
-function getNearestCustomComponentName(fiber: any, maxDepth: number = 8): string | null {
+function getNearestCustomComponentName(
+  fiber: any,
+  maxDepth: number = 8
+): string | null {
   let current = getParent(fiber);
   let depth = 0;
   while (current && depth < maxDepth) {
@@ -211,6 +309,98 @@ function getComponentName(fiber: any): string | null {
   return null;
 }
 
+function getCustomAncestorPath(
+  fiber: any,
+  maxDepth: number = 6
+): string[] {
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let current = getParent(fiber);
+  let depth = 0;
+
+  while (current && depth < maxDepth) {
+    const name = getComponentName(current);
+    const props = getProps(current);
+    const candidate =
+      name === 'AIZone' && typeof props.id === 'string' && props.id.trim()
+        ? props.id.trim()
+        : name;
+
+    if (
+      candidate &&
+      !RN_INTERNAL_NAMES.has(candidate) &&
+      !PRESSABLE_TYPES.has(candidate) &&
+      !seen.has(candidate)
+    ) {
+      path.push(candidate);
+      seen.add(candidate);
+    }
+
+    current = getParent(current);
+    depth++;
+  }
+
+  return path;
+}
+
+function getAnalyticsTargetForNode(
+  fiber: any,
+  resolvedType: ElementType | null
+) {
+  const props = getProps(fiber);
+  const siblingTextLabel =
+    resolvedType && EXTERNALLY_LABELED_TYPES.has(resolvedType)
+      ? extractSiblingTextLabel(fiber)
+      : null;
+
+  return chooseBestAnalyticsTarget(
+    [
+      { text: props.accessibilityLabel, source: 'accessibility' },
+      { text: extractDeepTextContent(fiber), source: 'deep-text' },
+      { text: siblingTextLabel, source: 'sibling-text' },
+      { text: props.title, source: 'title' },
+      {
+        text: resolvedType === 'text-input' ? props.placeholder : null,
+        source: 'placeholder',
+      },
+      {
+        text: props.testID || props.nativeID,
+        source: 'test-id',
+      },
+    ],
+    getAnalyticsElementKind(resolvedType)
+  );
+}
+
+function getSiblingAnalyticsLabels(
+  fiber: any,
+  maxLabels: number = 6
+): string[] {
+  const parent = getParent(fiber);
+  if (!parent) return [];
+
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  let sibling = getChild(parent);
+
+  while (sibling) {
+    if (sibling !== fiber) {
+      const siblingType = getElementType(sibling);
+      if (siblingType && !isDisabled(sibling)) {
+        const label = getAnalyticsTargetForNode(sibling, siblingType).label;
+        if (label && !seen.has(label.toLowerCase())) {
+          labels.push(label);
+          seen.add(label.toLowerCase());
+          if (labels.length >= maxLabels) break;
+        }
+      }
+    }
+    sibling = getSibling(sibling);
+  }
+
+  return labels;
+}
+
 function hasSliderLikeSemantics(props: any): boolean {
   if (!props || typeof props !== 'object') return false;
 
@@ -219,19 +409,29 @@ function hasSliderLikeSemantics(props: any): boolean {
   const hasOnValueChange = typeof props.onValueChange === 'function';
   if (!hasOnValueChange) return false;
 
-  const hasExplicitRange = props.minimumValue !== undefined || props.maximumValue !== undefined;
+  const hasExplicitRange =
+    props.minimumValue !== undefined || props.maximumValue !== undefined;
   if (hasExplicitRange) return true;
 
   const accessibilityValue = props.accessibilityValue;
-  const hasAccessibilityRange = !!accessibilityValue && typeof accessibilityValue === 'object' &&
-    (accessibilityValue.min !== undefined || accessibilityValue.max !== undefined);
+  const hasAccessibilityRange =
+    !!accessibilityValue &&
+    typeof accessibilityValue === 'object' &&
+    (accessibilityValue.min !== undefined ||
+      accessibilityValue.max !== undefined);
   if (hasAccessibilityRange) return true;
 
   return typeof props.value === 'number';
 }
 
-function isScalarSelectionValue(value: unknown): value is string | number | boolean {
-  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+function isScalarSelectionValue(
+  value: unknown
+): value is string | number | boolean {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
 }
 
 function coerceRadioBoolean(value: unknown): boolean | undefined {
@@ -247,8 +447,13 @@ function coerceRadioBoolean(value: unknown): boolean | undefined {
 function getOwnRadioCheckedState(props: any): boolean | undefined {
   if (!props || typeof props !== 'object') return undefined;
 
-  if (props.accessibilityState && typeof props.accessibilityState === 'object') {
-    const accessibilityChecked = coerceRadioBoolean(props.accessibilityState.checked);
+  if (
+    props.accessibilityState &&
+    typeof props.accessibilityState === 'object'
+  ) {
+    const accessibilityChecked = coerceRadioBoolean(
+      props.accessibilityState.checked
+    );
     if (accessibilityChecked !== undefined) return accessibilityChecked;
   }
 
@@ -263,7 +468,9 @@ function getOwnRadioCheckedState(props: any): boolean | undefined {
   return undefined;
 }
 
-function getRadioSelectionValue(props: any): string | number | boolean | undefined {
+function getRadioSelectionValue(
+  props: any
+): string | number | boolean | undefined {
   if (!props || typeof props !== 'object') return undefined;
   return isScalarSelectionValue(props.value) ? props.value : undefined;
 }
@@ -284,10 +491,16 @@ function isRadioLikeComponentName(name: string | null): boolean {
 function getRadioSelectionHandler(props: any): RadioSelectionHandler | null {
   if (!props || typeof props !== 'object') return null;
   if (typeof props.onValueChange === 'function') {
-    return { channel: 'onValueChange', handler: props.onValueChange as Function };
+    return {
+      channel: 'onValueChange',
+      handler: props.onValueChange as Function,
+    };
   }
   if (typeof props.onCheckedChange === 'function') {
-    return { channel: 'onCheckedChange', handler: props.onCheckedChange as Function };
+    return {
+      channel: 'onCheckedChange',
+      handler: props.onCheckedChange as Function,
+    };
   }
   if (typeof props.onChange === 'function') {
     return { channel: 'onChange', handler: props.onChange as Function };
@@ -298,7 +511,10 @@ function getRadioSelectionHandler(props: any): RadioSelectionHandler | null {
   return null;
 }
 
-function findAncestorRadioSelectionController(fiber: any, maxDepth: number = 8): RadioSelectionController | null {
+function findAncestorRadioSelectionController(
+  fiber: any,
+  maxDepth: number = 8
+): RadioSelectionController | null {
   let current = getParent(fiber);
   let depth = 0;
 
@@ -309,7 +525,9 @@ function findAncestorRadioSelectionController(fiber: any, maxDepth: number = 8):
     const handler = getRadioSelectionHandler(props);
     const selectedValue = isScalarSelectionValue(props.selectedValue)
       ? props.selectedValue
-      : (isScalarSelectionValue(props.value) ? props.value : undefined);
+      : isScalarSelectionValue(props.value)
+        ? props.value
+        : undefined;
 
     if (isRadioGroupComponentName(name) || role === 'radiogroup') {
       return {
@@ -341,7 +559,11 @@ function inferRadioCheckedState(fiber: any, props: any): boolean | undefined {
   return undefined;
 }
 
-function hasRadioLikeSemantics(fiber: any, name: string | null, props: any): boolean {
+function hasRadioLikeSemantics(
+  fiber: any,
+  name: string | null,
+  props: any
+): boolean {
   if (!props || typeof props !== 'object') return false;
 
   const role = props.accessibilityRole || props.role;
@@ -349,17 +571,26 @@ function hasRadioLikeSemantics(fiber: any, name: string | null, props: any): boo
 
   if (!isRadioLikeComponentName(name)) return false;
 
-  if (typeof props.onPress === 'function' || typeof props.onLongPress === 'function') return true;
+  if (
+    typeof props.onPress === 'function' ||
+    typeof props.onLongPress === 'function'
+  )
+    return true;
   if (getRadioSelectionHandler(props)) return true;
   if (getOwnRadioCheckedState(props) !== undefined) return true;
 
   const itemValue = getRadioSelectionValue(props);
-  if (itemValue !== undefined && findAncestorRadioSelectionController(fiber)) return true;
+  if (itemValue !== undefined && findAncestorRadioSelectionController(fiber))
+    return true;
 
   return false;
 }
 
-function buildDerivedElementProps(fiber: any, elementType: ElementType, props: any): Record<string, any> {
+function buildDerivedElementProps(
+  fiber: any,
+  elementType: ElementType,
+  props: any
+): Record<string, any> {
   const derivedProps = { ...props };
 
   if (elementType === 'radio') {
@@ -372,65 +603,118 @@ function buildDerivedElementProps(fiber: any, elementType: ElementType, props: a
   return derivedProps;
 }
 
-function getInteractionSignature(elementType: ElementType | null, props: any): InteractionSignature | null {
+function getInteractionSignature(
+  elementType: ElementType | null,
+  props: any
+): InteractionSignature | null {
   if (!elementType || !props || typeof props !== 'object') return null;
 
   if (elementType === 'pressable') {
     if (typeof props.onPress === 'function') {
-      return { type: elementType, channel: 'onPress', handler: props.onPress as Function };
+      return {
+        type: elementType,
+        channel: 'onPress',
+        handler: props.onPress as Function,
+      };
     }
     if (typeof props.onLongPress === 'function') {
-      return { type: elementType, channel: 'onLongPress', handler: props.onLongPress as Function };
+      return {
+        type: elementType,
+        channel: 'onLongPress',
+        handler: props.onLongPress as Function,
+      };
     }
     return null;
   }
 
-  if (elementType === 'text-input' && typeof props.onChangeText === 'function') {
-    return { type: elementType, channel: 'onChangeText', handler: props.onChangeText as Function };
+  if (
+    elementType === 'text-input' &&
+    typeof props.onChangeText === 'function'
+  ) {
+    return {
+      type: elementType,
+      channel: 'onChangeText',
+      handler: props.onChangeText as Function,
+    };
   }
 
   if (elementType === 'switch' && typeof props.onValueChange === 'function') {
-    return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+    return {
+      type: elementType,
+      channel: 'onValueChange',
+      handler: props.onValueChange as Function,
+    };
   }
 
   if (elementType === 'radio') {
     if (typeof props.onPress === 'function') {
-      return { type: elementType, channel: 'onPress', handler: props.onPress as Function };
+      return {
+        type: elementType,
+        channel: 'onPress',
+        handler: props.onPress as Function,
+      };
     }
     const selectionHandler = getRadioSelectionHandler(props);
     if (selectionHandler) {
-      return { type: elementType, channel: selectionHandler.channel, handler: selectionHandler.handler };
+      return {
+        type: elementType,
+        channel: selectionHandler.channel,
+        handler: selectionHandler.handler,
+      };
     }
     return null;
   }
 
   if (elementType === 'slider') {
     if (typeof props.onSlidingComplete === 'function') {
-      return { type: elementType, channel: 'onSlidingComplete', handler: props.onSlidingComplete as Function };
+      return {
+        type: elementType,
+        channel: 'onSlidingComplete',
+        handler: props.onSlidingComplete as Function,
+      };
     }
     if (typeof props.onValueChange === 'function') {
-      return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+      return {
+        type: elementType,
+        channel: 'onValueChange',
+        handler: props.onValueChange as Function,
+      };
     }
     return null;
   }
 
   if (elementType === 'picker' && typeof props.onValueChange === 'function') {
-    return { type: elementType, channel: 'onValueChange', handler: props.onValueChange as Function };
+    return {
+      type: elementType,
+      channel: 'onValueChange',
+      handler: props.onValueChange as Function,
+    };
   }
 
   if (elementType === 'date-picker') {
     if (typeof props.onChange === 'function') {
-      return { type: elementType, channel: 'onChange', handler: props.onChange as Function };
+      return {
+        type: elementType,
+        channel: 'onChange',
+        handler: props.onChange as Function,
+      };
     }
     if (typeof props.onDateChange === 'function') {
-      return { type: elementType, channel: 'onDateChange', handler: props.onDateChange as Function };
+      return {
+        type: elementType,
+        channel: 'onDateChange',
+        handler: props.onDateChange as Function,
+      };
     }
   }
 
   return null;
 }
 
-function interactionSignaturesMatch(a: InteractionSignature | null, b: InteractionSignature | null): boolean {
+function interactionSignaturesMatch(
+  a: InteractionSignature | null,
+  b: InteractionSignature | null
+): boolean {
   if (!a || !b) return false;
   return a.channel === b.channel && a.handler === b.handler;
 }
@@ -467,17 +751,25 @@ function getElementType(fiber: any): ElementType | null {
   if (props.onPress && typeof props.onPress === 'function') return 'pressable';
 
   // TextInput detection by props
-  if (props.onChangeText && typeof props.onChangeText === 'function') return 'text-input';
+  if (props.onChangeText && typeof props.onChangeText === 'function')
+    return 'text-input';
 
   // Slider detection by props
   if (hasSliderLikeSemantics(props)) return 'slider';
 
   // DatePicker detection by props
-  if (props.onChange && typeof props.onChange === 'function' &&
-    (props.mode === 'date' || props.mode === 'time' || props.mode === 'datetime')) return 'date-picker';
+  if (
+    props.onChange &&
+    typeof props.onChange === 'function' &&
+    (props.mode === 'date' ||
+      props.mode === 'time' ||
+      props.mode === 'datetime')
+  )
+    return 'date-picker';
 
   // Switch detection by props (custom switches with onValueChange — no min/max)
-  if (props.onValueChange && typeof props.onValueChange === 'function') return 'switch';
+  if (props.onValueChange && typeof props.onValueChange === 'function')
+    return 'switch';
 
   return null;
 }
@@ -494,7 +786,7 @@ function isDisabled(fiber: any): boolean {
  * Recursively extract ALL text content from a fiber's children.
  * Pierces through nested interactive elements — unlike typical tree walkers
  * that stop at inner Pressable/TouchableOpacity boundaries.
- * 
+ *
  * This is critical for wrapper components (e.g. ZButton → internal
  * TouchableOpacity → Text) where stopping at nested interactives
  * would lose the text label entirely.
@@ -541,9 +833,11 @@ function isIconGlyph(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0 || trimmed.length > 2) return false; // Glyphs are 1-2 chars (surrogate pairs)
   const code = trimmed.codePointAt(0) || 0;
-  return (code >= 0xE000 && code <= 0xF8FF) ||
-    (code >= 0xF0000 && code <= 0xFFFFF) ||
-    (code >= 0x100000 && code <= 0x10FFFF);
+  return (
+    (code >= 0xe000 && code <= 0xf8ff) ||
+    (code >= 0xf0000 && code <= 0xfffff) ||
+    (code >= 0x100000 && code <= 0x10ffff)
+  );
 }
 
 function normalizeRuntimeLabel(text: string | null | undefined): string {
@@ -577,21 +871,24 @@ function scoreRuntimeLabel(text: string, source: RuntimeLabelSource): number {
   if (/[A-Za-z]/.test(normalized) && !/[_./]/.test(normalized)) score += 12;
   if (/[_./]/.test(normalized)) score -= 20;
   if (LOW_SIGNAL_RUNTIME_LABELS.has(lowered)) score -= 120;
-  if (source === 'accessibility' && !LOW_SIGNAL_RUNTIME_LABELS.has(lowered)) score += 15;
+  if (source === 'accessibility' && !LOW_SIGNAL_RUNTIME_LABELS.has(lowered))
+    score += 15;
 
   return score;
 }
 
-function chooseBestRuntimeLabel(candidates: Array<{
-  text: string | null | undefined;
-  source: RuntimeLabelSource;
-}>): string | null {
+function chooseBestRuntimeLabel(
+  candidates: Array<{
+    text: string | null | undefined;
+    source: RuntimeLabelSource;
+  }>
+): string | null {
   const best = candidates
-    .map(candidate => ({
+    .map((candidate) => ({
       text: normalizeRuntimeLabel(candidate.text),
       score: scoreRuntimeLabel(String(candidate.text || ''), candidate.source),
     }))
-    .filter(candidate => candidate.text)
+    .filter((candidate) => candidate.text)
     .sort((a, b) => b.score - a.score)[0];
 
   return best?.text || null;
@@ -627,7 +924,7 @@ function extractRawText(children: any): string {
 
   if (Array.isArray(children)) {
     return children
-      .map(child => extractRawText(child))
+      .map((child) => extractRawText(child))
       .filter(Boolean)
       .join(' ');
   }
@@ -643,11 +940,11 @@ function extractRawText(children: any): string {
 /**
  * Recursively search a fiber subtree for icon/symbol components and
  * return their `name` prop as a semantic label.
- * 
+ *
  * Works generically: any non-RN-internal child component with a string
  * `name` prop is treated as an icon (covers Ionicons, MaterialIcons,
  * FontAwesome, custom SVG wrappers, etc. — no hardcoded list needed).
- * 
+ *
  * e.g. a TouchableOpacity wrapping <Ionicons name="add-circle" /> → "icon:add-circle"
  */
 function extractIconName(fiber: any, maxDepth: number = 5): string {
@@ -697,7 +994,10 @@ function getFiberRootFromDevTools(): any | null {
           if (roots && roots.size > 0) {
             const fiberRoot = roots.values().next().value;
             if (fiberRoot && fiberRoot.current) {
-              logger.debug('FiberTreeWalker', 'Accessed Fiber tree via DevTools hook');
+              logger.debug(
+                'FiberTreeWalker',
+                'Accessed Fiber tree via DevTools hook'
+              );
               return fiberRoot.current;
             }
           }
@@ -738,15 +1038,23 @@ function getFiberFromRef(ref: any): any | null {
   // Both strategies are checked in a single Object.keys pass for performance.
   try {
     const keys = Object.keys(ref);
-    logger.info('FiberTreeWalker', `Ref keys (${keys.length}): ${keys.join(', ')}`);
+    logger.info(
+      'FiberTreeWalker',
+      `Ref keys (${keys.length}): ${keys.join(', ')}`
+    );
 
     // 1a: __reactFiber$ / __reactInternalInstance$ (Old Architecture)
     const fiberKey = keys.find(
-      key => key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$'),
+      (key) =>
+        key.startsWith('__reactFiber$') ||
+        key.startsWith('__reactInternalInstance$')
     );
     if (fiberKey) {
       const fiber = (ref as any)[fiberKey];
-      logger.info('FiberTreeWalker', `✅ Strategy 1a SUCCESS (Old Arch): Fiber via "${fiberKey}" (has child: ${!!fiber?.child})`);
+      logger.info(
+        'FiberTreeWalker',
+        `✅ Strategy 1a SUCCESS (Old Arch): Fiber via "${fiberKey}" (has child: ${!!fiber?.child})`
+      );
       return fiber;
     }
 
@@ -755,14 +1063,26 @@ function getFiberFromRef(ref: any): any | null {
     // It has .child, .sibling, .return, .memoizedProps — the full Fiber structure.
     if (keys.includes('__internalInstanceHandle')) {
       const handle = (ref as any).__internalInstanceHandle;
-      if (handle && (handle.child !== undefined || handle.memoizedProps !== undefined)) {
-        logger.info('FiberTreeWalker', `✅ Strategy 1b SUCCESS (Fabric): Fiber via __internalInstanceHandle (has child: ${!!handle.child})`);
+      if (
+        handle &&
+        (handle.child !== undefined || handle.memoizedProps !== undefined)
+      ) {
+        logger.info(
+          'FiberTreeWalker',
+          `✅ Strategy 1b SUCCESS (Fabric): Fiber via __internalInstanceHandle (has child: ${!!handle.child})`
+        );
         return handle;
       }
-      logger.warn('FiberTreeWalker', '⚠️ __internalInstanceHandle found but does not look like a Fiber node');
+      logger.warn(
+        'FiberTreeWalker',
+        '⚠️ __internalInstanceHandle found but does not look like a Fiber node'
+      );
     }
 
-    logger.warn('FiberTreeWalker', '❌ Strategy 1 FAILED: No __reactFiber$ or __internalInstanceHandle key found');
+    logger.warn(
+      'FiberTreeWalker',
+      '❌ Strategy 1 FAILED: No __reactFiber$ or __internalInstanceHandle key found'
+    );
   } catch (e: any) {
     logger.warn('FiberTreeWalker', `❌ Strategy 1 ERROR: ${e.message}`);
   }
@@ -775,13 +1095,19 @@ function getFiberFromRef(ref: any): any | null {
 
   // Strategy 3: _reactInternalInstance (older React)
   if (ref._reactInternalInstance) {
-    logger.info('FiberTreeWalker', '✅ Strategy 3 SUCCESS: _reactInternalInstance');
+    logger.info(
+      'FiberTreeWalker',
+      '✅ Strategy 3 SUCCESS: _reactInternalInstance'
+    );
     return ref._reactInternalInstance;
   }
 
   // Strategy 4: Direct fiber node properties (ref IS a fiber — used in tests)
   if (ref.child || ref.memoizedProps) {
-    logger.info('FiberTreeWalker', '✅ Strategy 4 SUCCESS: ref is directly a Fiber node');
+    logger.info(
+      'FiberTreeWalker',
+      '✅ Strategy 4 SUCCESS: ref is directly a Fiber node'
+    );
     return ref;
   }
 
@@ -796,10 +1122,11 @@ function getFiberFromRef(ref: any): any | null {
     }
   }
 
-  logger.error('FiberTreeWalker',
+  logger.error(
+    'FiberTreeWalker',
     'ALL Fiber access strategies FAILED. ' +
-    `Ref type: ${typeof ref}, constructor: ${ref?.constructor?.name || 'unknown'}. ` +
-    'The AI agent will not detect interactive elements.'
+      `Ref type: ${typeof ref}, constructor: ${ref?.constructor?.name || 'unknown'}. ` +
+      'The AI agent will not detect interactive elements.'
   );
   return null;
 }
@@ -853,7 +1180,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
   }
 
   if (config?.screenName) {
-    logger.debug('FiberTreeWalker', `Walk active for screen "${config.screenName}" (inactive screens pruned via display checks)`);
+    logger.debug(
+      'FiberTreeWalker',
+      `Walk active for screen "${config.screenName}" (inactive screens pruned via display checks)`
+    );
   }
 
   // Overlay detection is superseded by root-level walk — all visible nodes
@@ -862,7 +1192,9 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
   const interactives: InteractiveElement[] = [];
   let currentIndex = 0;
-  const hasWhitelist = config?.interactiveWhitelist && (config.interactiveWhitelist.length ?? 0) > 0;
+  const hasWhitelist =
+    config?.interactiveWhitelist &&
+    (config.interactiveWhitelist.length ?? 0) > 0;
 
   function processNode(
     node: any,
@@ -894,7 +1226,8 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // Fast heuristic for inline hidden styles (avoids expensive StyleSheet.flatten)
     // Ensures Modals/Portals that are technically mounted but visually hidden are skipped.
     if (props.style) {
-      if (props.style.display === 'none' || props.style.opacity === 0) return '';
+      if (props.style.display === 'none' || props.style.opacity === 0)
+        return '';
       if (Array.isArray(props.style)) {
         for (let i = props.style.length - 1; i >= 0; i--) {
           const s = props.style[i];
@@ -909,7 +1242,13 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       let childText = '';
       let currentChild = getChild(node);
       while (currentChild) {
-        childText += processNode(currentChild, depth, isInsideInteractive, ancestorInteractionSignature, currentZoneId);
+        childText += processNode(
+          currentChild,
+          depth,
+          isInsideInteractive,
+          ancestorInteractionSignature,
+          currentZoneId
+        );
         currentChild = getSibling(currentChild);
       }
       return childText;
@@ -928,14 +1267,18 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (!isInsideInteractive) {
         shouldInclude = true;
       } else {
-        shouldInclude = !!ownInteractionSignature &&
-          !interactionSignaturesMatch(ownInteractionSignature, ancestorInteractionSignature);
+        shouldInclude =
+          !!ownInteractionSignature &&
+          !interactionSignaturesMatch(
+            ownInteractionSignature,
+            ancestorInteractionSignature
+          );
       }
     }
 
     // Track the actionable signature for descendant dedup.
     const nextAncestorInteractionSignature = shouldInclude
-      ? (ownInteractionSignature || ancestorInteractionSignature)
+      ? ownInteractionSignature || ancestorInteractionSignature
       : ancestorInteractionSignature;
 
     // Determine if this node produces visible output (affects depth for children)
@@ -943,16 +1286,22 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     // depth. Structural View wrappers are transparent — they pass through the
     // same depth so indentation stays flat and doesn't waste LLM tokens.
     const type = getType(node);
-    const typeStr = type && typeof type === 'string' ? type :
-      (node.elementType && typeof node.elementType === 'string' ? node.elementType : null);
+    const typeStr =
+      type && typeof type === 'string'
+        ? type
+        : node.elementType && typeof node.elementType === 'string'
+          ? node.elementType
+          : null;
     const componentName = getComponentName(node);
     const isTextNode = typeStr === 'RCTText' || typeStr === 'Text';
     const isImageNode = !!(componentName && IMAGE_TYPES.has(componentName));
     const isVideoNode = !!(componentName && VIDEO_TYPES.has(componentName));
-    const producesOutput = shouldInclude || isTextNode || isImageNode || isVideoNode;
+    const producesOutput =
+      shouldInclude || isTextNode || isImageNode || isVideoNode;
     const childDepth = producesOutput ? depth + 1 : depth;
 
-    const nextZoneId = componentName === 'AIZone' && props.id ? props.id : currentZoneId;
+    const nextZoneId =
+      componentName === 'AIZone' && props.id ? props.id : currentZoneId;
 
     const indent = '  '.repeat(depth);
 
@@ -967,7 +1316,9 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       if (props.allowHighlight) permissions.push('highlight');
       if (props.allowInjectHint) permissions.push('hint');
       if (props.allowInjectCard) permissions.push('card');
-      const permStr = permissions.length ? ` | permissions: ${permissions.join(', ')}` : '';
+      const permStr = permissions.length
+        ? ` | permissions: ${permissions.join(', ')}`
+        : '';
       zoneHeader = `${indent}[zone: ${props.id}${permStr}]\n`;
     }
 
@@ -980,7 +1331,7 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         childDepth,
         isInsideInteractive || !!shouldInclude,
         nextAncestorInteractionSignature,
-        nextZoneId,
+        nextZoneId
       );
       currentChild = getSibling(currentChild);
     }
@@ -1001,17 +1352,52 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         { text: derivedProps.accessibilityLabel, source: 'accessibility' },
         { text: extractDeepTextContent(node), source: 'deep-text' },
         { text: siblingTextLabel, source: 'sibling-text' },
-        { text: resolvedType === 'text-input' ? derivedProps.placeholder : null, source: 'placeholder' },
-        { text: extractIconName(node), source: 'icon' },
-        { text: derivedProps.testID || derivedProps.nativeID, source: 'test-id' },
         {
-          text: parentContext && !new Set([
-            'ScrollViewContext', 'VirtualizedListContext', 'ViewabilityHelper',
-            'ScrollResponder', 'AnimatedComponent', 'TouchableOpacity',
-          ]).has(parentContext) ? parentContext : null,
+          text: resolvedType === 'text-input' ? derivedProps.placeholder : null,
+          source: 'placeholder',
+        },
+        { text: extractIconName(node), source: 'icon' },
+        {
+          text: derivedProps.testID || derivedProps.nativeID,
+          source: 'test-id',
+        },
+        {
+          text:
+            parentContext &&
+            !new Set([
+              'ScrollViewContext',
+              'VirtualizedListContext',
+              'ViewabilityHelper',
+              'ScrollResponder',
+              'AnimatedComponent',
+              'TouchableOpacity',
+            ]).has(parentContext)
+              ? parentContext
+              : null,
           source: 'context',
         },
       ]);
+      const analyticsTarget = chooseBestAnalyticsTarget(
+        [
+          { text: derivedProps.accessibilityLabel, source: 'accessibility' },
+          { text: extractDeepTextContent(node), source: 'deep-text' },
+          { text: siblingTextLabel, source: 'sibling-text' },
+          { text: derivedProps.title, source: 'title' },
+          {
+            text:
+              resolvedType === 'text-input' ? derivedProps.placeholder : null,
+            source: 'placeholder',
+          },
+          {
+            text: derivedProps.testID || derivedProps.nativeID,
+            source: 'test-id',
+          },
+        ],
+        getAnalyticsElementKind(resolvedType)
+      );
+      const ancestorPath = getCustomAncestorPath(node);
+      const siblingLabels = getSiblingAnalyticsLabels(node);
+      const componentName = getComponentName(node);
 
       interactives.push({
         index: currentIndex,
@@ -1022,6 +1408,13 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
         fiberNode: node,
         props: derivedProps,
         requiresConfirmation: derivedProps.aiConfirm === true,
+        analyticsLabel: analyticsTarget.label,
+        analyticsElementKind: analyticsTarget.elementKind,
+        analyticsLabelConfidence: analyticsTarget.labelConfidence,
+        analyticsZoneId: currentZoneId,
+        analyticsAncestorPath: ancestorPath,
+        analyticsSiblingLabels: siblingLabels,
+        analyticsComponentName: componentName,
       });
 
       // Build output tag with state attributes
@@ -1047,7 +1440,9 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     if (isTextNode) {
       const textContent = extractRawText(props.children);
       if (textContent && textContent.trim() !== '') {
-        const priorityTag = props.aiPriority ? ` (aiPriority="${props.aiPriority}"${currentZoneId ? ` zoneId="${currentZoneId}"` : ''})` : '';
+        const priorityTag = props.aiPriority
+          ? ` (aiPriority="${props.aiPriority}"${currentZoneId ? ` zoneId="${currentZoneId}"` : ''})`
+          : '';
         return `${indent}${textContent.trim()}${priorityTag}\n`;
       }
     }
@@ -1057,31 +1452,42 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
       const context = getNearestCustomComponentName(node);
       const alt = props.alt || props.accessibilityLabel || '';
       // Emit the full URI so Gemini can use vision to analyze the image
-      const src = typeof props.source === 'object' && props.source?.uri
-        ? props.source.uri
-        : '';
+      const src =
+        typeof props.source === 'object' && props.source?.uri
+          ? props.source.uri
+          : '';
       const attrs = [
         context ? `in="${context}"` : '',
         alt ? `alt="${alt}"` : '',
         src ? `src="${src}"` : '',
-      ].filter(Boolean).join(' ');
+      ]
+        .filter(Boolean)
+        .join(' ');
       return `${indent}[image${attrs ? ' ' + attrs : ''}]\n`;
     }
 
     if (isVideoNode) {
       const context = getNearestCustomComponentName(node);
-      const paused = props.paused !== undefined ? props.paused : props.shouldPlay !== undefined ? !props.shouldPlay : null;
+      const paused =
+        props.paused !== undefined
+          ? props.paused
+          : props.shouldPlay !== undefined
+            ? !props.shouldPlay
+            : null;
       // Capture video source URI and poster image
-      const src = typeof props.source === 'object' && props.source?.uri
-        ? props.source.uri
-        : '';
+      const src =
+        typeof props.source === 'object' && props.source?.uri
+          ? props.source.uri
+          : '';
       const poster = props.posterSource?.uri || props.poster || '';
       const attrs = [
         context ? `in="${context}"` : '',
         paused !== null ? `state="${paused ? 'paused' : 'playing'}"` : '',
         src ? `src="${src}"` : '',
         poster ? `poster="${poster}"` : '',
-      ].filter(Boolean).join(' ');
+      ]
+        .filter(Boolean)
+        .join(' ');
       return `${indent}[video${attrs ? ' ' + attrs : ''}]\n`;
     }
 
@@ -1103,7 +1509,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     }
     if (overlayText.trim()) {
       elementsText += '\n' + overlayText;
-      logger.info('FiberTreeWalker', `Included ${overlayNodes.length} overlay(s) in screen context`);
+      logger.info(
+        'FiberTreeWalker',
+        `Included ${overlayNodes.length} overlay(s) in screen context`
+      );
     }
   }
 
@@ -1145,7 +1554,10 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
     }
   }
 
-  logger.info('FiberTreeWalker', `Found ${interactives.length} interactive elements`);
+  logger.info(
+    'FiberTreeWalker',
+    `Found ${interactives.length} interactive elements`
+  );
   return { elementsText: elementsText.trim(), interactives };
 }
 
@@ -1153,8 +1565,11 @@ export function walkFiberTree(rootRef: any, config?: WalkConfig): WalkResult {
 
 /** React Native component names that are scrollable containers */
 const SCROLLABLE_TYPES = new Set([
-  'ScrollView', 'RCTScrollView',
-  'FlatList', 'SectionList', 'VirtualizedList',
+  'ScrollView',
+  'RCTScrollView',
+  'FlatList',
+  'SectionList',
+  'VirtualizedList',
 ]);
 
 /**
@@ -1164,9 +1579,14 @@ const SCROLLABLE_TYPES = new Set([
  * Pattern: Detox's ScrollToIndexAction.getConstraints() rejects these entirely.
  */
 const PAGER_TYPES = new Set([
-  'RNCViewPager', 'PagerView', 'ViewPager',
-  'RNViewPager', 'TabView', 'MaterialTabView',
-  'ScrollableTabView', 'RNTabView',
+  'RNCViewPager',
+  'PagerView',
+  'ViewPager',
+  'RNViewPager',
+  'TabView',
+  'MaterialTabView',
+  'ScrollableTabView',
+  'RNTabView',
 ]);
 
 export interface ScrollableContainer {
@@ -1207,7 +1627,10 @@ function findScreenFiberNode(rootFiber: any, screenName: string): any | null {
     if (name) {
       const lowerName = name.toLowerCase();
       // Match: "MenuScreen" starts with "menu", or "Menu" equals "menu"
-      if (lowerName.startsWith(lowerScreen) || lowerScreen.startsWith(lowerName)) {
+      if (
+        lowerName.startsWith(lowerScreen) ||
+        lowerScreen.startsWith(lowerName)
+      ) {
         return node;
       }
     }
@@ -1240,10 +1663,16 @@ function findScreenFiberNode(rootFiber: any, screenName: string): any | null {
  *
  * For ScrollView: the stateNode IS the native scroll view directly.
  */
-export function findScrollableContainers(rootRef: any, screenName?: string): ScrollableContainer[] {
+export function findScrollableContainers(
+  rootRef: any,
+  screenName?: string
+): ScrollableContainer[] {
   const fiber = getFiberFromRef(rootRef);
   if (!fiber) {
-    logger.warn('FiberTreeWalker', 'Could not access Fiber tree for scroll detection');
+    logger.warn(
+      'FiberTreeWalker',
+      'Could not access Fiber tree for scroll detection'
+    );
     return [];
   }
 
@@ -1253,9 +1682,15 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
     const screenFiber = findScreenFiberNode(fiber, screenName);
     if (screenFiber) {
       startNode = screenFiber;
-      logger.debug('FiberTreeWalker', `Scroll scoped to screen "${screenName}" (component: ${getComponentName(screenFiber)})`);
+      logger.debug(
+        'FiberTreeWalker',
+        `Scroll scoped to screen "${screenName}" (component: ${getComponentName(screenFiber)})`
+      );
     } else {
-      logger.debug('FiberTreeWalker', `Screen "${screenName}" not found in Fiber tree — searching entire tree`);
+      logger.debug(
+        'FiberTreeWalker',
+        `Screen "${screenName}" not found in Fiber tree — searching entire tree`
+      );
     }
   }
 
@@ -1271,12 +1706,15 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
 
     if (isScrollable || isPagerLike) {
       // Get context: nearest custom parent component name
-      const contextLabel = getNearestCustomComponentName(node) || name || 'Unknown';
+      const contextLabel =
+        getNearestCustomComponentName(node) || name || 'Unknown';
 
       // For scrollable containers, we need the native scroll ref.
-      // FlatList Fiber stateNode may be the component instance — 
+      // FlatList Fiber stateNode may be the component instance —
       // we need to find the underlying native ScrollView.
-      let scrollRef = isPagerLike ? getStateNode(node) : resolveNativeScrollRef(node);
+      let scrollRef = isPagerLike
+        ? getStateNode(node)
+        : resolveNativeScrollRef(node);
 
       if (scrollRef) {
         containers.push({
@@ -1299,19 +1737,22 @@ export function findScrollableContainers(rootRef: any, screenName?: string): Scr
   }
 
   walk(startNode);
-  logger.info('FiberTreeWalker', `Found ${containers.length} scrollable container(s)${screenName ? ` for screen "${screenName}"` : ''}`);
+  logger.info(
+    'FiberTreeWalker',
+    `Found ${containers.length} scrollable container(s)${screenName ? ` for screen "${screenName}"` : ''}`
+  );
   return containers;
 }
 
 /**
  * Resolve the native scroll view reference from a Fiber node.
- * 
+ *
  * Handles multiple React Native internals:
  * - RCTScrollView: stateNode IS the native scroll view
  * - FlatList/VirtualizedList: stateNode is a component instance,
  *   need to find the inner ScrollView via getNativeScrollRef() or
  *   by walking down the Fiber tree to find the RCTScrollView child
-*/
+ */
 function resolveNativeScrollRef(fiberNode: any): any {
   const stateNode = getStateNode(fiberNode);
 
@@ -1325,7 +1766,9 @@ function resolveNativeScrollRef(fiberNode: any): any {
     try {
       const ref = stateNode.getNativeScrollRef();
       if (ref && typeof ref.scrollTo === 'function') return ref;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   // Case 3: stateNode has getScrollRef (another VirtualizedList pattern)
@@ -1336,9 +1779,12 @@ function resolveNativeScrollRef(fiberNode: any): any {
       // getScrollRef might return another wrapper — try getNativeScrollRef on it
       if (ref && typeof ref.getNativeScrollRef === 'function') {
         const nativeRef = ref.getNativeScrollRef();
-        if (nativeRef && typeof nativeRef.scrollTo === 'function') return nativeRef;
+        if (nativeRef && typeof nativeRef.scrollTo === 'function')
+          return nativeRef;
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   // Case 4: stateNode has scrollToOffset directly (VirtualizedList instance)
@@ -1366,7 +1812,10 @@ function resolveNativeScrollRef(fiberNode: any): any {
     child = getSibling(child);
   }
 
-  logger.debug('FiberTreeWalker', 'Could not resolve native scroll ref — returning stateNode as fallback');
+  logger.debug(
+    'FiberTreeWalker',
+    'Could not resolve native scroll ref — returning stateNode as fallback'
+  );
   return stateNode;
 }
 
@@ -1381,7 +1830,9 @@ const WIREFRAME_BATCH_SIZE = 10;
  * Measure a single element on the native bridge.
  * Returns null if the element is off-screen or unmeasurable.
  */
-function measureElement(el: InteractiveElement): Promise<WireframeComponent | null> {
+function measureElement(
+  el: InteractiveElement
+): Promise<WireframeComponent | null> {
   return new Promise<WireframeComponent | null>((resolve) => {
     try {
       const stateNode = getStateNode(el.fiberNode);
@@ -1391,11 +1842,24 @@ function measureElement(el: InteractiveElement): Promise<WireframeComponent | nu
       }
 
       stateNode.measure(
-        (_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
+        (
+          _x: number,
+          _y: number,
+          width: number,
+          height: number,
+          pageX: number,
+          pageY: number
+        ) => {
           if (width > 0 && height > 0) {
             resolve({
               type: el.type,
-              label: el.label || el.type,
+              label: el.analyticsLabel || '',
+              elementKind: el.analyticsElementKind,
+              labelConfidence: el.analyticsLabelConfidence,
+              zoneId: el.analyticsZoneId,
+              ancestorPath: el.analyticsAncestorPath,
+              siblingLabels: el.analyticsSiblingLabels,
+              componentName: el.analyticsComponentName,
               x: pageX,
               y: pageY,
               width,

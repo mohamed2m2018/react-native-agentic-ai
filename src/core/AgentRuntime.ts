@@ -567,14 +567,15 @@ export class AgentRuntime {
     // capture_screenshot — on-demand visual capture (for image/video content questions)
     this.tools.set('capture_screenshot', {
       name: 'capture_screenshot',
-      description: 'Capture a screenshot of the current screen. Use when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone.',
+      description:
+        'Capture the SDK root component as an image. Use when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone.',
       parameters: {},
       execute: async () => {
         const screenshot = await this.captureScreenshot();
         if (screenshot) {
           return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
         }
-        return '❌ Screenshot capture failed. react-native-view-shot may not be installed.';
+        return '❌ Screenshot capture failed. react-native-view-shot is required and must be installed in your app.';
       },
     });
 
@@ -803,12 +804,12 @@ export class AgentRuntime {
     }
   }
 
-  // ─── Screenshot Capture (optional react-native-view-shot) ─────
+  // ─── Screenshot Capture (react-native-view-shot) ─────
 
   /**
-   * Captures the current screen as a base64 JPEG for Gemini vision.
-   * Uses react-native-view-shot as an optional peer dependency.
-   * Returns null if the library is not installed (graceful fallback).
+   * Captures the root component as a base64 JPEG for vision tools.
+   * Uses react-native-view-shot as a required peer dependency.
+   * Returns null only when capture is temporarily unavailable.
    */
   private async captureScreenshot(): Promise<string | undefined> {
     try {
@@ -828,7 +829,10 @@ export class AgentRuntime {
       return uri || undefined;
     } catch (error: any) {
       if (error.message?.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND' || error.message?.includes('unknown module')) {
-        logger.warn('AgentRuntime', 'Screenshot requires react-native-view-shot. Install with: npx expo install react-native-view-shot');
+        logger.warn(
+          'AgentRuntime',
+          'Screenshot requires react-native-view-shot. It is a peer dependency; install it in your host app with: npx expo install react-native-view-shot',
+        );
       } else {
         logger.debug('AgentRuntime', `Screenshot skipped: ${error.message}`);
       }
