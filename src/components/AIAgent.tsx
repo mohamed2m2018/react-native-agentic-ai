@@ -15,7 +15,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { View, StyleSheet, InteractionManager } from 'react-native';
+import { View, StyleSheet, InteractionManager, Platform } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
 import { captureWireframe } from '../core/FiberTreeWalker';
 import { humanizeScreenName } from '../utils/humanizeScreenName';
@@ -26,6 +26,7 @@ import { AgentOverlay } from './AgentOverlay';
 import { AIConsentDialog, useAIConsent } from './AIConsentDialog';
 import type { AIConsentConfig } from './AIConsentDialog';
 import { FloatingOverlayWrapper } from './FloatingOverlayWrapper';
+import type { FloatingOverlayWrapperHandle } from './FloatingOverlayWrapper';
 import { logger } from '../utils/logger';
 import { buildVoiceSystemPrompt } from '../core/systemPrompt';
 import { MCPBridge } from '../core/MCPBridge';
@@ -50,6 +51,13 @@ import { ENDPOINTS } from '../config/endpoints';
 import type { ReportedIssue } from '../support/types';
 import * as ConversationService from '../services/ConversationService';
 import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
+
+type AndroidWindowMetrics = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 // ─── Context ───────────────────────────────────────────────────
 
@@ -455,6 +463,9 @@ export function AIAgent({
   // ── Onboarding Journey State ────────────────────────────────
   const [isOnboardingActive, setIsOnboardingActive] = useState(false);
   const [currentOnboardingIndex, setCurrentOnboardingIndex] = useState(0);
+  const [androidWindowMetrics, setAndroidWindowMetrics] = useState<AndroidWindowMetrics | null>(null);
+  const androidWindowMetricsRef = useRef<AndroidWindowMetrics | null>(null);
+  const floatingOverlayRef = useRef<FloatingOverlayWrapperHandle | null>(null);
 
   useEffect(() => {
     if (!onboarding?.enabled) return;
@@ -516,6 +527,71 @@ export function AIAgent({
       } catch { /* graceful */ }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!showChatBar) {
+      androidWindowMetricsRef.current = null;
+      setAndroidWindowMetrics(null);
+    }
+  }, [showChatBar]);
+
+  const handleAndroidWindowMetricsChange = useCallback((metrics: AndroidWindowMetrics) => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    if (!showChatBar) {
+      androidWindowMetricsRef.current = null;
+      setAndroidWindowMetrics(null);
+      return;
+    }
+
+    const previousMetrics = androidWindowMetricsRef.current;
+    if (
+      previousMetrics &&
+      previousMetrics.x === metrics.x &&
+      previousMetrics.y === metrics.y &&
+      previousMetrics.width === metrics.width &&
+      previousMetrics.height === metrics.height
+    ) {
+      return;
+    }
+
+    androidWindowMetricsRef.current = metrics;
+
+    if (floatingOverlayRef.current && previousMetrics) {
+      floatingOverlayRef.current.setAndroidWindowMetrics(metrics);
+      return;
+    }
+
+    setAndroidWindowMetrics(metrics);
+  }, [showChatBar]);
+
+  const handleAndroidWindowDragEnd = useCallback((metrics: AndroidWindowMetrics) => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    if (!showChatBar) {
+      androidWindowMetricsRef.current = null;
+      setAndroidWindowMetrics(null);
+      return;
+    }
+
+    androidWindowMetricsRef.current = metrics;
+    setAndroidWindowMetrics((prev) => {
+      if (
+        prev &&
+        prev.x === metrics.x &&
+        prev.y === metrics.y &&
+        prev.width === metrics.width &&
+        prev.height === metrics.height
+      ) {
+        return prev;
+      }
+      return metrics;
+    });
+  }, [showChatBar]);
 
   // CRITICAL: clearSupport uses REFS and functional setters — never closure values.
   // This function is captured by long-lived callbacks (escalation sockets, restored
@@ -933,7 +1009,7 @@ export function AIAgent({
             },
             onTypingChange: setIsLiveAgentTyping,
             onTicketClosed: () => clearSupport(ticket.id),
-            onError: (err) => logger.error('AIAgent', '★ Restored socket error:', err),
+            onError: (err) => logger.warn('AIAgent', '★ Restored socket error:', err),
           });
           if (ticket.wsUrl) {
             socket.connect(ticket.wsUrl);
@@ -945,7 +1021,7 @@ export function AIAgent({
           logger.info('AIAgent', '★ Single ticket restored and socket cached:', ticket.id);
         }
       } catch (err) {
-        logger.error('AIAgent', '★ Failed to restore tickets:', err);
+        logger.warn('AIAgent', '★ Failed to restore tickets:', err);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1176,7 +1252,7 @@ export function AIAgent({
         }
         clearSupport(ticketId);
       },
-      onError: (err) => logger.error('AIAgent', '★ Socket error on select:', err),
+      onError: (err) => logger.warn('AIAgent', '★ Socket error on select:', err),
     });
     if (freshWsUrl) {
       socket.connect(freshWsUrl);
@@ -2522,19 +2598,18 @@ export function AIAgent({
           </AgentErrorBoundary>
         </View>
 
-        {/* Floating UI — absolute-positioned View that passes touches pass-through unless interacting */}
-        <FloatingOverlayWrapper fallbackStyle={styles.floatingLayer}>
-          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-            {/* Highlight Overlay (always active, listens to events) */}
-          <HighlightOverlay />
+        {/* Highlight Overlay (always active, listens to events) */}
+        <HighlightOverlay />
 
-          {/* Chat bar wrapped in Proactive Hint */}
-          {showChatBar && (
-            <ProactiveHint
-              stage={proactiveStage}
-              badgeText={proactiveBadgeText}
-              onDismiss={() => idleDetectorRef.current?.dismiss()}
-            >
+        {/* Chat bar */}
+        {showChatBar && (
+          <FloatingOverlayWrapper
+            ref={Platform.OS === 'android' ? floatingOverlayRef : undefined}
+            androidWindowMetrics={Platform.OS === 'android' ? (androidWindowMetricsRef.current ?? androidWindowMetrics) : null}
+            onAndroidWindowDragEnd={Platform.OS === 'android' ? handleAndroidWindowDragEnd : undefined}
+            fallbackStyle={styles.floatingLayer}
+          >
+            {Platform.OS === 'android' ? (
               <AgentChatBar
                 onSend={handleSend}
                 onCancel={handleCancel}
@@ -2553,7 +2628,6 @@ export function AIAgent({
                   }
                   askUserResolverRef.current = null;
                   pendingAskUserKindRef.current = null;
-                  // Button was actually tapped — clear the approval gate and any queued message
                   pendingAppApprovalRef.current = false;
                   queuedApprovalAnswerRef.current = null;
                   setPendingApprovalQuestion(null);
@@ -2561,9 +2635,6 @@ export function AIAgent({
                     action === 'approve'
                       ? '__APPROVAL_GRANTED__'
                       : '__APPROVAL_REJECTED__';
-                  // Restore the thinking overlay so the user can see the agent working
-                  // after approval. onAskUser set isThinking=false when buttons appeared,
-                  // but the agent is still running — restore the visual indicator.
                   if (action === 'approve') {
                     setIsThinking(true);
                     setStatusText('Working...');
@@ -2632,45 +2703,186 @@ export function AIAgent({
                 isLoadingHistory={isLoadingHistory}
                 onConversationSelect={handleConversationSelect}
                 onNewConversation={handleNewConversation}
+                renderMode="android-native-window"
+                windowMetrics={androidWindowMetricsRef.current ?? androidWindowMetrics}
+                onWindowMetricsChange={handleAndroidWindowMetricsChange}
               />
-            </ProactiveHint>
+            ) : (
+              <ProactiveHint
+                stage={proactiveStage}
+                badgeText={proactiveBadgeText}
+                onDismiss={() => idleDetectorRef.current?.dismiss()}
+              >
+                <AgentChatBar
+                  onSend={handleSend}
+                  onCancel={handleCancel}
+                  isThinking={isThinking}
+                  statusText={overlayStatusText}
+                  lastResult={lastResult}
+                  lastUserMessage={lastUserMessage}
+                  chatMessages={messages}
+                  pendingApprovalQuestion={pendingApprovalQuestion}
+                  onPendingApprovalAction={(action) => {
+                    const resolver = askUserResolverRef.current;
+                    logger.info('AIAgent', `🔘 Approval button tapped: action=${action} | resolver=${resolver ? 'EXISTS' : 'NULL'} | pendingApprovalQuestion="${pendingApprovalQuestion}" | pendingAppApprovalRef=${pendingAppApprovalRef.current}`);
+                    if (!resolver) {
+                      logger.error('AIAgent', '🚫 ABORT: resolver is null when button was tapped — this means ask_user Promise was already resolved without clearing the buttons. This is a state sync bug.');
+                      return;
+                    }
+                    askUserResolverRef.current = null;
+                    pendingAskUserKindRef.current = null;
+                    pendingAppApprovalRef.current = false;
+                    queuedApprovalAnswerRef.current = null;
+                    setPendingApprovalQuestion(null);
+                    const response =
+                      action === 'approve'
+                        ? '__APPROVAL_GRANTED__'
+                        : '__APPROVAL_REJECTED__';
+                    if (action === 'approve') {
+                      setIsThinking(true);
+                      setStatusText('Working...');
+                    }
+                    telemetryRef.current?.track('agent_trace', {
+                      stage: 'approval_button_pressed',
+                      action,
+                    });
+                    resolver(response);
+                  }}
+                  language={'en'}
+                  onDismiss={() => { setLastResult(null); setLastUserMessage(null); }}
+                  theme={accentColor || theme ? {
+                    ...(accentColor ? { primaryColor: accentColor } : {}),
+                    ...theme,
+                  } : undefined}
+                  availableModes={availableModes}
+                  mode={mode}
+                  onModeChange={(newMode) => {
+                    logger.info('AIAgent', '★ onModeChange:', mode, '→', newMode, '| tickets:', tickets.length, 'selectedTicketId:', selectedTicketId);
+                    setMode(newMode);
+                  }}
+                  isMicActive={isMicActive}
+                  isSpeakerMuted={isSpeakerMuted}
+                  isAISpeaking={isAISpeaking}
+                  isAgentTyping={isLiveAgentTyping}
+                  onStopSession={stopVoiceSession}
+                  isVoiceConnected={isVoiceConnected}
+                  onMicToggle={(active) => {
+                    if (active && !isVoiceConnected) {
+                      logger.warn('AIAgent', 'Cannot toggle mic — VoiceService not connected yet');
+                      return;
+                    }
+                    logger.info('AIAgent', `Mic toggle: ${active ? 'ON' : 'OFF'}`);
+                    setIsMicActive(active);
+                    if (active) {
+                      logger.info('AIAgent', 'Starting AudioInput...');
+                      audioInputRef.current?.start().then((ok) => {
+                        logger.info('AIAgent', `AudioInput start result: ${ok}`);
+                      });
+                    } else {
+                      logger.info('AIAgent', 'Stopping AudioInput...');
+                      audioInputRef.current?.stop();
+                    }
+                  }}
+                  onSpeakerToggle={(muted) => {
+                    logger.info('AIAgent', `Speaker toggle: ${muted ? 'MUTED' : 'UNMUTED'}`);
+                    setIsSpeakerMuted(muted);
+                    if (muted) {
+                      audioOutputRef.current?.mute();
+                    } else {
+                      audioOutputRef.current?.unmute();
+                    }
+                  }}
+                  tickets={tickets}
+                  selectedTicketId={selectedTicketId}
+                  onTicketSelect={handleTicketSelect}
+                  onBackToTickets={handleBackToTickets}
+                  autoExpandTrigger={autoExpandTrigger}
+                  unreadCounts={unreadCounts}
+                  totalUnread={totalUnread}
+                  showDiscoveryTooltip={tooltipVisible}
+                  discoveryTooltipMessage={discoveryTooltipMessage}
+                  onTooltipDismiss={handleTooltipDismiss}
+                  conversations={conversations}
+                  isLoadingHistory={isLoadingHistory}
+                  onConversationSelect={handleConversationSelect}
+                  onNewConversation={handleNewConversation}
+                  renderMode="default"
+                />
+              </ProactiveHint>
+            )}
+          </FloatingOverlayWrapper>
+        )}
+
+        {/* Overlay (shown while thinking) — render after chat UI so it stays on top */}
+        <AgentOverlay visible={overlayVisible} statusText={overlayStatusText} onCancel={handleCancel} />
+
+        {Platform.OS !== 'android' && (
+            <>
+              <SupportChatModal
+                visible={mode === 'human' && !!selectedTicketId}
+                messages={supportMessages}
+                onSend={handleSend}
+                onClose={handleBackToTickets}
+                isAgentTyping={isLiveAgentTyping}
+                isThinking={isThinking}
+                scrollToEndTrigger={chatScrollTrigger}
+                ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
+              />
+
+              <AIConsentDialog
+                visible={showConsentDialog}
+                provider={providerName}
+                config={consentConfig}
+                language={'en'}
+                onConsent={async () => {
+                  await grantConsent();
+                  setShowConsentDialog(false);
+                  consentConfig.onConsent?.();
+                  logger.info('AIAgent', '✅ AI consent granted by user');
+                }}
+                onDecline={() => {
+                  setShowConsentDialog(false);
+                  consentConfig.onDecline?.();
+                  logger.info('AIAgent', '❌ AI consent declined by user');
+                }}
+              />
+            </>
           )}
 
-          {/* Overlay (shown while thinking) — render after chat UI so it stays on top */}
-          <AgentOverlay visible={overlayVisible} statusText={overlayStatusText} onCancel={handleCancel} />
+        {Platform.OS === 'android' && (
+          <>
+            <SupportChatModal
+              visible={mode === 'human' && !!selectedTicketId}
+              messages={supportMessages}
+              onSend={handleSend}
+              onClose={handleBackToTickets}
+              isAgentTyping={isLiveAgentTyping}
+              isThinking={isThinking}
+              scrollToEndTrigger={chatScrollTrigger}
+              ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
+            />
 
-          {/* Support chat modal — opens when user taps a ticket */}
-          <SupportChatModal
-            visible={mode === 'human' && !!selectedTicketId}
-            messages={supportMessages}
-            onSend={handleSend}
-            onClose={handleBackToTickets}
-            isAgentTyping={isLiveAgentTyping}
-            isThinking={isThinking}
-            scrollToEndTrigger={chatScrollTrigger}
-            ticketStatus={tickets.find(t => t.id === selectedTicketId)?.status}
-          />
-
-          {/* AI Consent Dialog (Apple Guideline 5.1.2(i)) — always rendered */}
-          <AIConsentDialog
-            visible={showConsentDialog}
-            provider={providerName}
-            config={consentConfig}
-            language={'en'}
-            onConsent={async () => {
-              await grantConsent();
-              setShowConsentDialog(false);
-              consentConfig.onConsent?.();
-              logger.info('AIAgent', '✅ AI consent granted by user');
-            }}
-            onDecline={() => {
-              setShowConsentDialog(false);
-              consentConfig.onDecline?.();
-              logger.info('AIAgent', '❌ AI consent declined by user');
-            }}
-          />
-          </View>
-        </FloatingOverlayWrapper>
+            <FloatingOverlayWrapper fallbackStyle={styles.floatingLayer}>
+              <AIConsentDialog
+                visible={showConsentDialog}
+                provider={providerName}
+                config={consentConfig}
+                language={'en'}
+                onConsent={async () => {
+                  await grantConsent();
+                  setShowConsentDialog(false);
+                  consentConfig.onConsent?.();
+                  logger.info('AIAgent', '✅ AI consent granted by user');
+                }}
+                onDecline={() => {
+                  setShowConsentDialog(false);
+                  consentConfig.onDecline?.();
+                  logger.info('AIAgent', '❌ AI consent declined by user');
+                }}
+              />
+            </FloatingOverlayWrapper>
+          </>
+        )}
       </View>
     </AgentContext.Provider>
   );

@@ -37,6 +37,17 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.quickRow}>
+        <Pressable style={[styles.helperCard, styles.testLabCard]} onPress={() => router.push('/test-ui')}>
+          <Text style={styles.helperTitle}>Bottom Sheet Test</Text>
+          <Text style={styles.helperText}>Open the UI lab and launch the native bottom sheet.</Text>
+        </Pressable>
+        <Pressable style={[styles.helperCard, styles.modalTestCard]} onPress={() => router.push('/test-ui')}>
+          <Text style={styles.helperTitle}>Modal Component Test</Text>
+          <Text style={styles.helperText}>Open the UI lab and launch the React Native modal component.</Text>
+        </Pressable>
+      </View>
+
       <AIZone id="cuisine-filter">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
           <Pressable
@@ -96,6 +107,8 @@ const styles = StyleSheet.create({
     borderColor: '#FBCFE8',
   },
   cartLink: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  testLabCard: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  modalTestCard: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
   helperTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   helperText: { color: '#475569', fontSize: 13, lineHeight: 18 },
   pillRow: { marginHorizontal: 12, marginTop: 16, marginBottom: 14 },

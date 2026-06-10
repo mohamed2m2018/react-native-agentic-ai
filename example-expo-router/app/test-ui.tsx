@@ -201,6 +201,13 @@ export default function ExhaustiveTestScreen() {
                 <Text style={styles.secondaryButtonText}>Open Configuration Drawer</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.secondaryButton, { marginTop: 12, backgroundColor: '#FFF7ED' }]}
+                onPress={() => setModalVisible(true)}
+              >
+                <Text style={[styles.secondaryButtonText, { color: '#C2410C' }]}>Open Native Modal</Text>
+              </TouchableOpacity>
+
               <BottomSheetModal ref={bottomSheetRef} snapPoints={['60%']} backgroundStyle={{ borderRadius: 24 }}>
                 <BottomSheetScrollView contentContainerStyle={{ padding: 24 }}>
                   <Text style={[styles.title, { marginBottom: 8 }]}>Settings Details</Text>
@@ -221,6 +228,45 @@ export default function ExhaustiveTestScreen() {
                   </TouchableOpacity>
                 </BottomSheetScrollView>
               </BottomSheetModal>
+
+              <Modal
+                visible={modalVisible}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setModalVisible(false)}
+              >
+                <View style={styles.modalBackdrop}>
+                  <View style={styles.modalCard}>
+                    <Text style={styles.modalTitle}>Native Modal Test</Text>
+                    <Text style={styles.modalBody}>
+                      This is a React Native Modal rendered above the current screen. Use it to test
+                      whether the AI overlay stays accessible and touch behavior still feels right.
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Type inside modal..."
+                      placeholderTextColor="#94A3B8"
+                    />
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={[styles.secondaryButton, styles.modalActionButton]}
+                        onPress={() => setModalVisible(false)}
+                      >
+                        <Text style={styles.secondaryButtonText}>Close Modal</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.primaryButton, styles.modalActionButton]}
+                        onPress={() => {
+                          setModalVisible(false);
+                          triggerFeedback('Native modal confirmed');
+                        }}
+                      >
+                        <Text style={styles.primaryButtonText}>Confirm</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
 
               <View style={styles.mediaContainer}>
                 <ExpoImage
@@ -456,6 +502,36 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   glassText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 8,
+  },
+  modalBody: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#475569',
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalActionButton: {
+    flex: 1,
+  },
   
   searchBar: {
     backgroundColor: '#F1F5F9',

@@ -11,9 +11,15 @@
  */
 
 import type { ViewProps } from 'react-native';
+import type { Int32 } from 'react-native/Libraries/Types/CodegenTypes';
 import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
 
-export interface NativeProps extends ViewProps {}
+export interface NativeProps extends ViewProps {
+  windowX?: Int32;
+  windowY?: Int32;
+  windowWidth?: Int32;
+  windowHeight?: Int32;
+}
 
 // Codegen reads this export to generate the native component interfaces.
 export default codegenNativeComponent<NativeProps>('MobileAIFloatingOverlay');

@@ -5,147 +5,341 @@ import android.app.Dialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.uimanager.StateWrapper
+import com.facebook.react.uimanager.ThemedReactContext
+import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.bridge.ReactContext
+import kotlin.math.roundToInt
 
 /**
- * FloatingOverlayView — A ViewGroup that renders its children in an elevated
- * Dialog window using WindowManager.LayoutParams.TYPE_APPLICATION_PANEL.
- *
- * Architecture:
- * TYPE_APPLICATION_PANEL (z=1000) sits above normal app windows (TYPE_APPLICATION, z=2)
- * AND above React Native's <Modal> Dialog windows (also TYPE_APPLICATION), because
- * TYPE_APPLICATION_PANEL explicitly describes a panel that floats above its parent
- * application window. No SYSTEM_ALERT_WINDOW permission required — the panel is
- * scoped to the consuming app's own window hierarchy.
- *
- * Used by both Old Arch (FloatingOverlayViewManager) and New Arch Fabric implementations.
+ * FloatingOverlayView — hosts React children inside an Android panel dialog so
+ * the agent can float above app content and native modal surfaces without
+ * taking ownership of the full React root view.
  */
 class FloatingOverlayView(context: Context) : ViewGroup(context) {
-
+  private var showPopupPosted: Boolean = false
   private var overlayDialog: Dialog? = null
+  private var windowX: Int = 0
+  private var windowY: Int = 0
+  private var windowWidth: Int = 0
+  private var windowHeight: Int = 0
 
-  // All RN children are placed in this container inside the Dialog
-  private val contentContainer = FrameLayout(context)
+  var eventDispatcher: EventDispatcher?
+    get() = dialogRootViewGroup.eventDispatcher
+    set(value) {
+      dialogRootViewGroup.eventDispatcher = value
+    }
 
-  // ─── Lifecycle ──────────────────────────────────────────────
+  var stateWrapper: StateWrapper?
+    get() = dialogRootViewGroup.stateWrapper
+    set(value) {
+      dialogRootViewGroup.stateWrapper = value
+    }
+
+  init {
+    isClickable = false
+    isFocusable = false
+    isFocusableInTouchMode = false
+    visibility = View.GONE
+    setBackgroundColor(Color.TRANSPARENT)
+  }
+
+  private val dialogRootViewGroup = FloatingOverlayDialogRootViewGroup(context)
+
+  private val contentView = FrameLayout(context).apply {
+    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+    setBackgroundColor(Color.TRANSPARENT)
+    addView(
+      dialogRootViewGroup,
+      FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.MATCH_PARENT,
+        FrameLayout.LayoutParams.MATCH_PARENT
+      )
+    )
+  }
+
+  init {
+    dialogRootViewGroup.overlayHost = this
+  }
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    showOverlay()
+    scheduleShowPopup()
   }
 
   override fun onDetachedFromWindow() {
-    dismissOverlay()
+    dismissPopup()
     super.onDetachedFromWindow()
   }
 
-  // ─── Overlay management ──────────────────────────────────────
-
-  private fun showOverlay() {
-    val activity = getActivity() ?: return
-
-    overlayDialog = Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar).also { dialog ->
-      dialog.window?.let { window ->
-        // TYPE_APPLICATION_PANEL: sub-window panel above its application window.
-        // Requires the parent window's token — no SYSTEM_ALERT_WINDOW needed.
-        window.setType(WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
-
-        // Anchor to the Activity's root decor view token.
-        // This makes our panel a child of the main window,
-        // floating above it and above any Dialogs (which are peers of the main window).
-        val attrs = window.attributes
-        attrs.token = activity.window.decorView.windowToken
-        window.attributes = attrs
-
-        window.setLayout(
-          ViewGroup.LayoutParams.MATCH_PARENT,
-          ViewGroup.LayoutParams.MATCH_PARENT
-        )
-        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-
-        // FLAG_NOT_FOCUSABLE: don't steal keyboard focus from the underlying app.
-        // Keyboard inputs (TextInput in the chat bar) still work because
-        // the chat bar's own TextInput will request focus explicitly when tapped.
-        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
-
-        // FLAG_NOT_TOUCH_MODAL: allow touches outside our visible UI to reach the
-        // underlying app / dialog windows. Without this, any touch on the transparent
-        // areas of our overlay would be consumed and swallowed.
-        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
-
-        window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
-      }
-
-      dialog.setContentView(contentContainer)
-      dialog.setCanceledOnTouchOutside(false)
-      dialog.show()
-    }
+  override fun setId(id: Int) {
+    super.setId(id)
+    dialogRootViewGroup.id = id
   }
 
-  private fun dismissOverlay() {
-    try {
-      if (overlayDialog?.isShowing == true) {
-        overlayDialog?.dismiss()
-      }
-    } catch (e: Exception) {
-      // Activity may already be finishing — safe to ignore crash
-    } finally {
-      overlayDialog = null
-    }
+  fun setWindowX(value: Int) {
+    val pxValue = dpToPx(value)
+    if (windowX == pxValue) return
+    windowX = pxValue
+    updatePopupPosition()
   }
 
-  // ─── Child view forwarding ───────────────────────────────────
-  // React Native's layout engine sees THIS ViewGroup, but actual rendering
-  // happens in the Dialog's contentContainer.
-  // We forward all child management calls to maintain RN's expectations.
+  fun setWindowY(value: Int) {
+    val pxValue = dpToPx(value)
+    if (windowY == pxValue) return
+    windowY = pxValue
+    updatePopupPosition()
+  }
+
+  fun setWindowWidth(value: Int) {
+    val normalized = dpToPx(value.coerceAtLeast(1))
+    if (windowWidth == normalized) return
+    windowWidth = normalized
+    updatePopupLayout()
+  }
+
+  fun setWindowHeight(value: Int) {
+    val normalized = dpToPx(value.coerceAtLeast(1))
+    if (windowHeight == normalized) return
+    windowHeight = normalized
+    updatePopupLayout()
+  }
 
   override fun addView(child: View) {
-    contentContainer.addView(child)
+    dialogRootViewGroup.addView(child)
   }
 
   override fun addView(child: View, index: Int) {
-    contentContainer.addView(child, index)
+    dialogRootViewGroup.addView(child, index)
   }
 
   override fun addView(child: View, params: ViewGroup.LayoutParams) {
-    contentContainer.addView(child, params)
+    dialogRootViewGroup.addView(child, params)
   }
 
   override fun addView(child: View, index: Int, params: ViewGroup.LayoutParams) {
-    contentContainer.addView(child, index, params)
+    dialogRootViewGroup.addView(child, index, params)
   }
 
   override fun removeView(view: View) {
-    contentContainer.removeView(view)
+    dialogRootViewGroup.removeView(view)
   }
 
   override fun removeViewAt(index: Int) {
-    contentContainer.removeViewAt(index)
+    dialogRootViewGroup.removeView(getChildAt(index))
   }
 
-  override fun getChildCount(): Int = contentContainer.childCount
+  override fun getChildCount(): Int = dialogRootViewGroup.childCount
 
-  override fun getChildAt(index: Int): View? = contentContainer.getChildAt(index)
+  override fun getChildAt(index: Int): View? = dialogRootViewGroup.getChildAt(index)
 
-  // ─── Layout ──────────────────────────────────────────────────
-
-  // The Dialog manages sizing (MATCH_PARENT) — this View itself is invisible
-  // in the main window and only serves as an anchor.
-  override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) { /* no-op */ }
+  override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) { /* anchor only */ }
 
   override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-    super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    setMeasuredDimension(0, 0)
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────
+  override fun dispatchTouchEvent(event: MotionEvent?): Boolean = false
+
+  override fun onInterceptTouchEvent(event: MotionEvent?): Boolean = false
+
+  override fun onTouchEvent(event: MotionEvent?): Boolean = false
+
+  fun onDropInstance() {
+    dismissPopup()
+  }
+
+  internal fun getWindowXPx(): Int = windowX
+
+  internal fun getWindowYPx(): Int = windowY
+
+  internal fun updateWindowPositionFromNative(x: Int, y: Int) {
+    val (clampedX, clampedY) = clampPopupPosition(x, y)
+    if (windowX == clampedX && windowY == clampedY) return
+    windowX = clampedX
+    windowY = clampedY
+    updatePopupPosition()
+  }
+
+  internal fun emitWindowDragEnd() {
+    val reactContext = context as? ReactContext ?: return
+    val payload = Arguments.createMap().apply {
+      putInt("viewId", id)
+      putInt("x", pxToDp(windowX))
+      putInt("y", pxToDp(windowY))
+      putInt("width", pxToDp(resolvePopupWidth()))
+      putInt("height", pxToDp(resolvePopupHeight()))
+    }
+
+    reactContext
+      .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit(WINDOW_DRAG_END_EVENT, payload)
+  }
+
+  private fun showPopup() {
+    showPopupPosted = false
+
+    val activity = getActivity()
+    if (activity == null) {
+      scheduleShowPopup()
+      return
+    }
+
+    val decorView = activity.window?.decorView
+    if (decorView == null) {
+      scheduleShowPopup()
+      return
+    }
+
+    if (!decorView.isAttachedToWindow) {
+      scheduleShowPopup()
+      return
+    }
+
+    if (overlayDialog == null || overlayDialog?.context !== activity) {
+      dismissPopup()
+      (contentView.parent as? ViewGroup)?.removeView(contentView)
+
+      overlayDialog = Dialog(activity).apply {
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        setCancelable(false)
+        setCanceledOnTouchOutside(false)
+        setContentView(contentView)
+
+        window?.apply {
+          setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+          clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+          addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+          setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+          val params = attributes
+          params.type = WindowManager.LayoutParams.TYPE_APPLICATION_PANEL
+          params.token = decorView.applicationWindowToken
+          attributes = params
+          setGravity(Gravity.TOP or Gravity.START)
+          setWindowAnimations(0)
+        }
+      }
+    }
+
+    updatePopupLayout()
+
+    val dialog = overlayDialog ?: return
+    if (!dialog.isShowing && activity.isFinishing.not()) {
+      dialog.show()
+      updatePopupLayout()
+    }
+  }
+
+  private fun updatePopupLayout() {
+    val dialog = overlayDialog
+    if (dialog == null) {
+      scheduleShowPopup()
+      return
+    }
+
+    val width = resolvePopupWidth()
+    val height = resolvePopupHeight()
+
+    contentView.layoutParams = FrameLayout.LayoutParams(width, height)
+    dialogRootViewGroup.layoutParams = FrameLayout.LayoutParams(width, height)
+    val widthSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY)
+    val heightSpec = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+    contentView.measure(widthSpec, heightSpec)
+    contentView.layout(0, 0, width, height)
+    dialogRootViewGroup.measure(widthSpec, heightSpec)
+    dialogRootViewGroup.layout(0, 0, width, height)
+    dialogRootViewGroup.updateState(width, height)
+    contentView.requestLayout()
+
+    updatePopupPosition()
+  }
+
+  private fun updatePopupPosition() {
+    val dialog = overlayDialog
+    if (dialog == null) {
+      scheduleShowPopup()
+      return
+    }
+
+    val width = resolvePopupWidth()
+    val height = resolvePopupHeight()
+    val (clampedX, clampedY) = clampPopupPosition(windowX, windowY)
+    windowX = clampedX
+    windowY = clampedY
+
+    dialog.window?.let { window ->
+      window.setLayout(width, height)
+      val params = window.attributes
+      params.width = width
+      params.height = height
+      params.x = clampedX
+      params.y = clampedY
+      params.gravity = Gravity.TOP or Gravity.START
+      window.attributes = params
+    }
+  }
+
+  private fun dismissPopup() {
+    try {
+      overlayDialog?.dismiss()
+    } catch (_: Exception) {
+      // The host activity may already be shutting down.
+    } finally {
+      showPopupPosted = false
+      overlayDialog = null
+      (contentView.parent as? ViewGroup)?.removeView(contentView)
+    }
+  }
+
+  private fun scheduleShowPopup() {
+    if (showPopupPosted) return
+    showPopupPosted = true
+    post { showPopup() }
+  }
+
+  private fun resolvePopupWidth(): Int = windowWidth.coerceAtLeast(1)
+
+  private fun resolvePopupHeight(): Int = windowHeight.coerceAtLeast(1)
+
+  private fun clampPopupPosition(x: Int, y: Int): Pair<Int, Int> {
+    val screenInset = dpToPx(10)
+    val bottomInset = dpToPx(24)
+    val decorView = getActivity()?.window?.decorView
+    val screenWidth = decorView?.width?.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+    val screenHeight = decorView?.height?.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+    val maxX = maxOf(screenInset, screenWidth - resolvePopupWidth() - screenInset)
+    val maxY = maxOf(screenInset, screenHeight - resolvePopupHeight() - bottomInset)
+
+    return Pair(
+      x.coerceIn(screenInset, maxX),
+      y.coerceIn(screenInset, maxY),
+    )
+  }
 
   private fun getActivity(): Activity? {
-    // ReactContext knows the current Activity
-    return (context as? ReactContext)?.currentActivity
+    return (context as? ThemedReactContext)?.currentActivity
+      ?: (context as? ReactContext)?.currentActivity
       ?: (context as? Activity)
+  }
+
+  private fun dpToPx(value: Int): Int {
+    return (value * resources.displayMetrics.density).roundToInt()
+  }
+
+  private fun pxToDp(value: Int): Int {
+    return (value / resources.displayMetrics.density).roundToInt()
+  }
+
+  companion object {
+    const val WINDOW_DRAG_END_EVENT = "mobileaiFloatingOverlayDragEnd"
   }
 }
