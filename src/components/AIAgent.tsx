@@ -163,7 +163,32 @@ function mergeSupportHistory(
     return a.__index - b.__index;
   });
 
-  return deduped.map(({ __index, ...entry }) => entry);
+  const sorted = deduped.map(({ __index, ...entry }) => entry);
+  const collapsed: SupportHistoryEntry[] = [];
+
+  for (const entry of sorted) {
+    const previous = collapsed[collapsed.length - 1];
+    const previousTime = previous?.timestamp
+      ? new Date(previous.timestamp).getTime()
+      : NaN;
+    const currentTime = entry.timestamp
+      ? new Date(entry.timestamp).getTime()
+      : NaN;
+
+    const isNearDuplicate =
+      previous &&
+      previous.role === entry.role &&
+      previous.content === entry.content &&
+      ((Number.isNaN(previousTime) && Number.isNaN(currentTime)) ||
+        (!Number.isNaN(previousTime) &&
+          !Number.isNaN(currentTime) &&
+          Math.abs(currentTime - previousTime) < 3_000));
+
+    if (isNearDuplicate) continue;
+    collapsed.push(entry);
+  }
+
+  return collapsed;
 }
 
 async function captureHeatmapScreenshot(
@@ -572,12 +597,98 @@ export function AIAgent({
   // Cache of live sockets by ticketId — keeps sockets alive even when user
   // navigates back to the ticket list, so new messages still trigger badge updates.
   const pendingSocketsRef = useRef<Map<string, EscalationSocket>>(new Map());
+  const recentSupportReplyRef = useRef<
+    Map<string, { content: string; at: number }>
+  >(new Map());
   // SSE connections per ticket — reliable fallback for ticket_closed events
   // when the WebSocket is disconnected. EventSource auto-reconnects.
   const sseRef = useRef<Map<string, EscalationEventSource>>(new Map());
   const reportedIssuesSSERef = useRef<ReportedIssueEventSource | null>(null);
   const agentFrtFiredRef = useRef<boolean>(false);
   const humanFrtFiredRef = useRef<Record<string, boolean>>({});
+
+  const appendIncomingSupportReply = useCallback(
+    (ticketId: string, reply: string) => {
+      const normalizedReply = reply.trim();
+      if (!normalizedReply) return;
+
+      const now = Date.now();
+      const recent = recentSupportReplyRef.current.get(ticketId);
+      if (
+        recent &&
+        recent.content === normalizedReply &&
+        now - recent.at < 2_500
+      ) {
+        logger.info(
+          'AIAgent',
+          '★ Ignoring duplicate support reply for ticket:',
+          ticketId
+        );
+        return;
+      }
+      recentSupportReplyRef.current.set(ticketId, {
+        content: normalizedReply,
+        at: now,
+      });
+
+      setTickets((prev) =>
+        prev.map((t) => {
+          if (t.id !== ticketId) return t;
+          const lastEntry = t.history?.[t.history.length - 1];
+          if (
+            lastEntry?.role === 'live_agent' &&
+            lastEntry.content === normalizedReply
+          ) {
+            return t;
+          }
+          return {
+            ...t,
+            history: [
+              ...(t.history || []),
+              {
+                role: 'live_agent',
+                content: normalizedReply,
+                timestamp: new Date(now).toISOString(),
+              },
+            ],
+          };
+        })
+      );
+
+      if (selectedTicketIdRef.current === ticketId) {
+        setSupportMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+          if (
+            lastMessage?.content === normalizedReply &&
+            (lastMessage.role === 'assistant' ||
+              lastMessage.role === ('live_agent' as any))
+          ) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: `human-${ticketId}-${now}`,
+              role: 'assistant',
+              content: normalizedReply,
+              timestamp: now,
+            },
+          ];
+        });
+        setLastResult({
+          success: true,
+          message: `👤 ${normalizedReply}`,
+          steps: [],
+        });
+      } else {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [ticketId]: (prev[ticketId] || 0) + 1,
+        }));
+      }
+    },
+    []
+  );
 
   // ── Onboarding Journey State ────────────────────────────────
   const [isOnboardingActive, setIsOnboardingActive] = useState(false);
@@ -827,6 +938,18 @@ export function AIAgent({
     setLastResult(null);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      pendingSocketsRef.current.forEach((socket) => socket.disconnect());
+      pendingSocketsRef.current.clear();
+      sseRef.current.forEach((sse) => sse.disconnect());
+      sseRef.current.clear();
+      reportedIssuesSSERef.current?.disconnect();
+      reportedIssuesSSERef.current = null;
+      supportSocket?.disconnect();
+    };
+  }, [supportSocket]);
+
   const applyReportedIssueUpdates = useCallback(
     (nextIssues: ReportedIssue[], options?: { replayToChat?: boolean }) => {
       const replayToChat = options?.replayToChat ?? true;
@@ -1075,42 +1198,7 @@ export function AIAgent({
               ticketId,
             });
           }
-
-          // Always update the ticket's history (source of truth for ticket cards)
-          setTickets((prev) =>
-            prev.map((t) => {
-              if (t.id !== ticketId) return t;
-              return {
-                ...t,
-                history: [
-                  ...(t.history || []),
-                  {
-                    role: 'live_agent',
-                    content: reply,
-                    timestamp: new Date().toISOString(),
-                  },
-                ],
-              };
-            })
-          );
-
-          // Route via ref: only push to messages[] if user is viewing THIS ticket
-          if (selectedTicketIdRef.current === ticketId) {
-            const humanMsg: AIMessage = {
-              id: `human-${Date.now()}`,
-              role: 'live_agent' as any,
-              content: reply,
-              timestamp: Date.now(),
-            };
-            setSupportMessages((prev) => [...prev, humanMsg]);
-            setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
-          } else {
-            // Not viewing this ticket — increment unread badge
-            setUnreadCounts((prev) => ({
-              ...prev,
-              [ticketId]: (prev[ticketId] || 0) + 1,
-            }));
-          }
+          appendIncomingSupportReply(ticketId, reply);
         }
       },
       onTypingChange: (isTyping: boolean) => {
@@ -1139,6 +1227,7 @@ export function AIAgent({
     pushToken,
     pushTokenType,
     messages,
+    appendIncomingSupportReply,
     clearSupport,
   ]);
 
@@ -1280,47 +1369,36 @@ export function AIAgent({
             setSupportMessages(restored);
           }
 
+          const existingActiveSocket =
+            selectedTicketIdRef.current === ticket.id ? supportSocket : null;
+          if (existingActiveSocket) {
+            logger.info(
+              'AIAgent',
+              '★ Single ticket restore reusing active socket:',
+              ticket.id
+            );
+            return;
+          }
+
+          const cachedSocket = pendingSocketsRef.current.get(ticket.id);
+          if (cachedSocket) {
+            if (!cachedSocket.isConnected && ticket.wsUrl) {
+              cachedSocket.connect(ticket.wsUrl);
+            }
+            pendingSocketsRef.current.delete(ticket.id);
+            setSupportSocket(cachedSocket);
+            logger.info(
+              'AIAgent',
+              '★ Single ticket restore reusing cached socket:',
+              ticket.id
+            );
+            return;
+          }
+
           const socket = new EscalationSocket({
             onReply: (reply: string) => {
               const tid = ticket.id;
-              // Always update ticket history
-              setTickets((prev) =>
-                prev.map((t) => {
-                  if (t.id !== tid) return t;
-                  return {
-                    ...t,
-                    history: [
-                      ...(t.history || []),
-                      {
-                        role: 'live_agent',
-                        content: reply,
-                        timestamp: new Date().toISOString(),
-                      },
-                    ],
-                  };
-                })
-              );
-
-              // Route via ref: only push to messages[] if user is viewing THIS ticket
-              if (selectedTicketIdRef.current === tid) {
-                const msg: AIMessage = {
-                  id: `human-${Date.now()}`,
-                  role: 'assistant',
-                  content: reply,
-                  timestamp: Date.now(),
-                };
-                setSupportMessages((prev) => [...prev, msg]);
-                setLastResult({
-                  success: true,
-                  message: `👤 ${reply}`,
-                  steps: [],
-                });
-              } else {
-                setUnreadCounts((prev) => ({
-                  ...prev,
-                  [tid]: (prev[tid] || 0) + 1,
-                }));
-              }
+              appendIncomingSupportReply(tid, reply);
             },
             onTypingChange: setIsLiveAgentTyping,
             onTicketClosed: () => clearSupport(ticket.id),
@@ -1596,40 +1674,7 @@ export function AIAgent({
 
       const socket = new EscalationSocket({
         onReply: (reply: string) => {
-          // Always update ticket history
-          setTickets((prev) =>
-            prev.map((t) => {
-              if (t.id !== ticketId) return t;
-              return {
-                ...t,
-                history: [
-                  ...(t.history || []),
-                  {
-                    role: 'live_agent',
-                    content: reply,
-                    timestamp: new Date().toISOString(),
-                  },
-                ],
-              };
-            })
-          );
-
-          // Route via ref: only push to messages[] if user is viewing THIS ticket
-          if (selectedTicketIdRef.current === ticketId) {
-            const msg: AIMessage = {
-              id: `human-${Date.now()}`,
-              role: 'assistant',
-              content: reply,
-              timestamp: Date.now(),
-            };
-            setSupportMessages((prev) => [...prev, msg]);
-            setLastResult({ success: true, message: `👤 ${reply}`, steps: [] });
-          } else {
-            setUnreadCounts((prev) => ({
-              ...prev,
-              [ticketId]: (prev[ticketId] || 0) + 1,
-            }));
-          }
+          appendIncomingSupportReply(ticketId, reply);
         },
         onTypingChange: setIsLiveAgentTyping,
         onTicketClosed: (closedTicketId?: string) => {
