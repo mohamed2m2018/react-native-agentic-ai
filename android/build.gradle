@@ -10,6 +10,15 @@ buildscript {
   }
 }
 
+def isNewArchitectureEnabled() {
+  // Libraries opt into Fabric/TurboModule codegen only when the consuming app enables it.
+  return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
+if (isNewArchitectureEnabled()) {
+  apply plugin: "com.facebook.react"
+}
+
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
@@ -58,4 +67,12 @@ repositories {
 
 dependencies {
   implementation "com.facebook.react:react-android"
+}
+
+if (isNewArchitectureEnabled()) {
+  react {
+    jsRootDir = file("../")
+    libraryName = "RNMobileAIOverlaySpec"
+    codegenJavaPackageName = "com.mobileai.overlay"
+  }
 }
