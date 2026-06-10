@@ -68,7 +68,7 @@ const PROVIDER_INFO: Record<AIProviderName, { name: string; company: string; url
   },
 };
 
-const DEFAULT_THEME = {
+export const DEFAULT_CONSENT_THEME = {
   backdrop: 'rgba(9, 12, 16, 0.52)',
   cardBackground: '#ffffff',
   cardBorder: 'rgba(15, 23, 42, 0.08)',
@@ -88,6 +88,40 @@ const DEFAULT_THEME = {
   primaryButtonText: '#ffffff',
   link: '#3156d3',
 };
+
+export function resolveConsentDialogContent(
+  provider: AIProviderName,
+  config: AIConsentConfig,
+  language: 'en' | 'ar' = 'en'
+) {
+  const isArabic = language === 'ar';
+  const providerInfo = PROVIDER_INFO[provider] || PROVIDER_INFO.gemini;
+  const theme = { ...DEFAULT_CONSENT_THEME, ...(config.theme || {}) };
+  const providerLabel = config.providerLabel || (
+    isArabic
+      ? 'خدمة الذكاء الاصطناعي المفعلة في التطبيق'
+      : 'the AI service configured for this app'
+  );
+  const providerUrl = config.providerUrl || providerInfo.url;
+  const showProviderBadge = config.showProviderBadge === true;
+  const title = isArabic
+    ? (config.titleAr || 'مساعد الذكاء الاصطناعي')
+    : (config.title || 'AI Assistant');
+  const sharedDataItems = isArabic
+    ? (config.sharedDataItemsAr || ['رسالتك', 'يستخدم فقط المعلومات الظاهرة في شاشة التطبيق الحالية لفهم السياق'])
+    : (config.sharedDataItems || ['Your message', 'Relevant information from the current app screen']);
+
+  return {
+    isArabic,
+    providerInfo,
+    theme,
+    providerLabel,
+    providerUrl,
+    showProviderBadge,
+    title,
+    sharedDataItems,
+  };
+}
 
 // ─── Public Types ─────────────────────────────────────────────
 
@@ -200,7 +234,7 @@ export interface AIConsentConfig {
   /**
    * Theme colors for the consent dialog.
    */
-  theme?: Partial<typeof DEFAULT_THEME>;
+  theme?: Partial<typeof DEFAULT_CONSENT_THEME>;
 }
 
 // ─── Props ────────────────────────────────────────────────────
@@ -226,12 +260,14 @@ export function AIConsentDialog({
 }: AIConsentDialogProps) {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const isArabic = language === 'ar';
-  const providerInfo = PROVIDER_INFO[provider] || PROVIDER_INFO.gemini;
-  const theme = { ...DEFAULT_THEME, ...(config.theme || {}) };
-  const providerLabel = config.providerLabel || (isArabic ? 'خدمة الذكاء الاصطناعي المفعلة في التطبيق' : 'the AI service configured for this app');
-
-  const providerUrl = config.providerUrl || providerInfo.url;
-  const showProviderBadge = config.showProviderBadge === true;
+  const {
+    theme,
+    providerLabel,
+    providerUrl,
+    showProviderBadge,
+    title,
+    sharedDataItems,
+  } = resolveConsentDialogContent(provider, config, language);
 
   useEffect(() => {
     if (visible) {
@@ -242,14 +278,6 @@ export function AIConsentDialog({
       }).start();
     }
   }, [visible, fadeAnim]);
-
-  const title = isArabic
-    ? (config.titleAr || 'مساعد الذكاء الاصطناعي')
-    : (config.title || 'AI Assistant');
-
-  const sharedDataItems = isArabic
-    ? (config.sharedDataItemsAr || ['رسالتك', 'نقدر خصوصيتك، لا نرى شاشتك بأي شكل، نحن ندرك فقط سياق التطبيق الحالي'])
-    : (config.sharedDataItems || ['Your message', "We appreciate your privacy, we don't see your screen in any way, we are just aware of current app context"]);
 
   const handlePrivacyPolicy = useCallback(() => {
     if (config.privacyPolicyUrl) {

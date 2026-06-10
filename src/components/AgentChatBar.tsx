@@ -17,8 +17,9 @@ import {
   Keyboard,
   Platform,
   useWindowDimensions,
+  Linking,
 } from 'react-native';
-import type { ExecutionResult, AgentMode, ChatBarTheme, AIMessage, ConversationSummary } from '../core/types';
+import type { ExecutionResult, AgentMode, ChatBarTheme, AIMessage, ConversationSummary, AIProviderName } from '../core/types';
 import {
   MicIcon,
   SpeakerIcon,
@@ -33,6 +34,8 @@ import {
 import type { SupportTicket } from '../support/types';
 import { logger } from '../utils/logger';
 import { DiscoveryTooltip } from './DiscoveryTooltip';
+import type { AIConsentConfig } from './AIConsentDialog';
+import { resolveConsentDialogContent } from './AIConsentDialog';
 
 // ─── Props ─────────────────────────────────────────────────────
 
@@ -113,6 +116,11 @@ interface AgentChatBarProps {
     width: number;
     height: number;
   } | null;
+  consentVisible?: boolean;
+  consentProvider?: AIProviderName;
+  consentConfig?: AIConsentConfig;
+  onConsentApprove?: () => void | Promise<void>;
+  onConsentDecline?: () => void;
 }
 
 // ─── Mode Selector ─────────────────────────────────────────────
@@ -517,6 +525,11 @@ export function AgentChatBar({
   renderMode = 'default',
   onWindowMetricsChange,
   windowMetrics,
+  consentVisible = false,
+  consentProvider = 'gemini',
+  consentConfig,
+  onConsentApprove,
+  onConsentDecline,
 }: AgentChatBarProps) {
   const [text, setText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -527,6 +540,10 @@ export function AgentChatBar({
   const scrollRef = useRef<any>(null);
   const { height, width } = useWindowDimensions();
   const isArabic = language === 'ar';
+  const consentContent = useMemo(
+    () => resolveConsentDialogContent(consentProvider, consentConfig ?? {}, language),
+    [consentConfig, consentProvider, language]
+  );
   const [panelHeight, setPanelHeight] = useState(0);
   const preKeyboardYRef = useRef<number | null>(null);
   const previousThinkingRef = useRef(false);
@@ -553,6 +570,8 @@ export function AgentChatBar({
             ? 280
             : mode === 'human'
               ? 240
+              : consentVisible
+                ? 320
               : pendingApprovalQuestion
                 ? 220
                 : 164;
@@ -562,7 +581,7 @@ export function AgentChatBar({
 
       return Math.max(minExpandedHeight, Math.min(naturalHeight, maxExpandedHeight));
     },
-    [height, mode, showHistory]
+    [consentVisible, height, mode, pendingApprovalQuestion, showHistory]
   );
 
   const getWindowSize = useCallback((
@@ -692,6 +711,13 @@ export function AgentChatBar({
   useEffect(() => {
     if (autoExpandTrigger > 0) setIsExpanded(true);
   }, [autoExpandTrigger]);
+
+  useEffect(() => {
+    if (!consentVisible) return;
+    autoCollapsedForThinkingRef.current = false;
+    setShowHistory(false);
+    setIsExpanded(true);
+  }, [consentVisible]);
 
   useEffect(() => {
     return () => {
@@ -1259,7 +1285,87 @@ export function AgentChatBar({
 
           {mode === 'text' && (
             <>
-              {pendingApprovalQuestion && onPendingApprovalAction && (
+              {consentVisible ? (
+                <View style={styles.approvalPanel}>
+                  <View style={styles.inlineConsentSummary}>
+                    <Text
+                      style={[
+                        styles.inlineConsentSummaryLabel,
+                        isArabic ? styles.inlineConsentTextRTL : null,
+                      ]}
+                    >
+                      {isArabic ? 'ما سنشاركه مع المساعد:' : "What we'll share with the assistant:"}
+                    </Text>
+                    {consentContent.sharedDataItems.map((item, index) => (
+                      <View style={styles.inlineConsentSummaryRow} key={`${item}-${index}`}>
+                        <Text style={styles.inlineConsentBullet}>•</Text>
+                        <Text
+                          style={[
+                            styles.inlineConsentSummaryText,
+                            isArabic ? styles.inlineConsentTextRTL : null,
+                          ]}
+                        >
+                          {item}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {(consentConfig?.privacyPolicyUrl ||
+                    (!consentConfig?.privacyPolicyUrl &&
+                      consentContent.showProviderBadge &&
+                      consentContent.providerUrl)) && (
+                    <Pressable
+                      onPress={() => Linking.openURL(
+                        consentConfig?.privacyPolicyUrl || consentContent.providerUrl!
+                      )}
+                      style={styles.inlineConsentLinkWrap}
+                    >
+                      <Text style={styles.inlineConsentLink}>
+                        {consentConfig?.privacyPolicyUrl
+                          ? (isArabic ? 'سياسة الخصوصية' : 'Privacy Policy')
+                          : (isArabic ? 'معلومات إضافية' : 'Learn more')}
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  <View style={styles.approvalActions}>
+                    <Pressable
+                      style={[
+                        styles.approvalActionBtn,
+                        styles.approvalActionSecondary,
+                      ]}
+                      onPress={onConsentDecline}
+                    >
+                      <Text
+                        style={[
+                          styles.approvalActionText,
+                          styles.approvalActionSecondaryText,
+                        ]}
+                      >
+                        {isArabic ? 'عدم السماح' : 'Don’t Allow'}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.approvalActionBtn,
+                        styles.approvalActionPrimary,
+                      ]}
+                      onPress={onConsentApprove}
+                    >
+                      <Text
+                        style={[
+                          styles.approvalActionText,
+                          styles.approvalActionPrimaryText,
+                        ]}
+                      >
+                        {isArabic ? 'السماح' : 'Allow'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : pendingApprovalQuestion && onPendingApprovalAction ? (
                 <View style={styles.approvalPanel}>
                   <Text style={styles.approvalHint}>
                     The AI agent is requesting permission to perform this action. Tap "Allow" to approve, or "Don’t Allow" to cancel.
@@ -1279,16 +1385,18 @@ export function AgentChatBar({
                     </Pressable>
                   </View>
                 </View>
+              ) : null}
+              {!consentVisible && (
+                <TextInputRow
+                  text={text}
+                  setText={setText}
+                  onSend={handleSend}
+                  onCancel={onCancel}
+                  isThinking={isThinking}
+                  isArabic={isArabic}
+                  theme={theme}
+                />
               )}
-              <TextInputRow
-                text={text}
-                setText={setText}
-                onSend={handleSend}
-                onCancel={onCancel}
-                isThinking={isThinking}
-                isArabic={isArabic}
-                theme={theme}
-              />
             </>
           )}
 
@@ -1547,6 +1655,53 @@ const styles = StyleSheet.create({
   approvalPanel: {
     marginBottom: 10,
     gap: 8,
+  },
+  inlineConsentSummary: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  inlineConsentSummaryLabel: {
+    color: 'rgba(255,255,255,0.58)',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+  inlineConsentSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 5,
+  },
+  inlineConsentBullet: {
+    color: '#7B68EE',
+    fontSize: 14,
+    marginRight: 8,
+    marginTop: 1,
+  },
+  inlineConsentSummaryText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.86)',
+  },
+  inlineConsentTextRTL: {
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  inlineConsentLinkWrap: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  inlineConsentLink: {
+    fontSize: 13,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+    color: '#7B68EE',
   },
   approvalHint: {
     color: 'rgba(255,255,255,0.72)',
