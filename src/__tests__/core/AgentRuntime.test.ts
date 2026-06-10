@@ -55,6 +55,7 @@ jest.mock('../../providers/ProviderFactory', () => ({
 }));
 
 import { AgentRuntime } from '../../core/AgentRuntime';
+import { actionRegistry } from '../../core/ActionRegistry';
 import type { AIProvider, ProviderResult, AgentConfig, TokenUsage } from '../../core/types';
 import { walkFiberTree } from '../../core/FiberTreeWalker';
 import { dehydrateScreen } from '../../core/ScreenDehydrator';
@@ -158,6 +159,7 @@ function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfi
 describe('AgentRuntime', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    actionRegistry.clear();
     mockCreateProvider.mockReset();
     mockWalkFiberTree.mockReturnValue({
       elementsText: '[0]<pressable>Open Details />\n',
@@ -647,6 +649,35 @@ describe('AgentRuntime', () => {
       expect(result.success).toBe(false);
       expect(result.steps[1]?.action.output).toContain('APP ACTION BLOCKED');
       expect(onChangeText).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('configured action filtering', () => {
+    it('only exposes allowlisted app-code actions from the registry', () => {
+      actionRegistry.register({
+        name: 'grant_discount',
+        description: 'Grant a discount',
+        parameters: {},
+        handler: jest.fn(),
+      });
+      actionRegistry.register({
+        name: 'refund_order',
+        description: 'Refund an order',
+        parameters: {},
+        handler: jest.fn(),
+      });
+
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'ok', success: true }),
+      ]);
+
+      const runtime = createRuntime(provider, {
+        allowedActionNames: ['grant_discount'],
+      });
+
+      const toolNames = runtime.getTools().map((tool) => tool.name);
+      expect(toolNames).toContain('grant_discount');
+      expect(toolNames).not.toContain('refund_order');
     });
   });
 

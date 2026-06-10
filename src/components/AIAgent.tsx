@@ -17,6 +17,7 @@ import React, {
 } from 'react';
 import { View, StyleSheet, InteractionManager, Platform } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
+import { actionRegistry } from '../core/ActionRegistry';
 import { captureWireframe } from '../core/FiberTreeWalker';
 import { humanizeScreenName } from '../utils/humanizeScreenName';
 import { createProvider } from '../providers/ProviderFactory';
@@ -74,6 +75,12 @@ import { ENDPOINTS } from '../config/endpoints';
 import type { ReportedIssue } from '../support/types';
 import * as ConversationService from '../services/ConversationService';
 import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
+import {
+  executeConfiguredAction,
+  fetchConfiguredActions,
+  type RemoteConfiguredAction,
+} from '../services/MobileAIActionService';
+import { formatActionToolResult } from '../utils/actionResult';
 
 type AndroidWindowMetrics = {
   x: number;
@@ -553,6 +560,10 @@ export function AIAgent({
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [supportMessages, setSupportMessages] = useState<AIMessage[]>([]);
+  const [remoteConfiguredActions, setRemoteConfiguredActions] = useState<
+    RemoteConfiguredAction[]
+  >([]);
+  const [registeredActionRevision, setRegisteredActionRevision] = useState(0);
   const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
   // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
   const messagesRef = useRef<AIMessage[]>([]);
@@ -568,6 +579,12 @@ export function AIAgent({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    return actionRegistry.onChange(() => {
+      setRegisteredActionRevision((prev) => prev + 1);
+    });
+  }, []);
 
   // Increment scroll trigger when messages change to auto-scroll chat modal
   useEffect(() => {
@@ -1068,6 +1085,29 @@ export function AIAgent({
       headers: analyticsProxyHeaders,
     });
   }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl, knowledgeBase]);
+
+  useEffect(() => {
+    if (!analyticsKey) {
+      setRemoteConfiguredActions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchConfiguredActions({
+      analyticsKey,
+      baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
+      headers: analyticsProxyHeaders,
+    }).then((actions) => {
+      if (!cancelled) {
+        setRemoteConfiguredActions(actions);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl]);
 
   // ─── Auto-create MobileAI escalation tool ─────────────────────
   // When analyticsKey is present and consumer hasn't provided their own
@@ -1727,13 +1767,153 @@ export function AIAgent({
     setIsLiveAgentTyping(false);
   }, []); // No dependencies — uses refs/functional setters
 
+  const remoteActionInstructions = useMemo(() => {
+    if (remoteConfiguredActions.length === 0) return "";
+
+    const lines = remoteConfiguredActions.map((action) => {
+      const modeLabel =
+        action.executionType === "webhook"
+          ? "executes directly in MobileAI"
+          : "executes in app code after MobileAI authorization";
+      return `- Tool \`${action.name}\` (${modeLabel}): ${action.triggerHint}`;
+    });
+
+    return [
+      "### MobileAI Configured Actions",
+      "Only use the configured actions below. Do not invent or call unconfigured app actions.",
+      ...lines,
+    ].join("\n");
+  }, [remoteConfiguredActions]);
+
+  const resolvedInstructions = useMemo(() => {
+    const combinedSystem = [
+      instructions?.system?.trim(),
+      remoteActionInstructions.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!combinedSystem && !instructions?.getScreenInstructions) {
+      return instructions;
+    }
+
+    return {
+      ...instructions,
+      system: combinedSystem || undefined,
+    };
+  }, [instructions, remoteActionInstructions]);
+
+  const remoteActionTools = useMemo<Record<string, ToolDefinition>>(() => {
+    if (!analyticsKey || remoteConfiguredActions.length === 0) {
+      return {};
+    }
+
+    const buildParameters = (actionName: string) => {
+      const registeredAction = actionRegistry.get(actionName);
+      if (!registeredAction) {
+        return {};
+      }
+
+      const params: ToolDefinition["parameters"] = {};
+      for (const [key, value] of Object.entries(registeredAction.parameters)) {
+        if (typeof value === "string") {
+          params[key] = {
+            type: "string",
+            description: value,
+            required: true,
+          };
+          continue;
+        }
+
+        params[key] = {
+          type: value.type,
+          description: value.description,
+          required: value.required !== false,
+          enum: value.enum,
+        };
+      }
+
+      return params;
+    };
+
+    return Object.fromEntries(
+      remoteConfiguredActions.map((action) => {
+        const description =
+          action.executionType === "webhook"
+            ? `${action.description} This action is fully configured in MobileAI and runs via webhook.`
+            : `${action.description} This action requires a matching useAction('${action.name}', ...) implementation in the app.`;
+
+        const tool: ToolDefinition = {
+          name: action.name,
+          description,
+          parameters:
+            action.executionType === "app_code"
+              ? buildParameters(action.name)
+              : {},
+          execute: async (args) => {
+            const execution = await executeConfiguredAction({
+              analyticsKey,
+              actionName: action.name,
+              baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
+              headers: analyticsProxyHeaders,
+              args,
+              currentScreen: getResolvedScreenName(),
+              userContext: (userContext as Record<string, unknown> | undefined) ?? {},
+            });
+
+            if (!execution.allowed) {
+              return `❌ ${execution.error ?? `Action "${action.name}" is not allowed right now.`}`;
+            }
+
+            if (action.executionType === "webhook") {
+              return formatActionToolResult(
+                {
+                  success: true,
+                  message: execution.message,
+                  output: execution.output,
+                },
+                `✅ Action "${action.name}" executed successfully.`
+              );
+            }
+
+            const registeredAction = actionRegistry.get(action.name);
+            if (!registeredAction) {
+              return `❌ Action "${action.name}" is configured in MobileAI as app_code, but no matching useAction('${action.name}', ...) is mounted in the app.`;
+            }
+
+            try {
+              const result = await registeredAction.handler(args);
+              return formatActionToolResult(
+                result,
+                `✅ Action "${action.name}" executed successfully.`
+              );
+            } catch (error: any) {
+              return `❌ Action "${action.name}" failed: ${error.message}`;
+            }
+          },
+        };
+
+        return [action.name, tool];
+      })
+    );
+  }, [
+    analyticsKey,
+    analyticsProxyHeaders,
+    analyticsProxyUrl,
+    getResolvedScreenName,
+    remoteConfiguredActions,
+    registeredActionRevision,
+    userContext,
+  ]);
+
   const mergedCustomTools = useMemo(() => {
     return {
+      ...remoteActionTools,
       ...(autoEscalateTool ? { escalate_to_human: autoEscalateTool } : {}),
       ...(autoReportIssueTool ? { report_issue: autoReportIssueTool } : {}),
       ...customTools,
     };
-  }, [autoEscalateTool, autoReportIssueTool, customTools]);
+  }, [autoEscalateTool, autoReportIssueTool, customTools, remoteActionTools]);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -1849,7 +2029,7 @@ export function AIAgent({
         mode === 'voice'
           ? { ...mergedCustomTools, ask_user: null }
           : mergedCustomTools,
-      instructions,
+      instructions: resolvedInstructions,
       stepDelay,
       mcpServerUrl,
       router,
@@ -1859,6 +2039,10 @@ export function AIAgent({
       knowledgeBase: resolvedKnowledgeBase,
       knowledgeMaxTokens,
       enableUIControl,
+      allowedActionNames:
+        analyticsKey && remoteConfiguredActions.length > 0
+          ? remoteConfiguredActions.map((action) => action.name)
+          : undefined,
       screenMap: useScreenMap ? screenMap : undefined,
       maxTokenBudget,
       maxCostUSD,
@@ -1983,8 +2167,8 @@ export function AIAgent({
       onBeforeTask,
       onAfterTask,
       transformScreenContent,
-      customTools,
-      instructions,
+      mergedCustomTools,
+      resolvedInstructions,
       stepDelay,
       mcpServerUrl,
       router,
@@ -1993,6 +2177,8 @@ export function AIAgent({
       resolvedKnowledgeBase,
       knowledgeMaxTokens,
       enableUIControl,
+      analyticsKey,
+      remoteConfiguredActions,
       screenMap,
       useScreenMap,
       maxTokenBudget,
@@ -2675,7 +2861,7 @@ export function AIAgent({
     effectiveVoiceProxyHeaders,
     effectiveProxyHeaders,
     runtime,
-    instructions,
+    resolvedInstructions,
     supportStyle,
     knowledgeBase,
   ]);

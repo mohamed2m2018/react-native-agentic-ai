@@ -49,6 +49,7 @@ import type {
 } from './types';
 import { actionRegistry } from './ActionRegistry';
 import { createProvider } from '../providers/ProviderFactory';
+import { formatActionToolResult } from '../utils/actionResult';
 
 const DEFAULT_MAX_STEPS = 25;
 
@@ -956,9 +957,20 @@ ${screen.elementsText}
 
   private buildToolsForProvider(): ToolDefinition[] {
     const allTools = [...this.tools.values()];
+    const existingToolNames = new Set(allTools.map((tool) => tool.name));
+    const allowedActionNames = this.config.allowedActionNames
+      ? new Set(this.config.allowedActionNames)
+      : null;
 
     // Add registered actions as tools
     for (const action of actionRegistry.getAll()) {
+      if (allowedActionNames && !allowedActionNames.has(action.name)) {
+        continue;
+      }
+      if (existingToolNames.has(action.name)) {
+        continue;
+      }
+
       const toolParams: Record<string, any> = {};
       for (const [key, val] of Object.entries(action.parameters)) {
         if (typeof val === 'string') {
@@ -981,12 +993,16 @@ ${screen.elementsText}
           try {
             const result = await action.handler(args);
             logger.info('AgentRuntime', `Action "${action.name}" result:`, JSON.stringify(result));
-            return typeof result === 'string' ? result : JSON.stringify(result);
+            return formatActionToolResult(
+              result,
+              `✅ Action "${action.name}" executed successfully.`
+            );
           } catch (error: any) {
             return `❌ Action "${action.name}" failed: ${error.message}`;
           }
         },
       });
+      existingToolNames.add(action.name);
     }
 
     return allTools;
