@@ -305,15 +305,23 @@ npm install @mobileai/react-native
 npm install react-native-agentic-ai
 ```
 
-No native modules required by default. Works with **Expo managed workflow** out of the box — no eject needed.
+Requires React Native `>=0.83.0 <0.84.0` and works with **Expo managed workflow** through a development build or prebuild. The base package includes native modules for screenshot capture and the elevated overlay, so Expo Go is not supported after installing it.
+
+```bash
+npx expo prebuild
+npx expo run:ios
+npx expo run:android
+```
+
+For React Native CLI apps, run the normal native install/build step after installing the package, such as `cd ios && pod install`.
 
 ### Screenshot Capture
 
 <details>
 <summary><b>📸 Screenshots</b> — for image/video content understanding</summary>
 
-`react-native-view-shot` is a required dependency for screenshot capture and is included with
-`@mobileai/react-native`, so you do **not** need to add it separately.
+`react-native-view-shot` is a required native dependency for screenshot capture and is included with
+`@mobileai/react-native`, so you do **not** need to add it separately. Rebuild the native app after install so it can be autolinked.
 
 </details>
 
@@ -560,7 +568,7 @@ In copilot mode, the prompt handles ~95% of cases automatically. For extra safet
 Transform the AI agent into a production-grade support system. The AI resolves issues directly inside your app UI — no backend API integrations required. When it can't help, it escalates to a live human agent.
 
 ```tsx
-import { SupportGreeting, buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
+import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
 
 <AIAgent
   analyticsKey="mobileai_pub_xxx" // required for MobileAI escalation
@@ -632,24 +640,6 @@ Pass user identity to the escalation ticket for agent visibility in the dashboar
   }}
   pushToken={expoPushToken}      // for offline support reply notifications
   pushTokenType="expo"            // 'fcm' | 'expo' | 'apns'
-/>
-```
-
-### `SupportGreeting` — Standalone Greeting Component
-
-Render the support greeting independently if you have a custom chat UI:
-
-```tsx
-import { SupportGreeting } from '@mobileai/react-native';
-
-<SupportGreeting
-  message="Hi! 👋 How can I help?"
-  agentName="Support"
-  quickReplies={[
-    { label: 'Track order', icon: '📦' },
-    { label: 'Talk to human', icon: '👤' },
-  ]}
-  onQuickReply={(text) => send(text)}
 />
 ```
 
