@@ -284,23 +284,35 @@ export function extractContentFromAST(sourceCode: string, filePath: string): Ext
  * Build a description string from extracted content.
  */
 export function buildDescription(extracted: ExtractedContent): string {
+  const durableElements = extracted.elements.filter(element => !isTransientElementDescription(element));
+  const durableVisibleText = dedupeLabels((extracted.visibleText || []).filter(text => !isTransientUiLabel(text)));
+  const durableListSummary = buildDurableListSummary(extracted.structuralHints || []);
+
   if (extracted.elements.length > 0 && extracted.elements.every(element => extractCategoryTag(element) === 'component')) {
-    return extracted.visibleText?.length
-      ? summarizeVisibleText(extracted.visibleText)
+    return durableVisibleText.length
+      ? summarizeVisibleText(durableVisibleText)
       : extracted.structuralHints?.length
         ? extracted.structuralHints.join(', ')
         : 'Screen content';
   }
 
   const parts: string[] = [];
-  if (extracted.elements.length > 0) {
-    parts.push(extracted.elements.join(', '));
+  if (durableListSummary) {
+    parts.push(durableListSummary);
   }
-  if (parts.length === 0 && extracted.visibleText?.length) {
-    parts.push(summarizeVisibleText(extracted.visibleText));
+
+  const filteredElements = durableElements.filter((element) => !shouldOmitElementWhenListSummaryExists(element, durableListSummary));
+  if (filteredElements.length > 0) {
+    parts.push(filteredElements.join(', '));
   }
-  if (extracted.structuralHints?.length) {
-    const structuralSummary = extracted.structuralHints.join(', ');
+
+  if (parts.length === 0 && durableVisibleText.length) {
+    parts.push(summarizeVisibleText(durableVisibleText));
+  }
+  if (parts.length === 0 && extracted.structuralHints?.length) {
+    const structuralSummary = extracted.structuralHints
+      .filter(hint => !hint.startsWith('rows show ') && !hint.startsWith('rows include '))
+      .join(', ');
     if (!parts.some(part => part.includes(structuralSummary))) {
       parts.push(structuralSummary);
     }
@@ -366,11 +378,15 @@ function analyzeListStructure(listPath: any): string[] {
 
   const routeTargets = new Set<string>();
   let hasSelectableRows = false;
+  const rowFieldHints = new Set<string>();
+  const rowActionHints = new Set<string>();
+  let sawRowButtons = false;
 
   const bodyPath = listPath.get('attributes').find((attrPath: any) =>
     attrPath.node === renderItemAttr
   )?.get('value');
   const expressionPath = bodyPath?.get('expression');
+  const renderItemAliases = getRenderItemAliases(renderItemExpression);
 
   expressionPath?.traverse({
     JSXOpeningElement(path: any) {
@@ -378,7 +394,36 @@ function analyzeListStructure(listPath: any): string[] {
       if (!elementName) return;
 
       const category = classifyComponent(elementName);
-      if (category === 'button') hasSelectableRows = true;
+      for (const attr of path.node.attributes) {
+        if (!t.isJSXAttribute(attr) || !t.isJSXExpressionContainer(attr.value)) continue;
+        if (t.isJSXEmptyExpression(attr.value.expression)) continue;
+        const hintsFromAttribute = collectItemFieldHintsFromExpression(
+          attr.value.expression,
+          renderItemAliases,
+        );
+        for (const hint of hintsFromAttribute) {
+          rowFieldHints.add(hint);
+        }
+      }
+
+      if (category === 'button') {
+        hasSelectableRows = true;
+        sawRowButtons = true;
+
+        const labels = elementName === 'Button'
+          ? getStringAttributeCandidates(path.node, path, 'title')
+          : collectBestLabelsFromElement(path.parentPath);
+        for (const label of labels) {
+          const actionHint = actionHintFromLabel(label);
+          if (actionHint) rowActionHints.add(actionHint);
+        }
+      }
+      if (category === 'toggle') {
+        rowActionHints.add('switch');
+      }
+      if (category === 'image') {
+        rowFieldHints.add('product image');
+      }
 
       if (category === 'navigation') {
         const hrefTarget = extractRouteFromAttribute(path.node, 'href');
@@ -387,21 +432,317 @@ function analyzeListStructure(listPath: any): string[] {
         if (screenTarget) routeTargets.add(screenTarget);
       }
     },
+    JSXExpressionContainer(path: any) {
+      if (path.parentPath?.isJSXAttribute()) return;
+      if (t.isJSXEmptyExpression(path.node.expression)) return;
+      const hintsFromExpression = collectItemFieldHintsFromExpression(
+        path.node.expression,
+        renderItemAliases,
+      );
+      for (const hint of hintsFromExpression) {
+        rowFieldHints.add(hint);
+      }
+    },
     CallExpression(path: any) {
       const target = extractRouteFromCall(path.node, path.scope);
       if (Array.isArray(target)) target.forEach(route => routeTargets.add(route));
       else if (target) routeTargets.add(target);
+
+      const hintsFromCall = collectItemFieldHintsFromExpression(
+        path.node,
+        renderItemAliases,
+      );
+      for (const hint of hintsFromCall) {
+        rowFieldHints.add(hint);
+      }
     },
   });
 
+  if (rowFieldHints.has('quantity') && sawRowButtons) {
+    rowFieldHints.delete('quantity');
+    rowActionHints.add('quantity controls');
+  }
+
   if (hasSelectableRows) {
     hints.push('list with selectable rows');
+  }
+  if (rowFieldHints.size > 0) {
+    hints.push(`rows show ${formatHumanList([...rowFieldHints])}`);
+  }
+  if (rowActionHints.size > 0) {
+    hints.push(`rows include ${formatHumanList([...rowActionHints])}`);
   }
   if (routeTargets.size > 0) {
     hints.push(`rows navigate to ${[...routeTargets].join(', ')}`);
   }
 
   return hints;
+}
+
+const TRANSIENT_LABEL_PATTERNS = [
+  /^loading\b/,
+  /^submitting\b/,
+  /^scheduling\b/,
+  /^saving\b/,
+  /^sent\b$/,
+  /^success\b/,
+  /successfully/,
+  /^your cart is empty$/,
+  /^start shopping$/,
+  /^final .*confirmation$/,
+  /^error\b/,
+  /^invalid\b/,
+  /^logged out\b/,
+  /^not implemented\b/,
+  /^activityindicator$/i,
+  /^spinner$/i,
+];
+
+function isTransientUiLabel(value: string): boolean {
+  const normalized = normalizeLabel(value).toLowerCase();
+  if (!normalized) return true;
+  return TRANSIENT_LABEL_PATTERNS.some(pattern => pattern.test(normalized));
+}
+
+function isTransientElementDescription(element: string): boolean {
+  const label = normalizeLabel(element.replace(/\s*\([^)]+\)\s*$/, ''));
+  if (!label) return true;
+  return isTransientUiLabel(label);
+}
+
+function shouldOmitElementWhenListSummaryExists(element: string, summary: string | null): boolean {
+  if (!summary) return false;
+
+  const category = extractCategoryTag(element);
+  if (category === 'list' || category === 'image' || category === 'component') {
+    return true;
+  }
+
+  const normalized = normalizeLabel(element.replace(/\s*\([^)]+\)\s*$/, '')).toLowerCase();
+  if (category === 'button' && (normalized.isEmpty || LOW_SIGNAL_LABELS.has(normalized) || /^[^\p{L}\p{N}]+$/u.test(normalized))) {
+    return true;
+  }
+  if (summary.includes('product name') && normalized === 'name') return true;
+  if (summary.includes('price') && normalized === '$') return true;
+  if (summary.includes('add button') && normalized === 'add') return true;
+  if (summary.includes('quantity controls') && (normalized === '+' || normalized === '-' || normalized === 'remove')) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildDurableListSummary(structuralHints: string[]): string | null {
+  const hasScrollableList = structuralHints.includes('scrollable list');
+  const hasSelectableRows = structuralHints.includes('list with selectable rows');
+  const rawRowShows = structuralHints
+    .filter(hint => hint.startsWith('rows show '))
+    .flatMap(hint => splitHumanList(hint.replace(/^rows show /, '')));
+  const rowIncludes = structuralHints
+    .filter(hint => hint.startsWith('rows include '))
+    .flatMap(hint => splitHumanList(hint.replace(/^rows include /, '')));
+  const navigationHint = structuralHints.find(hint => hint.startsWith('rows navigate to '));
+  const inferredProductContext =
+    rawRowShows.includes('price') ||
+    rawRowShows.includes('product image') ||
+    rowIncludes.includes('add button');
+  const rowShows = rawRowShows
+    .map((value) => value === 'name' && inferredProductContext ? 'product name' : value);
+
+  if (!hasScrollableList && rowShows.length === 0 && rowIncludes.length === 0 && !hasSelectableRows) {
+    return null;
+  }
+
+  let summary = hasSelectableRows ? 'scrollable list with selectable rows' : 'scrollable list';
+  if (rowShows.length > 0) {
+    summary += ` showing ${formatHumanList(dedupeLabels(rowShows))}`;
+  }
+  if (rowIncludes.length > 0) {
+    summary += `${rowShows.length > 0 ? ', with ' : ' with '}${formatHumanList(dedupeLabels(rowIncludes))}`;
+  }
+  if (navigationHint) {
+    summary += `, ${navigationHint}`;
+  }
+  return summary;
+}
+
+function splitHumanList(value: string): string[] {
+  return value
+    .split(/\s*,\s*|\s+and\s+/)
+    .map(part => normalizeLabel(part))
+    .filter(Boolean);
+}
+
+function formatHumanList(values: string[]): string {
+  const unique = dedupeLabels(values);
+  if (unique.length === 0) return '';
+  if (unique.length === 1) return unique[0]!;
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
+  return `${unique.slice(0, -1).join(', ')}, and ${unique[unique.length - 1]}`;
+}
+
+interface RenderItemAliases {
+  itemAliases: Set<string>;
+  paramAliases: Set<string>;
+}
+
+function getRenderItemAliases(renderItemExpression: t.ArrowFunctionExpression | t.FunctionExpression): RenderItemAliases {
+  const itemAliases = new Set<string>(['item']);
+  const paramAliases = new Set<string>();
+  const firstParam = renderItemExpression.params[0];
+
+  if (!firstParam) {
+    return { itemAliases, paramAliases };
+  }
+
+  if (t.isIdentifier(firstParam)) {
+    paramAliases.add(firstParam.name);
+    return { itemAliases, paramAliases };
+  }
+
+  if (!t.isObjectPattern(firstParam)) {
+    return { itemAliases, paramAliases };
+  }
+
+  for (const property of firstParam.properties) {
+    if (!t.isObjectProperty(property)) continue;
+    const keyName = getObjectPropertyName(property.key);
+    if (keyName !== 'item') continue;
+
+    if (t.isIdentifier(property.value)) {
+      itemAliases.add(property.value.name);
+      continue;
+    }
+
+    if (t.isAssignmentPattern(property.value) && t.isIdentifier(property.value.left)) {
+      itemAliases.add(property.value.left.name);
+    }
+  }
+
+  return { itemAliases, paramAliases };
+}
+
+function collectItemFieldHintsFromExpression(
+  node: t.Node | null | undefined,
+  aliases: RenderItemAliases,
+  depth: number = 0,
+): string[] {
+  if (!node || depth > 8) return [];
+
+  if (t.isMemberExpression(node)) {
+    const direct = fieldHintFromMemberExpression(node, aliases);
+    return direct ? [direct] : [];
+  }
+
+  if (t.isTemplateLiteral(node)) {
+    return dedupeLabels(node.expressions.flatMap((expr) =>
+      collectItemFieldHintsFromExpression(expr, aliases, depth + 1)
+    ));
+  }
+
+  if (t.isBinaryExpression(node) || t.isLogicalExpression(node)) {
+    return dedupeLabels([
+      ...collectItemFieldHintsFromExpression(node.left, aliases, depth + 1),
+      ...collectItemFieldHintsFromExpression(node.right, aliases, depth + 1),
+    ]);
+  }
+
+  if (t.isConditionalExpression(node)) {
+    return dedupeLabels([
+      ...collectItemFieldHintsFromExpression(node.consequent, aliases, depth + 1),
+      ...collectItemFieldHintsFromExpression(node.alternate, aliases, depth + 1),
+    ]);
+  }
+
+  if (t.isCallExpression(node)) {
+    return dedupeLabels(node.arguments.flatMap((arg) =>
+      t.isSpreadElement(arg) ? [] : collectItemFieldHintsFromExpression(arg, aliases, depth + 1)
+    ));
+  }
+
+  if (t.isArrayExpression(node)) {
+    return dedupeLabels(node.elements.flatMap((element) =>
+      element && !t.isSpreadElement(element)
+        ? collectItemFieldHintsFromExpression(element, aliases, depth + 1)
+        : []
+    ));
+  }
+
+  if (t.isObjectExpression(node)) {
+    return dedupeLabels(node.properties.flatMap((property) =>
+      t.isObjectProperty(property)
+        ? collectItemFieldHintsFromExpression(property.value, aliases, depth + 1)
+        : []
+    ));
+  }
+
+  return [];
+}
+
+function fieldHintFromMemberExpression(
+  node: t.MemberExpression,
+  aliases: RenderItemAliases,
+): string | null {
+  const chain = getMemberExpressionChain(node);
+  if (chain.length < 2) return null;
+
+  let fieldPath: string[] = [];
+  if (aliases.itemAliases.has(chain[0]!)) {
+    fieldPath = chain.slice(1);
+  } else if (aliases.paramAliases.has(chain[0]!) && chain[1] === 'item') {
+    fieldPath = chain.slice(2);
+  }
+
+  if (fieldPath.length === 0) return null;
+  return semanticFieldHintFromPath(fieldPath);
+}
+
+function getMemberExpressionChain(node: t.MemberExpression): string[] {
+  const segments: string[] = [];
+  let current: t.MemberExpression | t.Expression = node;
+
+  while (t.isMemberExpression(current)) {
+    const propertyName = getMemberPropertyName(current);
+    if (!propertyName) return [];
+    segments.unshift(propertyName);
+    current = current.object;
+  }
+
+  if (t.isIdentifier(current)) {
+    segments.unshift(current.name);
+  }
+
+  return segments;
+}
+
+function semanticFieldHintFromPath(path: string[]): string | null {
+  if (path.length === 0) return null;
+
+  const normalized = path.map(segment => segment.toLowerCase());
+  const last = normalized[normalized.length - 1]!;
+
+  if (['price', 'amount', 'cost', 'total', 'subtotal'].includes(last)) return 'price';
+  if (['color', 'colour'].includes(last)) return 'color';
+  if (['quantity', 'qty', 'count'].includes(last)) return 'quantity';
+  if (['status', 'state'].includes(last)) return 'status';
+  if (['image', 'photo', 'thumbnail', 'avatar', 'uri', 'url'].includes(last) || normalized.some(part => part.includes('image'))) {
+    return 'product image';
+  }
+  if (['name', 'title', 'label', 'displayname'].includes(last)) {
+    return normalized.includes('product') ? 'product name' : 'name';
+  }
+
+  return null;
+}
+
+function actionHintFromLabel(label: string): string | null {
+  const normalized = normalizeLabel(label).toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'add' || normalized.startsWith('add to cart')) return 'add button';
+  if (normalized.startsWith('remove')) return 'remove button';
+  if (normalized.startsWith('buy')) return 'buy button';
+  if (normalized.startsWith('view')) return 'view button';
+  return null;
 }
 
 // ─── Route extraction helpers ─────────────────────────────────

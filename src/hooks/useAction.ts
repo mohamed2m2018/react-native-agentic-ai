@@ -1,6 +1,7 @@
 /**
  * useAction — Register non-UI actions for the AI agent.
- * useAI    — Bridge hook to read AIAgent's state (send, isLoading, status).
+ * useData   — Register async app data sources for the AI agent.
+ * useAI     — Bridge hook to read AIAgent's state (send, isLoading, status).
  *
  * Both hooks consume AgentContext, which is provided by <AIAgent>.
  */
@@ -43,7 +44,8 @@ const DEFAULT_CONTEXT: AgentContextValue = {
 export const AgentContext = createContext<AgentContextValue>(DEFAULT_CONTEXT);
 
 import { actionRegistry } from '../core/ActionRegistry';
-import type { ActionParameterDef } from '../core/types';
+import { dataRegistry } from '../core/DataRegistry';
+import type { ActionParameterDef, DataFieldDef } from '../core/types';
 
 /**
  * Register a non-UI action that the AI agent can call by name.
@@ -104,6 +106,42 @@ export function useAction(
 
     return () => {
       actionRegistry.unregister(name);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps ? [name, description, ...deps] : [name, description]);
+}
+
+/**
+ * Register an async data source the AI can query for structured app data.
+ *
+ * Use this for external APIs, live product catalogs, recommendation feeds,
+ * order status endpoints, inventory snapshots, or any other data that is
+ * easier to fetch directly than to infer from the current screen.
+ *
+ * The handler may be async and will be awaited by the AI runtime.
+ */
+export function useData(
+  name: string,
+  description: string,
+  schema: Record<string, string | DataFieldDef> | undefined,
+  handler: (context: { query: string; screenName: string }) => Promise<unknown> | unknown,
+  deps?: React.DependencyList,
+): void {
+  const handlerRef = useRef(handler);
+  useEffect(() => {
+    handlerRef.current = handler;
+  });
+
+  useEffect(() => {
+    dataRegistry.register({
+      name,
+      description,
+      schema,
+      handler: (context) => handlerRef.current(context),
+    });
+
+    return () => {
+      dataRegistry.unregister(name);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps ? [name, description, ...deps] : [name, description]);

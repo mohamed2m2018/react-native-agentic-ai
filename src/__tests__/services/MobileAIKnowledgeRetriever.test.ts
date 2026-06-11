@@ -13,7 +13,11 @@ describe('createMobileAIKnowledgeRetriever', () => {
       ok: true,
       json: async () => ({
         entries: [
-          { id: 'doc-1', title: 'Refund Policy', content: 'Refunds within 30 days.' },
+          {
+            id: 'doc-1',
+            title: 'Refund Policy',
+            content: 'Refunds within 30 days.',
+          },
         ],
       }),
     } as any);
@@ -31,13 +35,35 @@ describe('createMobileAIKnowledgeRetriever', () => {
         method: 'POST',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
-          Authorization: 'Bearer mobileai_pub_test',
+          'Authorization': 'Bearer mobileai_pub_test',
         }),
       })
     );
     expect(entries).toEqual([
-      { id: 'doc-1', title: 'Refund Policy', content: 'Refunds within 30 days.' },
+      {
+        id: 'doc-1',
+        title: 'Refund Policy',
+        content: 'Refunds within 30 days.',
+      },
     ]);
+  });
+
+  it('defaults to MobileAI cloud when no base url is provided', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ entries: [] }),
+    } as any);
+
+    const retriever = createMobileAIKnowledgeRetriever({
+      analyticsKey: 'mobileai_pub_test',
+    });
+
+    await retriever.retrieve('refund policy', 'Checkout');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://mobileai.cloud/api/v1/knowledge/query',
+      expect.any(Object)
+    );
   });
 
   it('normalizes analytics ingest urls down to the project api base', async () => {

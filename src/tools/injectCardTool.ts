@@ -1,8 +1,7 @@
 import type { ToolDefinition } from '../core/types';
-import { createRenderBlockTool } from './renderBlockTool';
+import type { ToolContext } from './types';
 
-export function createInjectCardTool(): ToolDefinition {
-  const renderBlockTool = createRenderBlockTool();
+export function createInjectCardTool(context: ToolContext): ToolDefinition {
   return {
     name: 'inject_card',
     description:
@@ -20,26 +19,16 @@ export function createInjectCardTool(): ToolDefinition {
       },
       props: {
         type: 'string',
-        description: 'JSON object string of props to pass into the selected template, for example {"title":"Free Delivery","body":"Orders over $20 get free delivery."}',
+        description: 'JSON object string of props to pass into the selected template',
         required: false,
       },
     },
-    execute: async (args) => {
-      let result = await renderBlockTool.execute({
-        zoneId: args.zoneId,
-        blockType: args.templateName,
+    execute: async (args) =>
+      context.platformAdapter.executeAction({
+        type: 'inject_card',
+        zoneId: String(args.zoneId),
+        templateName: String(args.templateName),
         props: args.props,
-        lifecycle: 'dismissible',
-      });
-      result = result
-        .replace('allowInjectBlock is false', 'allowInjectCard is false')
-        .replace(`Block "${args.templateName}" is not registered for this zone.`, `Template "${args.templateName}" is not registered for this zone.`)
-        .replace('Cannot render block', 'Cannot inject card')
-        .replace('Rendered', 'Injected');
-      if (result.startsWith('✅')) {
-        return `${result} inject_card() is deprecated; prefer render_block().`;
-      }
-      return result;
-    },
+      }),
   };
 }

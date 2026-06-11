@@ -171,7 +171,7 @@ describe('AIZone + Card Injection — Integration E2E', () => {
     expect(getByText('Orders over $20 get free delivery.')).toBeTruthy();
   });
 
-  it('injects ReviewSummary by displayName lookup and renders stars', () => {
+  it('injects ReviewSummary by displayName lookup and renders review metadata', () => {
     const { getByText } = render(<TestApp registry={registry} />);
 
     act(() => {
@@ -183,7 +183,7 @@ describe('AIZone + Card Injection — Integration E2E', () => {
     });
 
     expect(getByText('AI Review Summary')).toBeTruthy();
-    expect(getByText('★★★★☆')).toBeTruthy();
+    expect(getByText('4.0 · 250 reviews')).toBeTruthy();
   });
 
   it('strips function props from inject payload (XSS defense)', () => {

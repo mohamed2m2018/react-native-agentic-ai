@@ -56,7 +56,7 @@ jest.mock('../../providers/ProviderFactory', () => ({
 
 import { AgentRuntime } from '../../core/AgentRuntime';
 import { actionRegistry } from '../../core/ActionRegistry';
-import type { AIProvider, ProviderResult, AgentConfig, TokenUsage } from '../../core/types';
+import type { AIProvider, ProviderResult, AgentConfig, PlatformAdapter, TokenUsage } from '../../core/types';
 import { walkFiberTree } from '../../core/FiberTreeWalker';
 import { dehydrateScreen } from '../../core/ScreenDehydrator';
 import { createProvider } from '../../providers/ProviderFactory';
@@ -128,6 +128,7 @@ const defaultConfig: AgentConfig = {
 };
 
 function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfig> = {}): AgentRuntime {
+  let currentScreen = 'TestScreen';
   const config = {
     ...defaultConfig,
     onAskUser: jest.fn().mockResolvedValue('yes'),
@@ -137,21 +138,111 @@ function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfi
     isReady: () => true,
     getRootState: () => ({
       index: 0,
-      routes: [{ name: 'TestScreen' }],
+      routes: [{ name: currentScreen }],
       routeNames: ['TestScreen', 'Settings'],
     }),
     getState: () => ({
       index: 0,
-      routes: [{ name: 'TestScreen' }],
+      routes: [{ name: currentScreen }],
     }),
-    navigate: jest.fn(),
+    navigate: jest.fn((screen: string) => {
+      currentScreen = screen;
+    }),
+    getCurrentRoute: () => ({ name: currentScreen }),
   };
   // Use a plain object as rootRef; getFiberFromRef checks for child/memoizedProps
   const mockRootRef = {
     child: null,
     memoizedProps: {},
   };
-  return new AgentRuntime(provider, config, mockRootRef, mockNavRef);
+  let lastSnapshot: any = null;
+  const platformAdapter: PlatformAdapter = {
+    getScreenSnapshot: () => {
+      const walkResult = mockWalkFiberTree(mockRootRef, {});
+      const screen = mockDehydrateScreen(
+        currentScreen,
+        mockNavRef.getRootState().routeNames,
+        walkResult.elementsText,
+        walkResult.interactives,
+      );
+      lastSnapshot = {
+        screenName: screen.screenName,
+        availableScreens: screen.availableScreens,
+        elementsText: screen.elementsText,
+        elements: screen.elements,
+      };
+      return lastSnapshot;
+    },
+    getNavigationSnapshot: () => ({
+      currentScreenName: currentScreen,
+      availableScreens: mockNavRef.getRootState().routeNames,
+    }),
+    getLastScreenSnapshot: () => lastSnapshot,
+    captureScreenshot: jest.fn().mockResolvedValue(undefined),
+    executeAction: jest.fn(async (intent) => {
+      const snapshot = lastSnapshot ?? platformAdapter.getScreenSnapshot();
+      switch (intent.type) {
+        case 'tap': {
+          const element = snapshot.elements.find((entry: any) => entry.index === intent.index);
+          if (!element) return `❌ Element with index ${intent.index} not found.`;
+          if (typeof element.props?.onPress === 'function') {
+            element.props.onPress();
+            return `✅ Tapped [${intent.index}] "${element.label}"`;
+          }
+          if (element.type === 'switch' && typeof element.props?.onValueChange === 'function') {
+            element.props.onValueChange(!element.props.value);
+            return `✅ Toggled [${intent.index}] "${element.label}"`;
+          }
+          if (element.type === 'radio' && typeof element.props?.onPress === 'function') {
+            element.props.onPress();
+            return `✅ Selected [${intent.index}] "${element.label}"`;
+          }
+          return `✅ Tapped [${intent.index}] "${element.label}"`;
+        }
+        case 'type': {
+          const element = snapshot.elements.find((entry: any) => entry.index === intent.index);
+          if (!element) return `❌ Element with index ${intent.index} not found.`;
+          if (typeof element.props?.onChangeText === 'function') {
+            element.props.onChangeText(intent.text);
+            return `✅ Typed "${intent.text}" into [${intent.index}] "${element.label}"`;
+          }
+          if (typeof element.props?.onChange === 'function') {
+            element.props.onChange({ nativeEvent: { text: intent.text } });
+            return `✅ Typed "${intent.text}" into [${intent.index}] "${element.label}"`;
+          }
+          return `❌ Element [${intent.index}] "${element.label}" is not a typeable text input.`;
+        }
+        case 'navigate':
+          mockNavRef.navigate(intent.screen, intent.params);
+          return `✅ Navigated to "${intent.screen}"`;
+        case 'scroll':
+          return `✅ Scrolled ${intent.direction}`;
+        case 'long_press':
+          return `✅ Long-pressed [${intent.index}]`;
+        case 'dismiss_keyboard':
+          return '✅ Keyboard dismissed.';
+        case 'adjust_slider':
+          return `✅ Adjusted slider [${intent.index}]`;
+        case 'select_picker':
+          return `✅ Selected "${intent.value}" in picker [${intent.index}]`;
+        case 'set_date':
+          return `✅ Set date picker [${intent.index}] to ${intent.date}`;
+        case 'guide_user':
+          return `✅ Highlighted element ${intent.index} ("guide") with message: "${intent.message}"`;
+        case 'render_block':
+          return `✅ Rendered "${intent.blockType}" in zone "${intent.zoneId}". Tell the user where to look on screen.`;
+        case 'inject_card':
+          return `✅ Injected "${intent.templateName}" in zone "${intent.zoneId}". inject_card() is deprecated; prefer render_block().`;
+        case 'simplify_zone':
+          return `✅ Successfully requested simplification for zone "${intent.zoneId}".`;
+        case 'restore_zone':
+          return `✅ Successfully restored zone "${intent.zoneId}" to its default state.`;
+        default:
+          return '❌ Unsupported action intent.';
+      }
+    }),
+  };
+  return new AgentRuntime(provider, { ...config, platformAdapter }, mockRootRef, mockNavRef);
 }
 
 // ─── Tests ─────────────────────────────────────────────────────
@@ -758,34 +849,24 @@ describe('AgentRuntime', () => {
     });
   });
 
-  // ── Navigation Helpers ──────────────────────────────────────
+  // ── Navigation Snapshot ─────────────────────────────────────
 
-  describe('navigation helpers', () => {
-    it('getRouteNames collects routes from navigation state', () => {
+  describe('navigation snapshot', () => {
+    it('exposes available screens through the platform adapter snapshot', () => {
       const provider = new MockProvider([]);
       const runtime = createRuntime(provider);
-      // Access private method via any
-      const routes = (runtime as any).getRouteNames();
+      const navigation = runtime.getConfig().platformAdapter!.getNavigationSnapshot();
 
-      expect(routes).toContain('TestScreen');
-      expect(routes).toContain('Settings');
+      expect(navigation.availableScreens).toContain('TestScreen');
+      expect(navigation.availableScreens).toContain('Settings');
     });
 
-    it('buildNestedParams creates correct nesting', () => {
+    it('keeps current screen name in the platform adapter snapshot', () => {
       const provider = new MockProvider([]);
       const runtime = createRuntime(provider);
-      // ['HomeTab', 'Home'] → { screen: 'Home' }
-      const params = (runtime as any).buildNestedParams(['HomeTab', 'Home']);
+      const navigation = runtime.getConfig().platformAdapter!.getNavigationSnapshot();
 
-      expect(params).toEqual({ screen: 'Home' });
-    });
-
-    it('buildNestedParams creates deep nesting with leaf params', () => {
-      const provider = new MockProvider([]);
-      const runtime = createRuntime(provider);
-      const params = (runtime as any).buildNestedParams(['Tab', 'Stack', 'Screen'], { id: 123 });
-
-      expect(params).toEqual({ screen: 'Stack', params: { screen: 'Screen', params: { id: 123 } } });
+      expect(navigation.currentScreenName).toBe('TestScreen');
     });
   });
 
@@ -871,7 +952,7 @@ describe('AgentRuntime', () => {
           { id: '1', title: 'Test', content: 'Test content', tags: ['test'] },
         ],
       };
-      const runtime = new AgentRuntime(provider, config, {}, null);
+      const runtime = createRuntime(provider, config);
 
       const tools = (runtime as any).tools as Map<string, any>;
       expect(tools.has('done')).toBe(true);

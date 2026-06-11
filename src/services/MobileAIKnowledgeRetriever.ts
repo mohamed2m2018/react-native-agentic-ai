@@ -9,7 +9,7 @@ export interface MobileAIKnowledgeRetrieverOptions {
 }
 
 function normalizeBaseUrl(baseUrl?: string) {
-  if (!baseUrl) return 'http://localhost:3001';
+  if (!baseUrl) return 'https://mobileai.cloud';
   const trimmed = baseUrl.replace(/\/$/, '');
   return trimmed.endsWith('/api/v1/analytics')
     ? trimmed.replace(/\/api\/v1\/analytics$/, '')
@@ -29,7 +29,7 @@ export function createMobileAIKnowledgeRetriever(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${options.analyticsKey}`,
+            'Authorization': `Bearer ${options.analyticsKey}`,
             ...(options.headers ?? {}),
           },
           body: JSON.stringify({
@@ -40,14 +40,20 @@ export function createMobileAIKnowledgeRetriever(
         });
 
         if (!response.ok) {
-          logger.warn('MobileAIKnowledge', `Knowledge query failed: HTTP ${response.status}`);
+          logger.warn(
+            'MobileAIKnowledge',
+            `Knowledge query failed: HTTP ${response.status}`
+          );
           return [];
         }
 
         const payload = await response.json();
         return Array.isArray(payload?.entries) ? payload.entries : [];
       } catch (error: any) {
-        logger.error('MobileAIKnowledge', `Knowledge query failed: ${error?.message ?? 'unknown error'}`);
+        logger.error(
+          'MobileAIKnowledge',
+          `Knowledge query failed: ${error?.message ?? 'unknown error'}`
+        );
         return [];
       }
     },

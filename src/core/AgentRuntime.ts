@@ -10,9 +10,6 @@
  */
 
 import { logger } from '../utils/logger';
-import { walkFiberTree } from './FiberTreeWalker';
-import type { WalkConfig } from './FiberTreeWalker';
-import { dehydrateScreen } from './ScreenDehydrator';
 import { buildSystemPrompt, buildKnowledgeOnlyPrompt } from './systemPrompt';
 import {
   buildVerificationAction,
@@ -46,10 +43,13 @@ import type {
   AgentStep,
   ExecutionResult,
   InteractiveElement,
+  NavigationSnapshot,
+  PlatformAdapter,
   ToolDefinition,
   TokenUsage,
 } from './types';
 import { actionRegistry } from './ActionRegistry';
+import { dataRegistry } from './DataRegistry';
 import { createProvider } from '../providers/ProviderFactory';
 import { formatActionToolResult } from '../utils/actionResult';
 import { normalizeRichContent, richContentToPlainText } from './richContent';
@@ -76,8 +76,6 @@ type AppActionApprovalSource = 'none' | 'explicit_button' | 'user_input';
 export class AgentRuntime {
   private provider: AIProvider;
   private config: AgentConfig;
-  private rootRef: any;
-  private navRef: any;
   private tools: Map<string, ToolDefinition> = new Map();
   private history: AgentStep[] = [];
   private isRunning = false;
@@ -91,6 +89,7 @@ export class AgentRuntime {
   private verifierProvider: AIProvider | null = null;
   private outcomeVerifier: OutcomeVerifier | null = null;
   private pendingCriticalVerification: PendingVerification | null = null;
+  private staleMapWarned = false;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -116,6 +115,50 @@ export class AgentRuntime {
 
   public getConfig(): AgentConfig {
     return this.config;
+  }
+
+  private async executeQueryData(args: { source?: string; query?: string }): Promise<string> {
+    const sourceName =
+      typeof args.source === 'string' ? args.source.trim() : '';
+    const query =
+      typeof args.query === 'string' ? args.query.trim() : '';
+
+    if (!sourceName) {
+      return '❌ query_data requires a non-empty source name.';
+    }
+
+    const source = dataRegistry.get(sourceName);
+    if (!source) {
+      const available = dataRegistry.getAll().map((entry) => entry.name);
+      return available.length > 0
+        ? `❌ Unknown data source "${sourceName}". Available sources: ${available.join(', ')}.`
+        : '❌ No app data sources are currently registered.';
+    }
+
+    try {
+      const result = await source.handler({
+        query,
+        screenName: this.getNavigationSnapshot().currentScreenName,
+      });
+
+      if (result === null || result === undefined) {
+        return `No data returned from "${sourceName}".`;
+      }
+
+      if (typeof result === 'string') {
+        return result;
+      }
+
+      const serialized = JSON.stringify(result, null, 2);
+      const maxChars = 12000;
+      if (serialized.length <= maxChars) {
+        return serialized;
+      }
+
+      return `${serialized.slice(0, maxChars)}\n... [truncated]`;
+    } catch (error: any) {
+      return `❌ Data source "${sourceName}" failed: ${error?.message || 'Unknown error'}`;
+    }
   }
 
   private resetAppActionApproval(reason: string): void {
@@ -199,13 +242,11 @@ export class AgentRuntime {
   constructor(
     provider: AIProvider,
     config: AgentConfig,
-    rootRef: any,
-    navRef: any,
+    _rootRef: any,
+    _navRef: any,
   ) {
     this.provider = provider;
     this.config = config;
-    this.rootRef = rootRef;
-    this.navRef = navRef;
     logger.debug('AgentRuntime', 'constructor: config.screenMap exists:', !!config.screenMap);
 
     // Initialize knowledge base service if configured
@@ -388,18 +429,8 @@ export class AgentRuntime {
   // ─── Tool Registration ─────────────────────────────────────
 
   private registerBuiltInTools(): void {
-    // ── Tool Context — shared dependencies for modular tools ──
     const toolContext: ToolContext = {
-      getRootRef: () => this.rootRef,
-      getWalkConfig: () => this.getWalkConfig(),
-      getCurrentScreenName: () => this.getCurrentScreenName(),
-      getNavRef: () => this.navRef,
-      routerRef: this.config.router,
-      getRouteNames: () => this.getRouteNames(),
-      findScreenPath: (name: string) => this.findScreenPath(name),
-      buildNestedParams: (path: string[], params?: any) => this.buildNestedParams(path, params),
-      captureScreenshot: async () => (await this.captureScreenshot()) ?? null,
-      getLastDehydratedRoot: () => this.lastDehydratedRoot,
+      platformAdapter: this.getPlatformAdapter(),
     };
 
     // ── Register modular tools (extracted to src/tools/) ──
@@ -411,12 +442,12 @@ export class AgentRuntime {
       createSliderTool(toolContext),
       createPickerTool(toolContext),
       createDatePickerTool(toolContext),
-      createKeyboardTool(),
+      createKeyboardTool(toolContext),
       createGuideTool(toolContext),
-      createSimplifyTool(),
-      createRenderBlockTool(),
-      createInjectCardTool(),
-      createRestoreTool(),
+      createSimplifyTool(toolContext),
+      createRenderBlockTool(toolContext),
+      createInjectCardTool(toolContext),
+      createRestoreTool(toolContext),
     ];
 
     for (const tool of modularTools) {
@@ -433,62 +464,11 @@ export class AgentRuntime {
         params: { type: 'string', description: 'Optional JSON params object for screens that accept them', required: false },
       },
       execute: async (args) => {
-        // Expo Router path: use router.push()
-        if (this.config.router) {
-          try {
-            const path = args.screen.startsWith('/') ? args.screen : `/${args.screen}`;
-            this.config.router.push(path);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return `✅ Navigated to "${path}"`;
-          } catch (error: any) {
-            return `❌ Navigation error: ${error.message}`;
-          }
-        }
-
-        // React Navigation path: use navRef
-        if (!this.navRef) {
-          return '❌ Navigation ref not available.';
-        }
-        if (!this.navRef.isReady()) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          if (!this.navRef.isReady()) {
-            return '❌ Navigation is not ready yet.';
-          }
-        }
-        try {
-          const params = args.params ? (typeof args.params === 'string' ? JSON.parse(args.params) : args.params) : undefined;
-          // Case-insensitive screen name matching
-          const availableRoutes = this.getRouteNames();
-          logger.info('AgentRuntime', `🧭 Navigate requested: "${args.screen}" | Available: [${availableRoutes.join(', ')}] | Params: ${JSON.stringify(params)}`);
-          const matchedScreen = availableRoutes.find(
-            r => r.toLowerCase() === args.screen.toLowerCase()
-          );
-
-          // Guard: screen must exist in the navigation tree
-          if (!matchedScreen) {
-            const errMsg = `❌ "${args.screen}" is not a screen — it may be content within a screen. Available screens: ${availableRoutes.join(', ')}. Look at the current screen context for "${args.screen}" as a section, category, or element, and scroll/tap to find it. If it's on a different screen, navigate to the correct screen first.`;
-            logger.warn('AgentRuntime', `🧭 Navigate REJECTED: ${errMsg}`);
-            return errMsg;
-          }
-          logger.info('AgentRuntime', `🧭 Navigate matched: "${args.screen}" → "${matchedScreen}"`);
-
-          // Find the path to the screen (handles nested navigators)
-          const screenPath = this.findScreenPath(matchedScreen);
-          if (screenPath.length > 1) {
-            // Nested screen: navigate using parent → { screen: child } pattern
-            // e.g. navigate('HomeTab', { screen: 'Home', params })
-            logger.info('AgentRuntime', `Nested navigation: ${screenPath.join(' → ')}`);
-            const nestedParams = this.buildNestedParams(screenPath, params);
-            this.navRef.navigate(screenPath[0], nestedParams);
-          } else {
-            // Top-level screen: direct navigate
-            this.navRef.navigate(matchedScreen, params);
-          }
-          await new Promise(resolve => setTimeout(resolve, 500));
-          return `✅ Navigated to "${matchedScreen}"${params ? ` with params: ${JSON.stringify(params)}` : ''}`;
-        } catch (error: any) {
-          return `❌ Navigation error: ${error.message}. Available screens: ${this.getRouteNames().join(', ')}`;
-        }
+        return this.getPlatformAdapter().executeAction({
+          type: 'navigate',
+          screen: String(args.screen),
+          params: args.params,
+        });
       },
     });
 
@@ -624,7 +604,7 @@ export class AgentRuntime {
         'Capture the SDK root component as an image. Use when the user asks about visual content (images, videos, colors, layout appearance) that cannot be determined from the element tree alone.',
       parameters: {},
       execute: async () => {
-        const screenshot = await this.captureScreenshot();
+        const screenshot = await this.getPlatformAdapter().captureScreenshot();
         if (screenshot) {
           return `✅ Screenshot captured (${Math.round(screenshot.length / 1024)}KB). Visual content is now available for analysis.`;
         }
@@ -651,11 +631,30 @@ export class AgentRuntime {
           },
         },
         execute: async (args) => {
-          const screenName = this.getCurrentScreenName();
+          const screenName = this.getNavigationSnapshot().currentScreenName;
           return this.knowledgeService!.retrieve(args.question, screenName);
         },
       });
     }
+
+    this.tools.set('query_data', {
+      name: 'query_data',
+      description:
+        'Query an app-registered data source for structured async data such as products, recommendations, inventory, live pricing, or order status. Use when the app exposes a named data source and it is more reliable than inferring from the current screen.',
+      parameters: {
+        source: {
+          type: 'string',
+          description: 'The registered data source name to query',
+          required: true,
+        },
+        query: {
+          type: 'string',
+          description: 'What data you need from that source',
+          required: true,
+        },
+      },
+      execute: async (args) => this.executeQueryData(args),
+    });
   }
 
   /**
@@ -692,124 +691,43 @@ export class AgentRuntime {
           },
         },
         execute: async (args) => {
-          const screenName = this.getCurrentScreenName();
+          const screenName = this.getNavigationSnapshot().currentScreenName;
           return this.knowledgeService!.retrieve(args.question, screenName);
         },
       });
     }
+
+    this.tools.set('query_data', {
+      name: 'query_data',
+      description:
+        'Query an app-registered data source for structured async data such as products, recommendations, inventory, live pricing, or order status.',
+      parameters: {
+        source: {
+          type: 'string',
+          description: 'The registered data source name to query',
+          required: true,
+        },
+        query: {
+          type: 'string',
+          description: 'What data you need from that source',
+          required: true,
+        },
+      },
+      execute: async (args) => this.executeQueryData(args),
+    });
   }
 
-  // ─── Navigation Helpers ────────────────────────────────────
-
-  /**
-   * Recursively collect ALL screen names from the navigation state tree.
-   * This handles tabs, drawers, and nested stacks.
-   */
-  private getRouteNames(): string[] {
-    try {
-      if (!this.navRef?.isReady?.()) return [];
-      const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
-      if (!state) return [];
-      const names = this.collectRouteNames(state);
-      logger.debug('AgentRuntime', 'Available routes:', names.join(', '));
-      return names;
-    } catch {
-      return [];
+  private getPlatformAdapter(): PlatformAdapter {
+    if (!this.config.platformAdapter) {
+      throw new Error(
+        'Platform adapter is required. Provide config.platformAdapter from the host platform shell.'
+      );
     }
+    return this.config.platformAdapter;
   }
 
-  private collectRouteNames(state: any): string[] {
-    const names: string[] = [];
-    // routeNames contains ALL defined screens (including unvisited)
-    if (state?.routeNames) {
-      names.push(...state.routeNames);
-    }
-    if (state?.routes) {
-      for (const route of state.routes) {
-        names.push(route.name);
-        // Recurse into nested navigator states
-        if (route.state) {
-          names.push(...this.collectRouteNames(route.state));
-        }
-      }
-    }
-    return [...new Set(names)];
-  }
-
-  /**
-   * Find the path from root navigator to a target screen.
-   * Returns [parentTab, screen] for nested screens, or [screen] for top-level.
-   * Example: findScreenPath('Home') → ['HomeTab', 'Home']
-   */
-  private findScreenPath(targetScreen: string): string[] {
-    try {
-      const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
-      if (!state?.routes) return [targetScreen];
-
-      // Check if target is a direct top-level route
-      if (state.routes.some((r: any) => r.name === targetScreen)) {
-        return [targetScreen];
-      }
-
-      // Search nested navigators
-      for (const route of state.routes) {
-        const nestedNames = route.state ? this.collectRouteNames(route.state) : [];
-        if (nestedNames.includes(targetScreen)) {
-          return [route.name, targetScreen];
-        }
-      }
-
-      return [targetScreen]; // Fallback: try direct
-    } catch {
-      return [targetScreen];
-    }
-  }
-
-
-  /**
-   * Build nested params for React Navigation nested screen navigation.
-   * ['HomeTab', 'Home'] → { screen: 'Home', params }
-   * ['Tab', 'Stack', 'Screen'] → { screen: 'Stack', params: { screen: 'Screen', params } }
-   */
-  private buildNestedParams(path: string[], leafParams?: any): any {
-    // Build from the end: innermost screen gets the leafParams
-    let result = leafParams;
-    for (let i = path.length - 1; i >= 1; i--) {
-      result = { screen: path[i], ...(result !== undefined ? { params: result } : {}) };
-    }
-    return result;
-  }
-
-  /**
-   * Recursively find the deepest active screen name.
-   * For tabs: follows active tab → active screen inside that tab.
-   */
-  private getCurrentScreenName(): string {
-    // Expo Router: use pathname
-    if (this.config.pathname) {
-      const segments = this.config.pathname.split('/').filter(Boolean);
-      return segments[segments.length - 1] || 'Unknown';
-    }
-
-    try {
-      if (!this.navRef?.isReady?.()) return 'Unknown';
-      const state = this.navRef?.getRootState?.() || this.navRef?.getState?.();
-      if (!state) return 'Unknown';
-      return this.getDeepestScreenName(state);
-    } catch {
-      return 'Unknown';
-    }
-  }
-
-  private getDeepestScreenName(state: any): string {
-    if (!state?.routes || state.index == null) return 'Unknown';
-    const route = state.routes[state.index];
-    if (!route) return 'Unknown';
-    // If this route has a nested state, recurse deeper
-    if (route.state) {
-      return this.getDeepestScreenName(route.state);
-    }
-    return route.name || 'Unknown';
+  private getNavigationSnapshot(): NavigationSnapshot {
+    return this.getPlatformAdapter().getNavigationSnapshot();
   }
 
   // ─── Dynamic Config Overrides ────────────────────────────────
@@ -857,42 +775,6 @@ export class AgentRuntime {
     }
   }
 
-  // ─── Screenshot Capture (react-native-view-shot) ─────
-
-  /**
-   * Captures the root component as a base64 JPEG for vision tools.
-   * Uses react-native-view-shot as a required peer dependency.
-   * Returns null only when capture is temporarily unavailable.
-   */
-  private async captureScreenshot(): Promise<string | undefined> {
-    try {
-      // Static require — Metro needs a literal string; the try/catch handles MODULE_NOT_FOUND.
-      const viewShot = require('react-native-view-shot');
-      const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
-      if (!captureRef || !this.rootRef) return undefined;
-
-      const uri = await captureRef(this.rootRef, {
-        format: 'jpg',
-        quality: 0.4,
-        width: 720,
-        result: 'base64',
-      });
-
-      logger.info('AgentRuntime', `Screenshot captured (${Math.round((uri?.length || 0) / 1024)}KB base64)`);
-      return uri || undefined;
-    } catch (error: any) {
-      if (error.message?.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND' || error.message?.includes('unknown module')) {
-        logger.warn(
-          'AgentRuntime',
-          'Screenshot requires react-native-view-shot. It is a peer dependency; install it in your host app with: npx expo install react-native-view-shot',
-        );
-      } else {
-        logger.debug('AgentRuntime', `Screenshot skipped: ${error.message}`);
-      }
-      return undefined;
-    }
-  }
-
   // ─── Screen Context for Voice Mode ──────────────────────
 
   /**
@@ -909,18 +791,12 @@ export class AgentRuntime {
         logger.debug('AgentRuntime', 'screenMap.chains count:', this.config.screenMap.chains?.length);
       }
 
-      const walkResult = walkFiberTree(this.rootRef, this.getWalkConfig());
-      const screenName = this.getCurrentScreenName();
+      const snapshot = this.getPlatformAdapter().getScreenSnapshot();
+      const screenName = snapshot.screenName;
       logger.debug('AgentRuntime', 'current screen:', screenName);
 
-      const screen = dehydrateScreen(
-        screenName,
-        this.getRouteNames(),
-        walkResult.elementsText,
-        walkResult.interactives,
-      );
-
-      const routeNames = this.getRouteNames();
+      this.lastDehydratedRoot = snapshot;
+      const routeNames = snapshot.availableScreens;
       logger.debug('AgentRuntime', 'routeNames:', routeNames);
       let availableScreensText: string;
       let appMapText = '';
@@ -958,7 +834,7 @@ export class AgentRuntime {
 Current Screen: ${screenName}
 ${availableScreensText}${appMapText}
 
-${screen.elementsText}
+${snapshot.elementsText}
 </screen_update>`;
       logger.debug('AgentRuntime', 'FULL CONTEXT:', context.substring(0, 500));
       return context;
@@ -968,10 +844,6 @@ ${screen.elementsText}
       return '<screen_update>Error reading screen</screen_update>';
     }
   }
-  // ─── Stale Map Detection ─────────────────────────────────────
-
-  private staleMapWarned = false;
-
   private detectStaleMap(routeNames: string[], map: { screens: Record<string, any> }) {
     if (this.staleMapWarned) return; // Only warn once
 
@@ -1282,7 +1154,7 @@ ${screen.elementsText}
       stage,
       timestamp: new Date().toISOString(),
       stepIndex,
-      screenName: this.getCurrentScreenName(),
+      screenName: this.getNavigationSnapshot().currentScreenName,
       data,
     };
     this.config.onTrace(event);
@@ -1477,17 +1349,6 @@ ${screen.elementsText}
     return null;
   }
 
-  // ─── Walk Config (passes security settings to FiberTreeWalker) ─
-
-  private getWalkConfig(): WalkConfig {
-    return {
-      interactiveBlacklist: this.config.interactiveBlacklist,
-      interactiveWhitelist: this.config.interactiveWhitelist,
-      screenName: this.getCurrentScreenName(),
-      interceptNativeAlerts: this.config.interceptNativeAlerts,
-    };
-  }
-
   // ─── Instructions ───────
 
   private getInstructions(screenName: string): string {
@@ -1629,7 +1490,7 @@ ${screen.elementsText}
     // Inject screen map descriptions & navigation chains if available
     if (this.config.screenMap) {
       const map = this.config.screenMap;
-      const routeNames = this.getRouteNames();
+      const routeNames = this.getNavigationSnapshot().availableScreens;
       logger.debug('AgentRuntime', 'ENRICHING prompt with screenMap for screen:', screenName);
 
       // Build enriched screen list with descriptions
@@ -1650,7 +1511,7 @@ ${screen.elementsText}
       }
     } else {
       // Flat list fallback
-      const routeNames = this.getRouteNames();
+      const routeNames = this.getNavigationSnapshot().availableScreens;
       prompt += `Available Screens: ${routeNames.join(', ')}\n`;
     }
 
@@ -1729,7 +1590,7 @@ ${screen.elementsText}
           'en', hasKnowledge, this.config.instructions?.system,
         );
         const tools = this.buildToolsForProvider();
-        const screenName = this.getCurrentScreenName();
+        const screenName = this.getNavigationSnapshot().currentScreenName;
 
         // Minimal user prompt — just the question + screen name for context
         const userPrompt = `Current screen: ${screenName}\n\nUser: ${contextualMessage}`;
@@ -1824,14 +1685,8 @@ ${screen.elementsText}
         await this.config.onBeforeStep?.(step);
 
         // 1. Walk Fiber tree with security config and dehydrate screen
-        const walkResult = walkFiberTree(this.rootRef, this.getWalkConfig());
-        const screenName = this.getCurrentScreenName();
-        const screen = dehydrateScreen(
-          screenName,
-          this.getRouteNames(),
-          walkResult.elementsText,
-          walkResult.interactives,
-        );
+        const screen = this.getPlatformAdapter().getScreenSnapshot();
+        const screenName = screen.screenName;
 
         // Store root for tooling access (e.g., GuideTool measuring)
         this.lastDehydratedRoot = screen;
@@ -1853,7 +1708,7 @@ ${screen.elementsText}
         this.handleObservations(step, maxSteps, screenName);
 
         // 4. Capture screenshot for Gemini vision (optional)
-        const screenshot = await this.captureScreenshot();
+        const screenshot = await this.getPlatformAdapter().captureScreenshot();
 
         await this.updateCriticalVerification(
           screenName,
@@ -2215,10 +2070,7 @@ ${screen.elementsText}
   }
 
   /** Update refs (called when component re-renders) */
-  updateRefs(rootRef: any, navRef: any): void {
-    this.rootRef = rootRef;
-    this.navRef = navRef;
-  }
+  updateRefs(_rootRef: any, _navRef: any): void {}
 
   /** Check if agent is currently executing */
   getIsRunning(): boolean {
