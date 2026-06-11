@@ -1,14 +1,14 @@
-# MobileAI React Native SDK
+# AI Support Agent for React Native Apps
 
-> **Drop in one React Native component and your app gets MobileAI Cloud support that answers questions, navigates users to the right screen, fills forms, and resolves issues end-to-end — with live human backup when needed. No custom API connectors required — the app UI is already the integration.**
+> **Add an in-app AI support agent that understands your React Native UI, answers user questions, navigates screens, fills forms, resolves tasks, and hands off to a human when needed.**
 
-MobileAI Cloud is the hosted control plane for projects, analytics, proxy configuration, and support escalation. It is built by Twomilia and lives at `https://mobileai.cloud`.
+MobileAI is the SDK and cloud dashboard behind it. The SDK runs inside your app; MobileAI Cloud handles projects, analytics, hosted proxy configuration, and support escalation.
 
 ```bash
 npm install @mobileai/react-native
 ```
 
-### 🤖 AI Support Agent — Answers, Acts, and Resolves Inside Your App
+### 🤖 Answers, Acts, and Resolves Inside Your App
 
 <p align="center">
   <img src="./assets/demo.gif" alt="AI Support Agent navigating the app and resolving user issues end-to-end" width="350" />
