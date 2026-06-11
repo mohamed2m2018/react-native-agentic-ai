@@ -1,8 +1,8 @@
-# MobileAI Cloud by Twomilia React Native SDK
+# MobileAI React Native SDK
 
 > **Drop in one React Native component and your app gets MobileAI Cloud support that answers questions, navigates users to the right screen, fills forms, and resolves issues end-to-end — with live human backup when needed. No custom API connectors required — the app UI is already the integration.**
 
-MobileAI Cloud is the product, Twomilia is the company, and `https://mobileai.cloud` is the canonical product domain.
+MobileAI Cloud is the hosted control plane for projects, analytics, proxy configuration, and support escalation. It is built by Twomilia and lives at `https://mobileai.cloud`.
 
 ```bash
 npm install @mobileai/react-native
@@ -463,7 +463,7 @@ A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, 
 
 ### Hosted MobileAI Defaults
 
-For the standard MobileAI Cloud by Twomilia setup, this is enough:
+For the standard MobileAI Cloud setup, this is enough:
 
 ```tsx
 <AIAgent analyticsKey="mobileai_pub_xxxxxxxx" navRef={navRef} />
