@@ -63,13 +63,11 @@ export function CardSurface({
 
 export function MediaFrame({
   uri,
-  appearance,
 }: {
   uri?: string;
   appearance?: BlockAppearance;
 }) {
   const theme = useRichUITheme();
-  const palette = useAppearance(appearance);
   return uri ? (
     <Image
       source={{ uri }}
