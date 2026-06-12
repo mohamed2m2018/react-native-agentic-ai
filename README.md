@@ -1,6 +1,6 @@
-# AI Support Agent for React Native Apps
+# Guarded AI Assistance for React Native Apps
 
-> **Add an in-app AI support agent that understands your React Native UI, answers user questions, navigates screens, fills forms, resolves tasks, and hands off to a human when needed.**
+> **Add in-app AI assistance that understands your React Native UI, answers user questions, guides workflows, performs approved actions, and hands off to a human when needed.**
 
 MobileAI is the SDK and cloud dashboard behind it. The SDK runs inside your app; MobileAI Cloud handles projects, analytics, hosted proxy configuration, and support escalation.
 
@@ -10,10 +10,10 @@ MobileAI is the SDK and cloud dashboard behind it. The SDK runs inside your app;
 npm install @mobileai/react-native
 ```
 
-### 🤖 Answers, Acts, and Resolves Inside Your App
+### 🤖 Answers, Guides, and Resolves Inside Your App
 
 <p align="center">
-  <img src="./assets/demo.gif" alt="AI Support Agent navigating the app and resolving user issues end-to-end" width="350" />
+  <img src="./assets/demo.gif" alt="AI assistant helping a user resolve an issue inside the app" width="350" />
 </p>
 
 ---
@@ -36,27 +36,29 @@ Intercom, Zendesk, and every chat widget all do the same thing: send the user in
 
 That's not support. That's documentation delivery with a chat UI.
 
-**This SDK takes a different approach.** Instead of telling users where to go, it — with the user's permission — goes there for them.
+**This SDK takes a different approach.** Instead of only telling users where to go, it provides delegated assistance inside the app: answering when data is enough, guiding when the user should act, and performing approved actions when the app allows it.
 
 ---
 
-## 🧠 How It Works — The App's UI Is the Integration Layer
+## 🧠 How It Works — The App Defines the Assistance Layer
 
 Every other support tool needs you to build API connectors: endpoints, webhooks, action definitions in their dashboard. Months of backend work before the AI can do anything useful.
 
-This SDK reads your app's live UI natively — every button, label, input, and screen — in real time. **There's nothing to integrate. The UI is already the integration.** The app already knows how to cancel orders, update addresses, apply promo codes — it has buttons for all of it. The AI just uses them.
+This SDK reads your app's live UI natively — every button, label, input, and screen — in real time. **There's nothing heavy to integrate before the assistant understands the app.** Your app already knows how to cancel orders, update addresses, apply promo codes, and validate forms. MobileAI adds a guarded assistance layer around those existing workflows.
 
-**No OCR. No image pipelines. No selectors. No annotations. No backend connectors.**
+**No OCR. No image pipelines. No selectors. No required annotations. No required backend connectors.**
+
+For flows where backend or database state is the better source of truth, expose structured read-only data with `useData` or custom app actions with `useAction`. The assistant can mix UI guidance, structured data, and approved actions in the same conversation.
 
 ### Why This Matters in the Support Context
 
-The most important insight: UI control is only uncomfortable when it's unexpected. In a support conversation, the user has already asked for help — they're in a *"please help me"* mindset:
+The most important insight: assistance must be expected, permissioned, and visible. In a support conversation, the user has already asked for help — but the app should still define what the assistant can see, what it can do, and which steps require approval:
 
-| Context | User reaction to AI controlling UI |
+| Context | Safer assistant behavior |
 |:---|:---|
-| Unprompted (out of nowhere) | 😨 "What is happening?" |
-| **In a support chat — user asked for help** | 😊 "Yes please, do it for me" |
-| **User is frustrated and types "how do I..."** | 😮‍💨 "Thank God, yes" |
+| Unprompted (out of nowhere) | Do nothing without user intent |
+| **In a support chat — user asked for help** | Explain, ask permission, then assist |
+| **User is frustrated and types "how do I..."** | Guide, use data when possible, and act only through approved paths |
 
 ---
 
@@ -71,15 +73,15 @@ The SDK handles every tier of support automatically — from a simple FAQ answer
 │  "What's your return policy?" → answered directly    │
 ├──────────────────────────────────────────────────────┤
 │  Level 2: Show & Guide                               │
-│  AI navigates to exact screen, user acts last        │
+│  Assistant navigates to exact screen, user acts last │
 │  "Settings → Notifications. It's right here. ☘️"     │
 ├──────────────────────────────────────────────────────┤
-│  Level 3: Do & Confirm (Copilot — default)           │
-│  AI fills forms, user confirms the final action      │
+│  Level 3: Do & Confirm (guarded assistance)          │
+│  Assistant fills forms, user confirms final action   │
 │  "I've typed your new address. Tap Save to confirm." │
 ├──────────────────────────────────────────────────────┤
-│  Level 4: Full Resolution (Autopilot)                │
-│  AI completes entire flow with one permission gate   │
+│  Level 4: Approved Resolution                        │
+│  Assistant completes allowed flow after approval     │
 │  "Done! Order #4521 cancelled. Refund in 3-5 days." │
 ├──────────────────────────────────────────────────────┤
 │  Level 5: Human Escalation                           │
@@ -114,7 +116,7 @@ AI:   "Here it is. The Price Alerts toggle is right here. ☘️"
 </details>
 
 <details>
-<summary><b>Level 3 — Do & Confirm (Copilot, default)</b></summary>
+<summary><b>Level 3 — Do & Confirm</b></summary>
 
 ```
 User: "I need to change my shipping address"
@@ -129,7 +131,7 @@ AI:   "I've filled in '15 Omar St, Nasr City, Cairo'. Tap Save to confirm."
 </details>
 
 <details>
-<summary><b>Level 4 — Full Resolution (Autopilot)</b></summary>
+<summary><b>Level 4 — Approved Resolution</b></summary>
 
 ```
 User: "Cancel my last order"
@@ -157,7 +159,7 @@ AI:   "I can see your order history, but billing disputes need a human agent."
 | **Answer questions** | ✅ | ✅ | ✅ Knowledge base |
 | **Navigate user to right screen** | ❌ | ❌ | ✅ App-aware navigation |
 | **Fill forms for the user** | ❌ | ❌ | ✅ Types directly into fields |
-| **Execute in-app actions** | Via API connectors *(must build)* | Via API connectors | ✅ Via UI — zero backend work |
+| **Execute in-app actions** | Via API connectors *(must build)* | Via API connectors | ✅ Approved app actions and guarded UI assistance |
 | **Voice support** | ❌ | ❌ | ✅ Gemini Live |
 | **Human escalation** | ✅ | ✅ | ✅ WebSocket live chat |
 | **Mobile-native** | ❌ WebView overlay | ❌ WebView | ✅ React Native component |
@@ -176,20 +178,20 @@ No competitor can do Levels 2–4. Intercom and Zendesk answer questions (Level 
 
 #### 🦹 AI Support Agent — Resolves at Every Level
 
-The AI answers questions, guides users to the right screen, fills forms on their behalf, or completes full task flows — with voice support and human escalation built in. All in the existing app UI. Zero backend integration.
+The AI answers questions, guides users to the right screen, helps fill forms, or completes approved task flows — with voice support and human escalation built in. All inside the existing app UI, with app-defined guardrails.
 
 - **Zero-config** — wrap your app with `<AIAgent>`, done. No annotations, no selectors, no API connectors
-- **5-level resolution** — knowledge answer → guided navigation → copilot → full resolution → human escalation
-- **Copilot mode** (default) — AI pauses once before irreversible actions (order, delete, submit). User always stays in control
+- **5-level resolution** — knowledge answer → guided navigation → guarded assistance → approved resolution → human escalation
+- **User approval** — the assistant pauses before app actions and irreversible steps. Users stay in control
 - **Human escalation** — live chat via WebSocket, CSAT survey, ticket dashboard — all built in
 - **Knowledge base** — policies, FAQs, product data queried on demand — no token waste
 
-#### 🎤 Real-time Voice Support — Users Speak, AI Acts
+#### 🎤 Real-time Voice Support — Users Speak, AI Assists
 
-Full bidirectional voice AI powered by the Gemini Live API. Users speak their support request; the agent responds with voice AND navigates, fills forms, and resolves issues simultaneously.
+Full bidirectional voice AI powered by the Gemini Live API. Users speak their support request; the assistant responds with voice and can guide, navigate, fill forms, or resolve approved issues.
 
 - **Sub-second latency** — real-time audio via WebSockets, not turn-based
-- **Full resolution** — same navigate, type, tap as text mode — all by voice
+- **Full resolution** — the same guided and approved actions as text mode — all by voice
 - **Screen-aware** — auto-detects screen changes and updates context instantly
 
 > 💡 **Speech-to-text in text mode:** Install `expo-speech-recognition` for a mic button in the chat bar — letting users dictate instead of typing. Separate from voice mode.
@@ -277,7 +279,7 @@ checks:
 ```
 Then tell your AI: *"Read tests/smoke.yaml and run each check on the emulator"*
 
-**Real Results — 5 bugs found autonomously:**
+**Real Results — 5 bugs found automatically:**
 
 | # | What was checked | Bug found | AI steps |
 |---|---|---|---|
@@ -517,7 +519,7 @@ If Voice Mode uses a separate WebSocket backend, add `voiceProxyUrl`:
 
 `voiceProxyUrl` falls back to `proxyUrl` when it is not set.
 
-### Knowledge-Only Mode — AI Assistant Without UI Automation
+### Knowledge-Only Mode — AI Assistant Without App Actions
 
 Set `enableUIControl={false}` for a lightweight FAQ / support assistant. Single LLM call, ~70% fewer tokens:
 
@@ -534,45 +536,47 @@ Set `enableUIControl={false}` for a lightweight FAQ / support assistant. Single 
 
 ---
 
-## 🛡️ Copilot Mode — Safe-by-Default UI Automation
+## 🛡️ Guardrails — Delegated Assistance, Not User Impersonation
 
-The agent operates in **copilot mode** by default. It navigates, scrolls, types, and fills forms silently — then pauses **once** before the final irreversible action (place order, delete account, submit payment) to ask the user for confirmation.
+MobileAI is not designed as unrestricted UI automation. It is delegated assistance under app-defined limits: the assistant can read context, use structured data, guide users, and perform approved actions only through the SDK runtime.
+
+By default, the assistant must get approval before app actions such as navigating, tapping, typing, scrolling, or selecting controls. Sensitive flows should also use code-level confirmation gates before the final commit.
 
 ```tsx
-// Default — copilot mode, zero extra config:
+// Default setup:
 <AIAgent analyticsKey="mobileai_pub_xxx" navRef={navRef}>
   <App />
 </AIAgent>
 ```
 
-**What the AI does silently:**
+**What the assistant can help with after approval:**
 - Navigating between screens and tabs
 - Scrolling to find content
 - Typing into form fields
 - Selecting options and filters
 - Adding items to cart
 
-**What the AI pauses on** (asks the user first):
+**What should require explicit confirmation:**
 - Placing an order / completing a purchase
 - Submitting a form that sends data to a server
 - Deleting anything (account, item, message)
 - Confirming a payment or transaction
 - Saving account/profile changes
 
-### Opt-out to Full Autonomy
+### Full Autonomy Is Explicit Opt-In
 
 ```tsx
 <AIAgent interactionMode="autopilot" />
 ```
 
-Use `autopilot` for power users, accessibility tools, or repeat-task automation where confirmations are unwanted.
+Use `autopilot` only for trusted, low-risk workflows where confirmations are intentionally unwanted. Avoid it for payments, deletion, consent, security settings, regulated data, or account-level changes.
 
-### Optional: Mark Specific Buttons as Critical (Safety Net)
+### Mark Sensitive Controls as Critical
 
-In copilot mode, the prompt handles ~95% of cases automatically. For extra safety on your most sensitive buttons, add `aiConfirm={true}` — this adds a code-level block that cannot be bypassed even if the LLM ignores the prompt:
+For sensitive controls, add `aiConfirm={true}`. This adds a code-level confirmation gate before the assistant can interact with the element:
 
 ```tsx
-// These elements will ALWAYS require confirmation before the AI touches them
+// These elements require confirmation before the assistant can touch them
 <Pressable aiConfirm onPress={deleteAccount}>
   <Text>Delete Account</Text>
 </Pressable>
@@ -588,19 +592,23 @@ In copilot mode, the prompt handles ~95% of cases automatically. For extra safet
 
 > 💡 **Dev tip**: In `__DEV__` mode, the SDK logs a reminder to add `aiConfirm` to critical elements after each copilot task.
 
-### Three-Layer Safety Model
+### Safety Model
 
 | Layer | Mechanism | Developer effort |
 |:---|:---|:---|
-| **Prompt** (primary) | AI uses `ask_user` before irreversible commits | Zero |
-| **`aiConfirm` prop** (optional safety net) | Code blocks specific elements | Add prop to 2–3 critical buttons |
-| **Dev warning** (preventive) | Logs tip in `__DEV__` mode | Zero |
+| **Approval gate** | User approves before app actions | Built in |
+| **`aiConfirm` prop** | Code blocks sensitive elements until confirmed | Add prop to critical controls |
+| **`aiIgnore` prop** | Hide controls from the assistant entirely | Add prop to excluded controls |
+| **Stale-target protection** | Re-checks targets before tapping after screen changes | Built in |
+| **Content masking** | Sanitize screen content before it reaches the LLM | Configure `transformScreenContent` |
+| **Traceability** | Records actions and conversation context | Built in / dashboard-backed |
+| **Structured data** | Use `useData` when direct state lookup is better than UI navigation | Optional |
 
 ---
 
 ## 💬 Human Support Mode
 
-Transform the AI agent into a production-grade support system. The AI resolves issues directly inside your app UI — no backend API integrations required. When it can't help, it escalates to a live human agent.
+Transform the AI assistant into a production-grade support system. It can answer from knowledge, query structured data, guide users through the app, perform approved actions, and escalate to a live human agent when it can't help.
 
 ```tsx
 import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
@@ -918,7 +926,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `interactionMode` | `'copilot' \| 'autopilot'` | `'copilot'` | **Copilot** (default): AI pauses before irreversible actions. **Autopilot**: full autonomy, no confirmation. |
+| `interactionMode` | `'copilot' \| 'autopilot'` | `'copilot'` | **Copilot** (default): AI pauses before app actions and irreversible steps. **Autopilot**: no-confirmation mode for trusted low-risk workflows only. |
 | `showDiscoveryTooltip` | `boolean` | `true` | Show one-time animated tooltip on FAB explaining AI capabilities. Dismissed after 6s or first tap. |
 | `maxSteps` | `number` | `25` | Max agent steps per task. |
 | `maxTokenBudget` | `number` | — | Max total tokens before auto-stopping the agent loop. |

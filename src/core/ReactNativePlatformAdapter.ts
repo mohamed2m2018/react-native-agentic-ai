@@ -3,7 +3,13 @@ import { DeviceEventEmitter, Keyboard, NativeModules } from 'react-native';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { walkFiberTree, findScrollableContainers } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
-import { getChild, getSibling, getProps, getStateNode, getParent } from './FiberAdapter';
+import {
+  getChild,
+  getSibling,
+  getProps,
+  getStateNode,
+  getParent,
+} from './FiberAdapter';
 import { dismissAlert } from './NativeAlertInterceptor';
 import { globalBlockRegistry } from './BlockRegistry';
 import { globalZoneRegistry } from './ZoneRegistry';
@@ -18,20 +24,61 @@ import type {
   ScreenSnapshot,
 } from './types';
 
-function isScalarSelectionValue(value: unknown): value is string | number | boolean {
-  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+interface TargetSignature {
+  type: InteractiveElement['type'];
+  label: string;
+  analyticsLabel: string;
+  stableId: string;
+  role: string;
+  zoneId: string;
+  componentName: string;
+  ancestorPath: string[];
+  state: Record<string, string>;
 }
 
-function getRadioSelectionPayload(props: Record<string, any>): string | number | boolean {
+type TargetResolution =
+  | {
+      ok: true;
+      element: InteractiveElement;
+      elements: InteractiveElement[];
+      requestedIndex: number;
+      relocated: boolean;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
+function isScalarSelectionValue(
+  value: unknown
+): value is string | number | boolean {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+function getRadioSelectionPayload(
+  props: Record<string, any>
+): string | number | boolean {
   return isScalarSelectionValue(props.value) ? props.value : true;
 }
 
-function getRadioSelectionHandler(props: Record<string, any>): { channel: string; handler: Function } | null {
+function getRadioSelectionHandler(
+  props: Record<string, any>
+): { channel: string; handler: Function } | null {
   if (typeof props.onValueChange === 'function') {
-    return { channel: 'onValueChange', handler: props.onValueChange as Function };
+    return {
+      channel: 'onValueChange',
+      handler: props.onValueChange as Function,
+    };
   }
   if (typeof props.onCheckedChange === 'function') {
-    return { channel: 'onCheckedChange', handler: props.onCheckedChange as Function };
+    return {
+      channel: 'onCheckedChange',
+      handler: props.onCheckedChange as Function,
+    };
   }
   if (typeof props.onChange === 'function') {
     return { channel: 'onChange', handler: props.onChange as Function };
@@ -42,10 +89,16 @@ function getRadioSelectionHandler(props: Record<string, any>): { channel: string
   return null;
 }
 
-function findFiberNode(rootFiber: any, predicate: (node: any) => boolean, maxDepth = 10): any | null {
+function findFiberNode(
+  rootFiber: any,
+  predicate: (node: any) => boolean,
+  maxDepth = 10
+): any | null {
   const firstChild = getChild(rootFiber);
   if (!firstChild) return null;
-  const queue: { node: any; depth: number }[] = [{ node: firstChild, depth: 0 }];
+  const queue: { node: any; depth: number }[] = [
+    { node: firstChild, depth: 0 },
+  ];
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (!current.node || current.depth > maxDepth) continue;
@@ -58,7 +111,9 @@ function findFiberNode(rootFiber: any, predicate: (node: any) => boolean, maxDep
   return null;
 }
 
-function extractPickerOptions(element: any): Array<{ label: string; value: any }> {
+function extractPickerOptions(
+  element: any
+): Array<{ label: string; value: any }> {
   const props = element.props || {};
   const options: Array<{ label: string; value: any }> = [];
 
@@ -89,7 +144,10 @@ function extractPickerOptions(element: any): Array<{ label: string; value: any }
     while (child) {
       const childProps = getProps(child);
       if (childProps.label !== undefined && childProps.value !== undefined) {
-        options.push({ label: String(childProps.label), value: childProps.value });
+        options.push({
+          label: String(childProps.label),
+          value: childProps.value,
+        });
       }
       child = getSibling(child);
     }
@@ -99,11 +157,18 @@ function extractPickerOptions(element: any): Array<{ label: string; value: any }
 }
 
 function sanitizePropValue(value: unknown): unknown {
-  if (value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (
+    value == null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizePropValue(item)).filter((item) => item !== undefined);
+    return value
+      .map((item) => sanitizePropValue(item))
+      .filter((item) => item !== undefined);
   }
   if (typeof value === 'object') {
     const proto = Object.getPrototypeOf(value);
@@ -128,6 +193,153 @@ function parsePropsArg(rawProps: unknown): Record<string, unknown> {
   return sanitizePropValue(parsed) as Record<string, unknown>;
 }
 
+function normalizeTargetText(value: unknown): string {
+  if (value == null) return '';
+  return String(value).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isInformativeTargetText(value: string): boolean {
+  if (!value) return false;
+  if (/^\[[a-z-]+\]$/.test(value)) return false;
+  if (value.length < 2) return false;
+  return !new Set([
+    'button',
+    'pressable',
+    'text input',
+    'input',
+    'switch',
+    'radio',
+    'slider',
+    'picker',
+    'date picker',
+    'item',
+    'row',
+    'card',
+  ]).has(value);
+}
+
+function labelsCompatible(a: string, b: string): boolean {
+  if (!a || !b) return true;
+  if (a === b) return true;
+  return a.includes(b) || b.includes(a);
+}
+
+function scalarPropToString(value: unknown): string {
+  return isScalarSelectionValue(value) ? String(value) : '';
+}
+
+function buildTargetSignature(element: InteractiveElement): TargetSignature {
+  const props = element.props || {};
+  const state: Record<string, string> = {};
+  for (const key of ['checked', 'selected', 'value', 'enabled']) {
+    const value = scalarPropToString(props[key]);
+    if (value) state[key] = value;
+  }
+
+  return {
+    type: element.type,
+    label: normalizeTargetText(element.label),
+    analyticsLabel: normalizeTargetText(element.analyticsLabel),
+    stableId: normalizeTargetText(props.aiId || props.testID || props.nativeID),
+    role: normalizeTargetText(props.accessibilityRole || props.role),
+    zoneId: normalizeTargetText(element.zoneId || element.analyticsZoneId),
+    componentName: normalizeTargetText(element.analyticsComponentName),
+    ancestorPath: (element.analyticsAncestorPath || [])
+      .map((entry) => normalizeTargetText(entry))
+      .filter(Boolean),
+    state,
+  };
+}
+
+function signaturesHaveStrongConflict(
+  observed: TargetSignature,
+  candidate: TargetSignature
+): boolean {
+  if (observed.type !== candidate.type) return true;
+  if (
+    observed.stableId &&
+    candidate.stableId &&
+    observed.stableId !== candidate.stableId
+  ) {
+    return true;
+  }
+  if (observed.role && candidate.role && observed.role !== candidate.role) {
+    return true;
+  }
+  if (
+    observed.zoneId &&
+    candidate.zoneId &&
+    observed.zoneId !== candidate.zoneId
+  ) {
+    return true;
+  }
+
+  const observedLabel = observed.label || observed.analyticsLabel;
+  const candidateLabel = candidate.label || candidate.analyticsLabel;
+  if (
+    isInformativeTargetText(observedLabel) &&
+    isInformativeTargetText(candidateLabel) &&
+    !labelsCompatible(observedLabel, candidateLabel)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function sameIndexStillMatches(
+  observed: InteractiveElement,
+  candidate: InteractiveElement
+): boolean {
+  return !signaturesHaveStrongConflict(
+    buildTargetSignature(observed),
+    buildTargetSignature(candidate)
+  );
+}
+
+function scoreTargetMatch(
+  observed: InteractiveElement,
+  candidate: InteractiveElement
+): number {
+  const a = buildTargetSignature(observed);
+  const b = buildTargetSignature(candidate);
+
+  if (a.type !== b.type) return Number.NEGATIVE_INFINITY;
+  if (a.stableId && b.stableId)
+    return a.stableId === b.stableId ? 120 : Number.NEGATIVE_INFINITY;
+
+  let score = 0;
+  const labelA = a.label || a.analyticsLabel;
+  const labelB = b.label || b.analyticsLabel;
+  if (isInformativeTargetText(labelA) && isInformativeTargetText(labelB)) {
+    if (labelA === labelB) score += 70;
+    else if (labelsCompatible(labelA, labelB)) score += 45;
+    else score -= 80;
+  }
+
+  if (
+    a.analyticsLabel &&
+    b.analyticsLabel &&
+    a.analyticsLabel === b.analyticsLabel
+  )
+    score += 20;
+  if (a.role && b.role) score += a.role === b.role ? 15 : -25;
+  if (a.zoneId && b.zoneId) score += a.zoneId === b.zoneId ? 25 : -30;
+  if (a.componentName && b.componentName)
+    score += a.componentName === b.componentName ? 10 : 0;
+
+  const sharedAncestors = a.ancestorPath.filter((entry) =>
+    b.ancestorPath.includes(entry)
+  ).length;
+  score += Math.min(sharedAncestors * 4, 12);
+
+  for (const [key, value] of Object.entries(a.state)) {
+    if (b.state[key] === value) score += 3;
+  }
+
+  return score;
+}
+
 function getAllowedZoneBlocks(zone: any): BlockDefinition[] {
   const explicitBlocks = Array.isArray(zone.blocks) ? zone.blocks : [];
   if (explicitBlocks.length > 0) {
@@ -139,15 +351,20 @@ function getAllowedZoneBlocks(zone: any): BlockDefinition[] {
     .map((template: React.ComponentType<any>) => {
       const name = template.displayName || template.name;
       if (!name) return null;
-      return globalBlockRegistry.get(name) || {
-        name,
-        component: template,
-        allowedPlacements: ['chat', 'zone'] as const,
-        interventionEligible: true,
-        interventionType: 'contextual_help' as const,
-      };
+      return (
+        globalBlockRegistry.get(name) || {
+          name,
+          component: template,
+          allowedPlacements: ['chat', 'zone'] as const,
+          interventionEligible: true,
+          interventionType: 'contextual_help' as const,
+        }
+      );
     })
-    .filter((definition: BlockDefinition | null): definition is BlockDefinition => !!definition);
+    .filter(
+      (definition: BlockDefinition | null): definition is BlockDefinition =>
+        !!definition
+    );
 }
 
 interface ReactNativePlatformAdapterOptions {
@@ -180,7 +397,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   getScreenSnapshot(): ScreenSnapshot {
-    const walkResult = walkFiberTree(this.options.getRootRef(), this.options.getWalkConfig());
+    const walkResult = walkFiberTree(
+      this.options.getRootRef(),
+      this.options.getWalkConfig()
+    );
     const navigation = this.getNavigationSnapshot();
     const dehydrated = dehydrateScreen({
       screenName: navigation.currentScreenName,
@@ -221,20 +441,26 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         result: 'base64',
       });
 
-      logger.info('ReactNativePlatformAdapter', `Screenshot captured (${Math.round((uri?.length || 0) / 1024)}KB base64)`);
+      logger.info(
+        'ReactNativePlatformAdapter',
+        `Screenshot captured (${Math.round((uri?.length || 0) / 1024)}KB base64)`
+      );
       return uri || undefined;
     } catch (error: any) {
       if (
-        error.message?.includes('Cannot find module')
-        || error.code === 'MODULE_NOT_FOUND'
-        || error.message?.includes('unknown module')
+        error.message?.includes('Cannot find module') ||
+        error.code === 'MODULE_NOT_FOUND' ||
+        error.message?.includes('unknown module')
       ) {
         logger.warn(
           'ReactNativePlatformAdapter',
           'Screenshot requires react-native-view-shot. Install it in the host app with: npx expo install react-native-view-shot'
         );
       } else {
-        logger.debug('ReactNativePlatformAdapter', `Screenshot skipped: ${error.message}`);
+        logger.debug(
+          'ReactNativePlatformAdapter',
+          `Screenshot skipped: ${error.message}`
+        );
       }
       return undefined;
     }
@@ -249,7 +475,11 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       case 'type':
         return this.typeText(intent.index, intent.text);
       case 'scroll':
-        return this.scroll(intent.direction, intent.amount, intent.containerIndex);
+        return this.scroll(
+          intent.direction,
+          intent.amount,
+          intent.containerIndex
+        );
       case 'adjust_slider':
         return this.adjustSlider(intent.index, intent.value);
       case 'select_picker':
@@ -259,13 +489,26 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       case 'dismiss_keyboard':
         return this.dismissKeyboard();
       case 'guide_user':
-        return this.guideUser(intent.index, intent.message, intent.autoRemoveAfterMs);
+        return this.guideUser(
+          intent.index,
+          intent.message,
+          intent.autoRemoveAfterMs
+        );
       case 'simplify_zone':
         return this.simplifyZone(intent.zoneId);
       case 'render_block':
-        return this.renderBlock(intent.zoneId, intent.blockType, intent.props, intent.lifecycle);
+        return this.renderBlock(
+          intent.zoneId,
+          intent.blockType,
+          intent.props,
+          intent.lifecycle
+        );
       case 'inject_card':
-        return this.injectCard(intent.zoneId, intent.templateName, intent.props);
+        return this.injectCard(
+          intent.zoneId,
+          intent.templateName,
+          intent.props
+        );
       case 'restore_zone':
         return this.restoreZone(intent.zoneId);
       case 'navigate':
@@ -299,7 +542,11 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       const state = navRef?.getRootState?.() || navRef?.getState?.();
       if (!state) return [];
       const names = this.collectRouteNames(state);
-      logger.debug('ReactNativePlatformAdapter', 'Available routes:', names.join(', '));
+      logger.debug(
+        'ReactNativePlatformAdapter',
+        'Available routes:',
+        names.join(', ')
+      );
       return names;
     } catch {
       return [];
@@ -324,7 +571,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
   private findScreenPath(targetScreen: string): string[] {
     try {
-      const state = this.options.navRef?.getRootState?.() || this.options.navRef?.getState?.();
+      const state =
+        this.options.navRef?.getRootState?.() ||
+        this.options.navRef?.getState?.();
       if (!state?.routes) return [targetScreen];
 
       if (state.routes.some((r: any) => r.name === targetScreen)) {
@@ -332,7 +581,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       }
 
       for (const route of state.routes) {
-        const nestedNames = route.state ? this.collectRouteNames(route.state) : [];
+        const nestedNames = route.state
+          ? this.collectRouteNames(route.state)
+          : [];
         if (nestedNames.includes(targetScreen)) {
           return [route.name, targetScreen];
         }
@@ -357,16 +608,103 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     return snapshot.elements;
   }
 
-  private findInteractiveElement(index: number): InteractiveElement | undefined {
-    return this.getInteractiveElements().find((element) => element.index === index);
+  private resolveInteractiveElement(
+    index: number,
+    actionName: string
+  ): TargetResolution {
+    const observedSnapshot = this.lastSnapshot;
+    const observedElement = observedSnapshot?.elements.find(
+      (element) => element.index === index
+    );
+    const currentSnapshot = this.getScreenSnapshot();
+    const elements = currentSnapshot.elements;
+    const sameIndexElement = elements.find(
+      (element) => element.index === index
+    );
+
+    if (
+      observedSnapshot?.screenName &&
+      currentSnapshot.screenName &&
+      observedSnapshot.screenName !== currentSnapshot.screenName
+    ) {
+      return {
+        ok: false,
+        message: `❌ STALE_TARGET: The screen changed from "${observedSnapshot.screenName}" to "${currentSnapshot.screenName}" before ${actionName}. Re-read the current screen and choose the target again.`,
+      };
+    }
+
+    if (!observedElement) {
+      if (sameIndexElement) {
+        return {
+          ok: true,
+          element: sameIndexElement,
+          elements,
+          requestedIndex: index,
+          relocated: false,
+        };
+      }
+      return {
+        ok: false,
+        message: `❌ Element with index ${index} not found. Available indexes: ${elements.map((e) => e.index).join(', ')}`,
+      };
+    }
+
+    if (
+      sameIndexElement &&
+      sameIndexStillMatches(observedElement, sameIndexElement)
+    ) {
+      return {
+        ok: true,
+        element: sameIndexElement,
+        elements,
+        requestedIndex: index,
+        relocated: false,
+      };
+    }
+
+    const scored = elements
+      .map((element) => ({
+        element,
+        score: scoreTargetMatch(observedElement, element),
+      }))
+      .filter((entry) => entry.score >= 60)
+      .sort((a, b) => b.score - a.score);
+    const topScore = scored[0]?.score ?? Number.NEGATIVE_INFINITY;
+    const best = scored.filter((entry) => entry.score === topScore);
+
+    if (best.length === 1) {
+      const relocated = best[0]!.element;
+      logger.info(
+        'ReactNativePlatformAdapter',
+        `STALE_TARGET recovered for ${actionName}: [${index}] "${observedElement.label}" relocated to [${relocated.index}] "${relocated.label}"`
+      );
+      return {
+        ok: true,
+        element: relocated,
+        elements,
+        requestedIndex: index,
+        relocated: relocated.index !== index,
+      };
+    }
+
+    const currentLabel = sameIndexElement
+      ? `"${sameIndexElement.label}"`
+      : 'no current element';
+    const reason =
+      scored.length > 1
+        ? `multiple matching targets (${scored.map((entry) => `[${entry.element.index}] "${entry.element.label}"`).join(', ')})`
+        : `observed [${index}] "${observedElement.label}" now points to ${currentLabel}`;
+    return {
+      ok: false,
+      message: `❌ STALE_TARGET: The UI changed before ${actionName}. ${reason}. Re-read the current screen and choose the target again.`,
+    };
   }
 
   private async tap(index: number): Promise<string> {
-    const elements = this.getInteractiveElements();
-    const element = elements.find((el) => el.index === index);
-    if (!element) {
-      return `❌ Element with index ${index} not found. Available indexes: ${elements.map((e) => e.index).join(', ')}`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'tap');
+    if (!resolved.ok) return resolved.message;
+    const { element, elements } = resolved;
+    index = element.index;
 
     const elementCountBefore = elements.length;
     const screenBefore = this.getCurrentScreenName();
@@ -435,7 +773,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
     let fiber = getParent(element.fiberNode);
     let bubbleDepth = 0;
-    const radioPayload = element.type === 'radio' ? getRadioSelectionPayload(element.props) : undefined;
+    const radioPayload =
+      element.type === 'radio'
+        ? getRadioSelectionPayload(element.props)
+        : undefined;
     while (fiber && bubbleDepth < 5) {
       const parentProps = getProps(fiber);
       if (parentProps.onPress && typeof parentProps.onPress === 'function') {
@@ -467,13 +808,15 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   private async longPress(index: number): Promise<string> {
-    const elements = this.getInteractiveElements();
-    const element = elements.find((el) => el.index === index);
-    if (!element) {
-      return `❌ Element with index ${index} not found. Available indexes: ${elements.map((e) => e.index).join(', ')}`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'long_press');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
 
-    if (element.props.onLongPress && typeof element.props.onLongPress === 'function') {
+    if (
+      element.props.onLongPress &&
+      typeof element.props.onLongPress === 'function'
+    ) {
       try {
         element.props.onLongPress();
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -487,7 +830,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     let bubbleDepth = 0;
     while (fiber && bubbleDepth < 5) {
       const parentProps = getProps(fiber);
-      if (parentProps.onLongPress && typeof parentProps.onLongPress === 'function') {
+      if (
+        parentProps.onLongPress &&
+        typeof parentProps.onLongPress === 'function'
+      ) {
         try {
           parentProps.onLongPress();
           await new Promise((resolve) => setTimeout(resolve, 500));
@@ -504,11 +850,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   private async typeText(index: number, text: string): Promise<string> {
-    const elements = this.getInteractiveElements();
-    const element = elements.find((el) => el.index === index);
-    if (!element) {
-      return `❌ Element with index ${index} not found.`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'type');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
 
     const props = element.props;
     const label = element.label || `[${element.type}]`;
@@ -544,7 +889,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       const fiberProps = getProps(fiberNode);
       const nativeOnChangeFiber = fiberProps?.onChange
         ? fiberNode
-        : findFiberNode(fiberNode, (node) => typeof getProps(node)?.onChange === 'function');
+        : findFiberNode(
+            fiberNode,
+            (node) => typeof getProps(node)?.onChange === 'function'
+          );
 
       const fiberStateNode = getStateNode(fiberNode);
       const nativeStateFiber = fiberStateNode?.setNativeProps
@@ -560,7 +908,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       if (onChange || nativeInstance) {
         try {
           let visualUpdated = false;
-          if (nativeInstance && typeof nativeInstance.setNativeProps === 'function') {
+          if (
+            nativeInstance &&
+            typeof nativeInstance.setNativeProps === 'function'
+          ) {
             nativeInstance.setNativeProps({ text });
             visualUpdated = true;
           }
@@ -596,7 +947,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     containerIndex = 0
   ): Promise<string> {
     const screenName = this.getCurrentScreenName();
-    const containers = findScrollableContainers(this.options.getRootRef(), screenName);
+    const containers = findScrollableContainers(
+      this.options.getRootRef(),
+      screenName
+    );
 
     if (containers.length === 0) {
       return `❌ No scrollable container found on screen "${screenName}". Content may still be loading — wait and try again.`;
@@ -606,7 +960,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     if (!container) {
       const available = containers
         .filter((entry) => !entry.isPagerLike)
-        .map((entry) => `[${entry.index}] ${entry.label} (${entry.componentName})`)
+        .map(
+          (entry) => `[${entry.index}] ${entry.label} (${entry.componentName})`
+        )
         .join(', ');
       return `❌ Container index ${containerIndex} not found. Available scrollable containers on "${screenName}": ${available}`;
     }
@@ -614,7 +970,9 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     if (container.isPagerLike) {
       const scrollableAlts = containers
         .filter((entry) => !entry.isPagerLike)
-        .map((entry) => `[${entry.index}] ${entry.label} (${entry.componentName})`)
+        .map(
+          (entry) => `[${entry.index}] ${entry.label} (${entry.componentName})`
+        )
         .join(', ');
       const suggestion = scrollableAlts
         ? `Try scrolling a content container instead: ${scrollableAlts}`
@@ -641,7 +999,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
     const offsetBefore =
       typeof scrollRef.scrollToOffset === 'function'
-        ? scrollRef._scrollMetrics?.offset ?? 0
+        ? (scrollRef._scrollMetrics?.offset ?? 0)
         : 0;
 
     try {
@@ -673,9 +1031,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
           const currentY = scrollRef._nativeRef?.contentOffset?.y ?? 0;
           const scrollAmount = FALLBACK_PAGE_HEIGHT;
           scrollRef.scrollTo({
-            y: direction === 'down'
-              ? currentY + scrollAmount
-              : Math.max(0, currentY - scrollAmount),
+            y:
+              direction === 'down'
+                ? currentY + scrollAmount
+                : Math.max(0, currentY - scrollAmount),
             animated: true,
           });
         }
@@ -685,7 +1044,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
       const offsetAfter =
         typeof scrollRef.scrollToOffset === 'function'
-          ? scrollRef._scrollMetrics?.offset ?? 0
+          ? (scrollRef._scrollMetrics?.offset ?? 0)
           : -1;
 
       if (offsetAfter >= 0 && Math.abs(offsetAfter - offsetBefore) < 2) {
@@ -694,7 +1053,11 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       }
 
       const amountLabel =
-        amount === 'toEnd' ? 'to end' : amount === 'toStart' ? 'to start' : `${direction} one page`;
+        amount === 'toEnd'
+          ? 'to end'
+          : amount === 'toStart'
+            ? 'to start'
+            : `${direction} one page`;
       return `✅ Scrolled ${amountLabel} in ${container.label} (${container.componentName}). Check the updated screen content for newly loaded items.`;
     } catch (error: any) {
       return `❌ Scroll failed: ${error.message}`;
@@ -702,12 +1065,16 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   private async adjustSlider(index: number, value: number): Promise<string> {
-    const element = this.findInteractiveElement(index);
-    if (!element) {
-      return `❌ Element with index ${index} not found.`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'adjust_slider');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
     const normalizedValue = Number(value);
-    if (!Number.isFinite(normalizedValue) || normalizedValue < 0 || normalizedValue > 1) {
+    if (
+      !Number.isFinite(normalizedValue) ||
+      normalizedValue < 0 ||
+      normalizedValue > 1
+    ) {
       return `❌ Slider value must be between 0.0 and 1.0, got ${value}`;
     }
 
@@ -722,7 +1089,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
     try {
       onValueChange(actualValue);
-      if (element.props.onSlidingComplete && typeof element.props.onSlidingComplete === 'function') {
+      if (
+        element.props.onSlidingComplete &&
+        typeof element.props.onSlidingComplete === 'function'
+      ) {
         element.props.onSlidingComplete(actualValue);
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -733,10 +1103,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   private async selectPicker(index: number, value: string): Promise<string> {
-    const element = this.findInteractiveElement(index);
-    if (!element) {
-      return `❌ Element with index ${index} not found.`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'select_picker');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
 
     const onValueChange = element.props.onValueChange;
     if (!onValueChange || typeof onValueChange !== 'function') {
@@ -746,10 +1116,14 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     const options = extractPickerOptions(element);
     if (options.length > 0) {
       const match = options.find(
-        (option) => String(option.value) === value || option.label.toLowerCase() === value.toLowerCase()
+        (option) =>
+          String(option.value) === value ||
+          option.label.toLowerCase() === value.toLowerCase()
       );
       if (!match) {
-        const available = options.map((option) => `"${option.label}" (${option.value})`).join(', ');
+        const available = options
+          .map((option) => `"${option.label}" (${option.value})`)
+          .join(', ');
         return `❌ Value "${value}" not found in picker. Available: ${available}`;
       }
 
@@ -773,17 +1147,20 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   }
 
   private async setDate(index: number, date: string): Promise<string> {
-    const element = this.findInteractiveElement(index);
-    if (!element) {
-      return `❌ Element with index ${index} not found.`;
-    }
+    const resolved = this.resolveInteractiveElement(index, 'set_date');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
 
     const dateObj = new Date(date);
     if (isNaN(dateObj.getTime())) {
       return `❌ Invalid date format: "${date}". Use ISO 8601 format (e.g., "2025-03-25" or "2025-03-25T14:30:00").`;
     }
 
-    const onChange = element.props.onChange || element.props.onDateChange || element.props.onConfirm;
+    const onChange =
+      element.props.onChange ||
+      element.props.onDateChange ||
+      element.props.onConfirm;
     if (!onChange || typeof onChange !== 'function') {
       return `❌ Element [${index}] "${element.label}" is not a date picker (no onChange/onDateChange handler).`;
     }
@@ -814,12 +1191,15 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     }
   }
 
-  private async guideUser(index: number, message: string, autoRemoveAfterMs?: number): Promise<string> {
-    const snapshot = this.lastSnapshot || this.getScreenSnapshot();
-    const element = snapshot.elements.find((entry) => entry.index === index);
-    if (!element) {
-      return `❌ Cannot guide user: Element ${index} not found.`;
-    }
+  private async guideUser(
+    index: number,
+    message: string,
+    autoRemoveAfterMs?: number
+  ): Promise<string> {
+    const resolved = this.resolveInteractiveElement(index, 'guide_user');
+    if (!resolved.ok) return resolved.message;
+    const element = resolved.element;
+    index = element.index;
 
     if (process.env.NODE_ENV === 'test') {
       DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
@@ -839,24 +1219,38 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     }
 
     return new Promise((resolve) => {
-      stateNode.measure((_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
-        if (width === 0 || height === 0) {
-          resolve(`❌ Element at index ${index} is not visible (0x0 size)`);
-          return;
+      stateNode.measure(
+        (
+          _x: number,
+          _y: number,
+          width: number,
+          height: number,
+          pageX: number,
+          pageY: number
+        ) => {
+          if (width === 0 || height === 0) {
+            resolve(`❌ Element at index ${index} is not visible (0x0 size)`);
+            return;
+          }
+
+          DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
+            pageX,
+            pageY,
+            width,
+            height,
+            message,
+            autoRemoveAfterMs: autoRemoveAfterMs || 5000,
+          });
+
+          logger.info(
+            'ReactNativePlatformAdapter',
+            `Highlighted element ${index} ("${element.label}") at ${pageX},${pageY}`
+          );
+          resolve(
+            `✅ Highlighted element ${index} ("${element.label}") with message: "${message}"`
+          );
         }
-
-        DeviceEventEmitter.emit('MOBILE_AI_HIGHLIGHT', {
-          pageX,
-          pageY,
-          width,
-          height,
-          message,
-          autoRemoveAfterMs: autoRemoveAfterMs || 5000,
-        });
-
-        logger.info('ReactNativePlatformAdapter', `Highlighted element ${index} ("${element.label}") at ${pageX},${pageY}`);
-        resolve(`✅ Highlighted element ${index} ("${element.label}") with message: "${message}"`);
-      });
+      );
     });
   }
 
@@ -894,19 +1288,22 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     }
 
     const blockDefinition =
-      allowedBlocks.find((candidate) => candidate.name === blockType)
-      || globalBlockRegistry.get(blockType);
+      allowedBlocks.find((candidate) => candidate.name === blockType) ||
+      globalBlockRegistry.get(blockType);
 
     if (!blockDefinition) {
-      const availableBlocks = allowedBlocks.map((candidate) => candidate.name).join(', ');
+      const availableBlocks = allowedBlocks
+        .map((candidate) => candidate.name)
+        .join(', ');
       return `❌ Cannot render block into zone "${zoneId}": Block "${blockType}" is not registered for this zone. Available blocks: ${availableBlocks || 'none'}.`;
     }
 
     const zoneAllowsIntervention =
-      zone.interventionEligible === true
-      || zone.allowInjectCard === true
-      || (Array.isArray(zone.templates) && zone.templates.length > 0);
-    const blockAllowsIntervention = blockDefinition.interventionEligible !== false;
+      zone.interventionEligible === true ||
+      zone.allowInjectCard === true ||
+      (Array.isArray(zone.templates) && zone.templates.length > 0);
+    const blockAllowsIntervention =
+      blockDefinition.interventionEligible !== false;
     if (!zoneAllowsIntervention || !blockAllowsIntervention) {
       return `❌ Cannot render block "${blockType}" into zone "${zoneId}": Block or zone is not eligible for screen intervention.`;
     }
@@ -918,7 +1315,10 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       return `❌ Cannot render block into zone "${zoneId}": Invalid props JSON. ${error.message}`;
     }
 
-    const validation = globalBlockRegistry.validateProps(blockDefinition.name, sanitizedProps);
+    const validation = globalBlockRegistry.validateProps(
+      blockDefinition.name,
+      sanitizedProps
+    );
     if (!validation.valid) {
       return `❌ Cannot render block into zone "${zoneId}": ${validation.errors.join(' ')}`;
     }
@@ -927,21 +1327,39 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       return `❌ Cannot render block into zone "${zoneId}": Controller not attached. Is the zone currently rendered on screen?`;
     }
 
-    const blockElement = React.createElement(blockDefinition.component, sanitizedProps);
+    const blockElement = React.createElement(
+      blockDefinition.component,
+      sanitizedProps
+    );
     if (zone._controller?.renderBlock) {
       zone._controller.renderBlock(blockElement, lifecycle);
     } else {
       zone._controller.injectCard(blockElement);
     }
-    logger.info('ReactNativePlatformAdapter', `Rendered ${blockDefinition.name} into zone: ${zoneId}`);
+    logger.info(
+      'ReactNativePlatformAdapter',
+      `Rendered ${blockDefinition.name} into zone: ${zoneId}`
+    );
     return `✅ Rendered "${blockDefinition.name}" in zone "${zoneId}". Tell the user where to look on screen.`;
   }
 
-  private async injectCard(zoneId: string, templateName: string, rawProps?: unknown): Promise<string> {
-    let result = await this.renderBlock(zoneId, templateName, rawProps, 'dismissible');
+  private async injectCard(
+    zoneId: string,
+    templateName: string,
+    rawProps?: unknown
+  ): Promise<string> {
+    let result = await this.renderBlock(
+      zoneId,
+      templateName,
+      rawProps,
+      'dismissible'
+    );
     result = result
       .replace('allowInjectBlock is false', 'allowInjectCard is false')
-      .replace(`Block "${templateName}" is not registered for this zone.`, `Template "${templateName}" is not registered for this zone.`)
+      .replace(
+        `Block "${templateName}" is not registered for this zone.`,
+        `Template "${templateName}" is not registered for this zone.`
+      )
       .replace('Cannot render block', 'Cannot inject card')
       .replace('Rendered', 'Injected');
     if (result.startsWith('✅')) {
@@ -989,13 +1407,19 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     }
 
     try {
-      const params =
-        rawParams
-          ? (typeof rawParams === 'string' ? JSON.parse(rawParams) : rawParams)
-          : undefined;
+      const params = rawParams
+        ? typeof rawParams === 'string'
+          ? JSON.parse(rawParams)
+          : rawParams
+        : undefined;
       const availableRoutes = this.getRouteNames();
-      logger.info('ReactNativePlatformAdapter', `🧭 Navigate requested: "${screen}" | Available: [${availableRoutes.join(', ')}] | Params: ${JSON.stringify(params)}`);
-      const matchedScreen = availableRoutes.find((route) => route.toLowerCase() === screen.toLowerCase());
+      logger.info(
+        'ReactNativePlatformAdapter',
+        `🧭 Navigate requested: "${screen}" | Available: [${availableRoutes.join(', ')}] | Params: ${JSON.stringify(params)}`
+      );
+      const matchedScreen = availableRoutes.find(
+        (route) => route.toLowerCase() === screen.toLowerCase()
+      );
 
       if (!matchedScreen) {
         return `❌ "${screen}" is not a screen — it may be content within a screen. Available screens: ${availableRoutes.join(', ')}. Look at the current screen context for "${screen}" as a section, category, or element, and scroll/tap to find it. If it's on a different screen, navigate to the correct screen first.`;
