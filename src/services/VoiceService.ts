@@ -75,6 +75,10 @@ export class VoiceService {
   public lastCallbacks: VoiceServiceCallbacks | null = null;
   private _status: VoiceStatus = 'disconnected';
   public intentionalDisconnect = false;
+  private transcriptBuffers: Record<'user' | 'model', string> = {
+    user: '',
+    model: '',
+  };
 
   constructor(config: VoiceServiceConfig) {
     this.config = config;
@@ -426,6 +430,7 @@ export class VoiceService {
     if (content.turnComplete) {
       logger.info('VoiceService', `🏁 Turn complete (audioChunks sent: ${this.audioResponseCount})`);
       this.audioResponseCount = 0;
+      this.flushTranscriptBuffers();
       this.callbacks.onTurnComplete?.();
     }
 
@@ -440,8 +445,7 @@ export class VoiceService {
           this.callbacks.onAudioResponse?.(part.inlineData.data);
         }
         if (part.text) {
-          logger.info('VoiceService', `🤖 MODEL: "${part.text}"`);
-          this.callbacks.onTranscript?.(part.text, true, 'model');
+          logger.debug('VoiceService', `🤖 MODEL TEXT PART (not displayed as transcript): "${part.text}"`);
         }
       }
     }
@@ -449,13 +453,13 @@ export class VoiceService {
     // Input transcription (user's speech-to-text)
     if (content.inputTranscription?.text) {
       logger.info('VoiceService', `🗣️ USER (voice): "${content.inputTranscription.text}"`);
-      this.callbacks.onTranscript?.(content.inputTranscription.text, true, 'user');
+      this.bufferTranscript(content.inputTranscription.text, 'user');
     }
 
     // Output transcription (model's speech-to-text)
     if (content.outputTranscription?.text) {
       logger.info('VoiceService', `🤖 MODEL (voice): "${content.outputTranscription.text}"`);
-      this.callbacks.onTranscript?.(content.outputTranscription.text, true, 'model');
+      this.bufferTranscript(content.outputTranscription.text, 'model');
     }
 
     // Tool calls inside serverContent (some SDK versions deliver here)
@@ -469,5 +473,64 @@ export class VoiceService {
   private setStatus(newStatus: VoiceStatus): void {
     this._status = newStatus;
     this.callbacks.onStatusChange?.(newStatus);
+  }
+
+  private bufferTranscript(text: string, role: 'user' | 'model'): void {
+    const incoming = text.trim();
+    if (!incoming) return;
+
+    const current = this.transcriptBuffers[role];
+    const combined = this.mergeTranscriptChunk(current, incoming);
+    const { complete, remaining } = this.extractCompleteSentences(combined);
+
+    for (const sentence of complete) {
+      this.callbacks.onTranscript?.(sentence, true, role);
+    }
+
+    this.transcriptBuffers[role] = remaining;
+  }
+
+  private mergeTranscriptChunk(current: string, incoming: string): string {
+    if (!current) return incoming;
+    if (incoming === current || current.endsWith(incoming)) return current;
+    if (incoming.startsWith(current)) return incoming;
+    if (/^[,.;:!?]+$/.test(incoming)) return `${current}${incoming}`;
+    if (/^[,.;:!?]/.test(incoming)) return `${current}${incoming}`;
+    return `${current} ${incoming}`;
+  }
+
+  private extractCompleteSentences(text: string): {
+    complete: string[];
+    remaining: string;
+  } {
+    const complete: string[] = [];
+    let start = 0;
+
+    for (let i = 0; i < text.length; i++) {
+      if (!/[.!?]/.test(text[i] || '')) continue;
+
+      let end = i + 1;
+      while (end < text.length && /["')\]]/.test(text[end] || '')) {
+        end++;
+      }
+
+      const sentence = text.slice(start, end).trim();
+      if (sentence) complete.push(sentence);
+      start = end;
+    }
+
+    return {
+      complete,
+      remaining: text.slice(start).trim(),
+    };
+  }
+
+  private flushTranscriptBuffers(): void {
+    (['user', 'model'] as const).forEach((role) => {
+      const pending = this.transcriptBuffers[role].trim();
+      if (!pending) return;
+      this.callbacks.onTranscript?.(pending, true, role);
+      this.transcriptBuffers[role] = '';
+    });
   }
 }

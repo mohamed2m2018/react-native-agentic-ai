@@ -38,6 +38,12 @@ import type { AIConsentConfig } from './AIConsentDialog';
 import { resolveConsentDialogContent } from './AIConsentDialog';
 import { RichContentRenderer } from './rich-content/RichContentRenderer';
 
+type VoiceTranscript = {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+};
+
 // ─── Props ─────────────────────────────────────────────────────
 
 interface AgentChatBarProps {
@@ -82,6 +88,8 @@ interface AgentChatBarProps {
   autoExpandTrigger?: number;
   /** Chat messages for selected ticket */
   chatMessages?: AIMessage[];
+  /** Sentence-level voice transcript bubbles for the current voice session */
+  voiceTranscripts?: VoiceTranscript[];
   /** The user's original typed query — shown in the result bubble instead of agent reasoning */
   lastUserMessage?: string | null;
   /** Unread message counts per ticket (ticketId -> count) */
@@ -522,6 +530,7 @@ export function AgentChatBar({
   discoveryTooltipMessage,
   onTooltipDismiss,
   chatMessages = [],
+  voiceTranscripts = [],
   conversations = [],
   isLoadingHistory = false,
   onConversationSelect,
@@ -730,6 +739,15 @@ export function AgentChatBar({
   }, [chatMessages.length, isExpanded]);
 
   const displayUnread = totalUnread + localUnread;
+  const visibleVoiceTranscripts =
+    mode === 'voice'
+      ? voiceTranscripts.filter((item) => item.text.trim())
+      : [];
+  const showMessageList =
+    mode !== 'human' &&
+    (chatMessages.length > 0 ||
+      visibleVoiceTranscripts.length > 0 ||
+      (isThinking && mode !== 'voice'));
 
   useEffect(() => {
     if (isExpanded && localUnread > 0) {
@@ -1351,7 +1369,7 @@ export function AgentChatBar({
       {/* ─── NORMAL CHAT UI ────────────────────────────────────────── */}
       {!showHistory && (
         <>
-          {mode !== 'human' && chatMessages.length > 0 && (
+          {showMessageList && (
             <ScrollView
               style={[styles.messageList, { maxHeight: messageListMaxHeight }]}
               nestedScrollEnabled
@@ -1382,7 +1400,30 @@ export function AgentChatBar({
                   </View>
                 );
               })}
-              {isThinking && (
+              {visibleVoiceTranscripts.map((transcript) => {
+                const isUser = transcript.role === 'user';
+                return (
+                  <View
+                    key={transcript.id}
+                    style={[
+                      styles.messageBubble,
+                      isUser ? styles.messageBubbleUser : styles.messageBubbleAI,
+                      isUser && theme?.primaryColor ? { backgroundColor: theme.primaryColor } : undefined,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.messageText,
+                        isUser ? styles.messageTextUser : styles.messageTextAI,
+                        { textAlign: isArabic ? 'right' : 'left' },
+                      ]}
+                    >
+                      {transcript.text}
+                    </Text>
+                  </View>
+                );
+              })}
+              {isThinking && mode !== 'voice' && (
                 <View style={[styles.messageBubble, styles.messageBubbleAI]}>
                   <LoadingDots size={18} color="#fff" />
                 </View>

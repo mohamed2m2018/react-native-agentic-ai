@@ -1,5 +1,5 @@
 import React from 'react';
-import { DeviceEventEmitter, Keyboard } from 'react-native';
+import { DeviceEventEmitter, Keyboard, NativeModules } from 'react-native';
 import { dehydrateScreen } from './ScreenDehydrator';
 import { walkFiberTree, findScrollableContainers } from './FiberTreeWalker';
 import type { WalkConfig } from './FiberTreeWalker';
@@ -201,6 +201,14 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
   async captureScreenshot(): Promise<string | undefined> {
     try {
+      if (!(NativeModules as any)?.RNViewShot) {
+        logger.debug(
+          'ReactNativePlatformAdapter',
+          'Screenshot skipped: RNViewShot native module is unavailable'
+        );
+        return undefined;
+      }
+
       const viewShot = require('react-native-view-shot');
       const captureRef = viewShot.captureRef || viewShot.default?.captureRef;
       const rootRef = this.options.getRootRef();
