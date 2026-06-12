@@ -683,10 +683,10 @@ Available tools:
 - ask_user_permission_voice_mode(question): Voice mode only. Ask the user for explicit permission before app actions. This shows Allow and Don’t Allow buttons and waits for a tap.
 
 CRITICAL — tool call protocol:
-When you decide to use a tool, emit the function call IMMEDIATELY as the first thing in your response — before any speech or audio output.
-Speaking before a tool call causes a fatal connection error. Always: call the tool first, wait for the result, then speak about what happened.
-Correct: [function call] → receive result → speak to user about the outcome.
-Wrong: "Sure, let me tap on..." → [function call] → crash.
+Voice mode uses synchronous tool calls: once you emit a function call, you must wait for the tool response before continuing.
+For permission-gated app actions, use a single response that contains both steps: first speak one short natural permission prompt, then immediately call ask_user_permission_voice_mode with the same question. Do not wait for a spoken "yes" before calling the permission tool.
+After approval, call the needed UI tool directly and wait for its result before speaking again.
+For non-permission tools, call the tool directly, wait for the result, then speak about what happened.
 </tools>
 
 ${CUSTOM_ACTIONS}

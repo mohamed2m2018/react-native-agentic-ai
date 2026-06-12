@@ -568,6 +568,11 @@ export function AgentChatBar({
   const panPositionRef = useRef({ x: 10, y: height - 200 });
   const panelHeightRef = useRef(0);
   const isExpandedRef = useRef(false);
+  const prevVoiceTranscriptCount = useRef(
+    mode === 'voice'
+      ? voiceTranscripts.filter((item) => item.text.trim()).length
+      : 0
+  );
   const isAndroidNativeWindow = renderMode === 'android-native-window';
   const metricsFrameRef = useRef<number | null>(null);
   const pendingMetricsRef = useRef<{
@@ -730,6 +735,11 @@ export function AgentChatBar({
     });
   }, [onWindowMetricsChange, publishWindowMetrics]);
 
+  const visibleVoiceTranscripts =
+    mode === 'voice'
+      ? voiceTranscripts.filter((item) => item.text.trim())
+      : [];
+
   // Track incoming AI messages while collapsed
   useEffect(() => {
     if (chatMessages.length > prevMsgCount.current && !isExpanded) {
@@ -738,11 +748,31 @@ export function AgentChatBar({
     prevMsgCount.current = chatMessages.length;
   }, [chatMessages.length, isExpanded]);
 
+  useEffect(() => {
+    if (mode === 'voice') {
+      prevVoiceTranscriptCount.current = visibleVoiceTranscripts.length;
+    } else {
+      prevVoiceTranscriptCount.current = 0;
+    }
+    // Only reset when changing modes. New transcripts are handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    const nextCount = visibleVoiceTranscripts.length;
+    if (
+      mode === 'voice' &&
+      nextCount > prevVoiceTranscriptCount.current &&
+      !isExpanded
+    ) {
+      setLocalUnread(
+        (prev) => prev + (nextCount - prevVoiceTranscriptCount.current)
+      );
+    }
+    prevVoiceTranscriptCount.current = nextCount;
+  }, [isExpanded, mode, visibleVoiceTranscripts.length]);
+
   const displayUnread = totalUnread + localUnread;
-  const visibleVoiceTranscripts =
-    mode === 'voice'
-      ? voiceTranscripts.filter((item) => item.text.trim())
-      : [];
   const showMessageList =
     mode !== 'human' &&
     (chatMessages.length > 0 ||
@@ -1136,7 +1166,7 @@ export function AgentChatBar({
           />
         )}
         {/* Unread popup bubble with message preview */}
-        {localUnread > 0 && chatMessages.length > 0 && !isAndroidNativeWindow && (
+        {localUnread > 0 && (chatMessages.length > 0 || visibleVoiceTranscripts.length > 0) && !isAndroidNativeWindow && (
           <Pressable
             style={[
               styles.unreadPopup,
@@ -1149,8 +1179,18 @@ export function AgentChatBar({
               setIsExpanded(true);
             }}
           >
-             <Text style={[styles.unreadPopupText, { textAlign: isArabic ? 'right' : 'left' }]} numberOfLines={2}>
+             <Text style={[styles.unreadPopupText, { textAlign: isArabic ? 'right' : 'left' }]} numberOfLines={4}>
                {(() => {
+                  if (mode === 'voice' && visibleVoiceTranscripts.length > 0) {
+                    const unseenVoiceTranscripts = visibleVoiceTranscripts.slice(
+                      Math.max(0, visibleVoiceTranscripts.length - localUnread)
+                    );
+                    const previewText = unseenVoiceTranscripts
+                      .map((item) => item.text.trim())
+                      .filter(Boolean)
+                      .join('\n');
+                    return previewText || (isArabic ? 'رسالة جديدة' : 'New message');
+                  }
                   const lastMsg = [...chatMessages].reverse().find(m => m.role === 'assistant');
                   if (!lastMsg) return isArabic ? 'رسالة جديدة' : 'New message';
                   const content = Array.isArray(lastMsg.content) 
@@ -1162,8 +1202,8 @@ export function AgentChatBar({
           </Pressable>
         )}
 
-        {/* Thinking status bubble */}
-        {isThinking && !pendingApprovalQuestion && !isAndroidNativeWindow && (
+        {/* Thinking / voice speech status bubble */}
+        {(isThinking || isActing || !!statusText?.trim() || (mode === 'voice' && isAISpeaking)) && !pendingApprovalQuestion && !isAndroidNativeWindow && (
           <Pressable
             style={[
               styles.statusPopup,
@@ -1177,7 +1217,7 @@ export function AgentChatBar({
           >
             <LoadingDots size={14} color="#111827" />
             <Text style={[styles.statusPopupText, { textAlign: isArabic ? 'right' : 'left' }]} numberOfLines={2}>
-              {statusText || (isArabic ? 'جاري التنفيذ...' : 'Working...')}
+              {statusText || (mode === 'voice' && isAISpeaking ? 'Speaking...' : isArabic ? 'جاري التنفيذ...' : 'Working...')}
             </Text>
           </Pressable>
         )}

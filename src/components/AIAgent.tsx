@@ -130,6 +130,10 @@ const UI_ACTION_TOOL_NAMES = new Set([
 ]);
 
 const VOICE_PERMISSION_TOOL_NAME = 'ask_user_permission_voice_mode';
+const VOICE_OUTPUT_SAMPLE_RATE = 24000;
+const VOICE_OUTPUT_BYTES_PER_SAMPLE = 2;
+const VOICE_PLAYBACK_MIN_CHUNK_MS = 60;
+const VOICE_PLAYBACK_DRAIN_GRACE_MS = 650;
 const VOICE_PERMISSION_TOOL: ToolDefinition = {
   name: VOICE_PERMISSION_TOOL_NAME,
   description:
@@ -147,7 +151,11 @@ const VOICE_PERMISSION_TOOL: ToolDefinition = {
 };
 
 function cleanVoiceTranscript(text: string): string {
-  return text.replace(/<ctrl\d+>/gi, '').replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/<ctrl\d+>/gi, '')
+    .replace(/(?:<|\[|\()(?:noise|silence|inaudible|music|laughs?|applause|crosstalk|background noise)(?:>|\]|\))/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function shouldSuppressVoiceTranscript(
@@ -159,12 +167,15 @@ function shouldSuppressVoiceTranscript(
   if (role !== 'model') return false;
 
   const lower = normalized.toLowerCase();
+  const bareToken = lower.replace(/^[\s"'`(){}\[\].,!?:;]+|[\s"'`(){}\[\].,!?:;]+$/g, '');
   return (
+    bareToken === 'done' ||
     lower === 'ask_tool' ||
     lower.includes(VOICE_PERMISSION_TOOL_NAME) ||
     lower.includes('function_call') ||
     lower.includes('tool_call') ||
     lower.includes('tool call') ||
+    /^done\s*[\({]/.test(lower) ||
     /^ask[_\s-]?tool\b/.test(lower)
   );
 }
@@ -186,6 +197,16 @@ function buildVoiceActionPermissionQuestion(
     return 'I need to scroll the app to continue. May I proceed?';
   }
   return 'I need permission to interact with the app. May I proceed?';
+}
+
+function estimateVoiceOutputDurationMs(base64Audio: string): number {
+  const compact = base64Audio.replace(/\s+/g, '');
+  if (!compact) return 0;
+  const padding = compact.endsWith('==') ? 2 : compact.endsWith('=') ? 1 : 0;
+  const byteLength = Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+  const sampleCount = Math.floor(byteLength / VOICE_OUTPUT_BYTES_PER_SAMPLE);
+  if (sampleCount <= 0) return 0;
+  return (sampleCount / VOICE_OUTPUT_SAMPLE_RATE) * 1000;
 }
 
 // ─── Context ───────────────────────────────────────────────────
@@ -2366,12 +2387,21 @@ export function AIAgent({
   const audioInputRef = useRef<AudioInputService | null>(null);
   const audioOutputRef = useRef<AudioOutputService | null>(null);
   const toolLockRef = useRef<boolean>(false);
+  const isMicActiveRef = useRef<boolean>(false);
+  const isAISpeakingRef = useRef<boolean>(false);
+  const voicePlaybackDrainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const voicePlaybackDrainUntilRef = useRef(0);
   const userHasSpokenRef = useRef<boolean>(false);
   const voiceTranscriptSeqRef = useRef(0);
   const voiceSessionActiveRef = useRef(false);
   const voiceSessionGenerationRef = useRef(0);
   const lastScreenContextRef = useRef<string>('');
   const screenPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
+  const voiceReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
   const lastAgentErrorRef = useRef<string | null>(null);
@@ -2434,10 +2464,90 @@ export function AIAgent({
   const [pendingApprovalQuestion, setPendingApprovalQuestion] = useState<
     string | null
   >(null);
-  const overlayVisible = isThinking || !!pendingApprovalQuestion;
+  const latestVoiceModelTranscript = useMemo(() => {
+    for (let i = voiceTranscripts.length - 1; i >= 0; i--) {
+      const transcript = voiceTranscripts[i];
+      if (transcript?.role === 'model' && transcript.text.trim()) {
+        return transcript.text.trim();
+      }
+    }
+    return '';
+  }, [voiceTranscripts]);
+  const voiceSpeakingStatusText =
+    mode === 'voice' && isAISpeaking
+      ? latestVoiceModelTranscript || statusText || 'Speaking...'
+      : '';
+  const overlayVisible =
+    isThinking ||
+    isActing ||
+    !!statusText.trim() ||
+    !!pendingApprovalQuestion ||
+    (mode === 'voice' && isAISpeaking);
   const overlayStatusText = pendingApprovalQuestion
     ? 'Waiting for your approval...'
-    : statusText;
+    : voiceSpeakingStatusText || statusText;
+
+  useEffect(() => {
+    isMicActiveRef.current = isMicActive;
+  }, [isMicActive]);
+
+  useEffect(() => {
+    isAISpeakingRef.current = isAISpeaking;
+  }, [isAISpeaking]);
+
+  const clearVoicePlaybackDrainTimer = useCallback(() => {
+    if (voicePlaybackDrainTimerRef.current) {
+      clearTimeout(voicePlaybackDrainTimerRef.current);
+      voicePlaybackDrainTimerRef.current = null;
+    }
+  }, []);
+
+  const setVoiceAISpeaking = useCallback((speaking: boolean) => {
+    isAISpeakingRef.current = speaking;
+    setIsAISpeaking(speaking);
+    if (!speaking) {
+      voicePlaybackDrainUntilRef.current = 0;
+    }
+  }, []);
+
+  const scheduleVoicePlaybackDrain = useCallback(() => {
+    clearVoicePlaybackDrainTimer();
+    const now = Date.now();
+    const estimatedDelay = Math.max(
+      VOICE_PLAYBACK_DRAIN_GRACE_MS,
+      voicePlaybackDrainUntilRef.current - now + VOICE_PLAYBACK_DRAIN_GRACE_MS
+    );
+    logger.info(
+      'AIAgent',
+      `AI turn complete — waiting ${Math.ceil(estimatedDelay)}ms for local playback drain`
+    );
+    voicePlaybackDrainTimerRef.current = setTimeout(() => {
+      voicePlaybackDrainTimerRef.current = null;
+      logger.info('AIAgent', 'AI local playback drain complete');
+      setVoiceAISpeaking(false);
+    }, estimatedDelay);
+  }, [clearVoicePlaybackDrainTimer, setVoiceAISpeaking]);
+
+  const markVoicePlaybackChunkQueued = useCallback(
+    (audio: string) => {
+      clearVoicePlaybackDrainTimer();
+      const now = Date.now();
+      const chunkDurationMs = Math.max(
+        VOICE_PLAYBACK_MIN_CHUNK_MS,
+        estimateVoiceOutputDurationMs(audio)
+      );
+      voicePlaybackDrainUntilRef.current =
+        Math.max(now, voicePlaybackDrainUntilRef.current) + chunkDurationMs;
+      setVoiceAISpeaking(true);
+      scheduleVoicePlaybackDrain();
+    },
+    [clearVoicePlaybackDrainTimer, scheduleVoicePlaybackDrain, setVoiceAISpeaking]
+  );
+
+  const resetVoicePlaybackState = useCallback(() => {
+    clearVoicePlaybackDrainTimer();
+    setVoiceAISpeaking(false);
+  }, [clearVoicePlaybackDrainTimer, setVoiceAISpeaking]);
 
   const effectiveProxyHeaders = useMemo(() => {
     if (!analyticsKey) return proxyHeaders;
@@ -2969,6 +3079,9 @@ export function AIAgent({
     voiceSessionActiveRef.current = true;
     const sessionGeneration = voiceSessionGenerationRef.current + 1;
     voiceSessionGenerationRef.current = sessionGeneration;
+    userHasSpokenRef.current = false;
+    voiceTranscriptSeqRef.current = 0;
+    setVoiceTranscripts([]);
     const isCurrentVoiceSession = () =>
       voiceSessionActiveRef.current &&
       voiceSessionGenerationRef.current === sessionGeneration;
@@ -3060,9 +3173,19 @@ export function AIAgent({
             pendingVoicePermissionToolRef.current ||
             pendingVoiceActionToolRef.current
           ) {
+            if (!pendingVoicePermissionToolRef.current) {
+              setStatusText((current) => current || 'One moment...');
+            }
             logger.debug(
               'AIAgent',
               '🎤 Audio chunk ignored while voice tool/approval is pending'
+            );
+            return;
+          }
+          if (isAISpeakingRef.current) {
+            logger.debug(
+              'AIAgent',
+              '🎤 Audio chunk ignored while AI is speaking'
             );
             return;
           }
@@ -3084,7 +3207,6 @@ export function AIAgent({
           'AIAgent',
           `🔊 Audio response: ${audio.length} chars, audioOutputRef=${!!audioOutputRef.current}`
         );
-        setIsAISpeaking(true);
         if (!audioOutputRef.current) {
           logger.error(
             'AIAgent',
@@ -3092,6 +3214,7 @@ export function AIAgent({
           );
           return;
         }
+        markVoicePlaybackChunkQueued(audio);
         audioOutputRef.current.enqueue(audio);
       },
       onStatusChange: (status) => {
@@ -3141,7 +3264,7 @@ export function AIAgent({
           audioInputRef.current?.stop();
           audioOutputRef.current?.stop();
           setIsMicActive(false);
-          setIsAISpeaking(false);
+          resetVoicePlaybackState();
 
           logger.warn(
             'AIAgent',
@@ -3149,7 +3272,9 @@ export function AIAgent({
           );
 
           // Auto-reconnect after short delay
-          setTimeout(() => {
+          if (voiceReconnectTimeoutRef.current) return;
+          voiceReconnectTimeoutRef.current = setTimeout(() => {
+            voiceReconnectTimeoutRef.current = null;
             if (
               isCurrentVoiceSession() &&
               mode === 'voice' &&
@@ -3182,9 +3307,6 @@ export function AIAgent({
           'AIAgent',
           '✅ SDK setup complete — sending initial screen context now'
         );
-        userHasSpokenRef.current = false;
-        voiceTranscriptSeqRef.current = 0;
-        setVoiceTranscripts([]);
         const initialContext = runtime.getScreenContext();
         lastScreenContextRef.current = initialContext; // Seed for screen change detection
         const passiveContext = `[SYSTEM CONTEXT — THIS IS NOT A USER REQUEST. DO NOT RESPOND. DO NOT NAVIGATE. DO NOT CALL ANY TOOLS. DO NOT SPEAK. Just silently read and memorize this screen layout. You will use it when the user speaks their first voice command.]\n\n${initialContext}`;
@@ -3216,6 +3338,8 @@ export function AIAgent({
             name: toolCall.name,
             id: toolCall.id,
           };
+          audioInputRef.current?.stop();
+          setIsMicActive(false);
           setPendingApprovalQuestion(question);
           setAutoExpandTrigger((prev) => prev + 1);
           setIsThinking(false);
@@ -3288,6 +3412,7 @@ export function AIAgent({
             if (!isCurrentVoiceSession()) return;
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
+          if (!isCurrentVoiceSession()) return;
         }
         toolLockRef.current = true;
         await audioInputRef.current?.stop();
@@ -3313,6 +3438,7 @@ export function AIAgent({
             toolCall.name,
             toolCall.args
           );
+          if (!isCurrentVoiceSession()) return;
           logger.info(
             'AIAgent',
             `🔧 Tool result for ${toolCall.name}: ${result}`
@@ -3320,6 +3446,7 @@ export function AIAgent({
 
           // Step delay — matches text mode's stepDelay (line 820 in AgentRuntime).
           await new Promise((resolve) => setTimeout(resolve, 300));
+          if (!isCurrentVoiceSession()) return;
 
           // Include updated screen context IN the tool response
           const updatedContext = runtime.getScreenContext();
@@ -3365,19 +3492,28 @@ export function AIAgent({
       },
       onError: (err) => {
         if (!isCurrentVoiceSession()) return;
-        logger.error('AIAgent', `VoiceService error: ${err}`);
+        const isRecoverableConnectionLoss =
+          typeof err === 'string' &&
+          /Connection lost \(code: (1001|1008|1011)\)/.test(err);
+        if (isRecoverableConnectionLoss) {
+          logger.warn('AIAgent', `VoiceService connection closed: ${err}`);
+        } else {
+          logger.error('AIAgent', `VoiceService error: ${err}`);
+        }
         // Stop mic & audio on error to prevent stale state
         audioInputRef.current?.stop();
         audioOutputRef.current?.stop();
         setIsMicActive(false);
-        setIsAISpeaking(false);
+        resetVoicePlaybackState();
       },
       onTurnComplete: () => {
         if (!isCurrentVoiceSession()) return;
         logger.info('AIAgent', 'AI turn complete');
-        setIsAISpeaking(false);
-        // No cool-down or echo gate needed — hardware AEC handles everything.
-        // Mic stays active and ready for the next voice command immediately.
+        if (isAISpeakingRef.current || voicePlaybackDrainUntilRef.current > Date.now()) {
+          scheduleVoicePlaybackDrain();
+          return;
+        }
+        resetVoicePlaybackState();
       },
     });
 
@@ -3390,9 +3526,20 @@ export function AIAgent({
     screenPollIntervalRef.current = setInterval(() => {
       if (!isCurrentVoiceSession()) return;
       if (!voiceServiceRef.current?.isConnected) return;
+      if (isMicActiveRef.current || isAISpeakingRef.current) {
+        logger.debug(
+          'AIAgent',
+          '🔄 Screen poll skipped — realtime voice input/output active'
+        );
+        return;
+      }
       // Skip during tool execution — the enriched tool response handles that
-      if (toolLockRef.current) {
-        logger.debug('AIAgent', '🔄 Screen poll skipped — tool lock active');
+      if (
+        toolLockRef.current ||
+        pendingVoicePermissionToolRef.current ||
+        pendingVoiceActionToolRef.current
+      ) {
+        logger.debug('AIAgent', '🔄 Screen poll skipped — voice tool/approval pending');
         return;
       }
 
@@ -3438,6 +3585,10 @@ export function AIAgent({
         screenPollIntervalRef.current = null;
         logger.info('AIAgent', '🔄 Screen poll stopped');
       }
+      if (voiceReconnectTimeoutRef.current) {
+        clearTimeout(voiceReconnectTimeoutRef.current);
+        voiceReconnectTimeoutRef.current = null;
+      }
       lastScreenContextRef.current = '';
       voiceSessionActiveRef.current = false;
       pendingVoicePermissionToolRef.current = null;
@@ -3450,7 +3601,7 @@ export function AIAgent({
       audioOutputRef.current?.cleanup();
       audioOutputRef.current = null;
       setIsMicActive(false);
-      setIsAISpeaking(false);
+      resetVoicePlaybackState();
       setIsVoiceConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3471,9 +3622,28 @@ export function AIAgent({
 
   const stopVoiceSession = useCallback(() => {
     logger.info('AIAgent', '🛑 Stopping voice session (full cleanup)...');
+    const pendingVoicePermission = pendingVoicePermissionToolRef.current;
+    const pendingVoiceAction = pendingVoiceActionToolRef.current;
+    if (pendingVoicePermission || pendingVoiceAction) {
+      runtime.rejectVoiceWorkflowApproval();
+      const pendingTool = pendingVoicePermission ?? pendingVoiceAction;
+      if (pendingTool && voiceServiceRef.current?.isConnected) {
+        voiceServiceRef.current.sendFunctionResponse(pendingTool.name, pendingTool.id, {
+          result: 'User declined the requested app action. Do not perform it.',
+        });
+      }
+    }
     voiceSessionActiveRef.current = false;
     voiceSessionGenerationRef.current += 1;
     toolLockRef.current = false;
+    if (screenPollIntervalRef.current) {
+      clearInterval(screenPollIntervalRef.current);
+      screenPollIntervalRef.current = null;
+    }
+    if (voiceReconnectTimeoutRef.current) {
+      clearTimeout(voiceReconnectTimeoutRef.current);
+      voiceReconnectTimeoutRef.current = null;
+    }
     // 1. Stop mic input
     audioInputRef.current?.stop();
     audioInputRef.current = null;
@@ -3486,17 +3656,18 @@ export function AIAgent({
     voiceServiceRef.current = null;
     // 4. Reset state
     setIsMicActive(false);
-    setIsAISpeaking(false);
+    resetVoicePlaybackState();
     setIsVoiceConnected(false);
     pendingVoicePermissionToolRef.current = null;
     pendingVoiceActionToolRef.current = null;
     setPendingApprovalQuestion(null);
-    voiceTranscriptSeqRef.current = 0;
-    setVoiceTranscripts([]);
+    setIsThinking(false);
+    setIsActing(false);
+    setStatusText('');
     // 6. Switch back to text mode (triggers cleanup effect naturally)
     setMode('text');
     logger.info('AIAgent', '🛑 Voice session fully stopped');
-  }, [runtime]);
+  }, [runtime, resetVoicePlaybackState]);
 
   // ─── Execute ──────────────────────────────────────────────────
 
@@ -4011,6 +4182,10 @@ export function AIAgent({
         }
 
         runtime.grantVoiceWorkflowApproval();
+        const actionGeneration = voiceSessionGenerationRef.current;
+        const isSameVoiceSession = () =>
+          voiceSessionActiveRef.current &&
+          voiceSessionGenerationRef.current === actionGeneration;
         toolLockRef.current = true;
         setIsActing(UI_ACTION_TOOL_NAMES.has(pendingVoiceAction.name));
         const toolNameFriendly = pendingVoiceAction.name.replace(/_/g, ' ');
@@ -4021,7 +4196,9 @@ export function AIAgent({
             pendingVoiceAction.name,
             pendingVoiceAction.args
           );
+          if (!isSameVoiceSession()) return;
           await new Promise((resolve) => setTimeout(resolve, 300));
+          if (!isSameVoiceSession()) return;
           const updatedContext = runtime.getScreenContext();
           lastScreenContextRef.current = updatedContext;
           const enrichedResult = `${result}\n\n<updated_screen>\n${updatedContext}\n</updated_screen>`;
@@ -4036,9 +4213,9 @@ export function AIAgent({
           setIsThinking(false);
           setStatusText('');
 
-          if (voiceServiceRef.current?.isConnected) {
+          if (isSameVoiceSession() && voiceServiceRef.current?.isConnected) {
             audioInputRef.current?.start().then((ok) => {
-              if (ok && voiceSessionActiveRef.current) {
+              if (ok && isSameVoiceSession()) {
                 setIsMicActive(true);
                 logger.info(
                   'AIAgent',
@@ -4067,6 +4244,13 @@ export function AIAgent({
                 : 'User declined the requested app action. Do not perform it.',
           }
         );
+        if (voiceServiceRef.current?.isConnected) {
+          audioInputRef.current?.start().then((ok) => {
+            if (ok && voiceSessionActiveRef.current) {
+              setIsMicActive(true);
+            }
+          });
+        }
         return;
       }
 

@@ -2,16 +2,21 @@ import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import {
   audioInputInstances,
   deferAudioInputStop,
+  emitAudioResponse,
   emitConnected,
   emitTranscript,
   emitToolCall,
+  emitTurnComplete,
   flushPromises,
   renderVoiceAgent,
   resetVoiceHarness,
   switchToVoice,
   waitForAudioInput,
+  waitForAudioOutput,
   waitForVoiceService,
 } from './voiceTabHarness';
+
+jest.setTimeout(15000);
 
 async function markUserSpoken() {
   await emitTranscript('Open profile', true, 'user');
@@ -19,7 +24,12 @@ async function markUserSpoken() {
 
 describe('AIAgent voice tab tool flow', () => {
   beforeEach(() => {
+    jest.useRealTimers();
     resetVoiceHarness();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('rejects tool calls before user speech without executing runtime tool', async () => {
@@ -263,5 +273,135 @@ describe('AIAgent voice tab tool flow', () => {
       stop.resolve();
       await pending;
     });
+  });
+
+  it('Stop during pending tool execution prevents function response and mic restart', async () => {
+    const stop = deferAudioInputStop();
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    await markUserSpoken();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+    audioInput.start.mockClear();
+
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = voice.lastCallbacks.onToolCall({
+        name: 'done',
+        args: { text: 'Done', success: true },
+        id: 'stop-during-tool',
+      });
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    await act(async () => {
+      fireEvent.press(utils.getByLabelText('Stop recording'));
+      stop.resolve();
+      await pending;
+    });
+    await flushPromises();
+
+    expect(voice.sendFunctionResponse).not.toHaveBeenCalledWith(
+      'done',
+      'stop-during-tool',
+      expect.anything()
+    );
+    expect(audioInput.start).not.toHaveBeenCalled();
+  });
+
+  it('does not forward raw mic chunks while AI is speaking', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+    const audioOutput = await waitForAudioOutput();
+
+    await act(async () => {
+      voice.lastCallbacks.onAudioResponse('assistant-audio');
+      audioInput.config.onAudioChunk('barge-in-audio');
+    });
+    await flushPromises();
+
+    expect(audioOutput.stop).not.toHaveBeenCalled();
+    expect(voice.sendAudio).not.toHaveBeenCalledWith('barge-in-audio');
+  });
+
+  it('keeps mic audio blocked after turnComplete until queued AI playback drains', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+    voice.sendAudio.mockClear();
+
+    jest.useFakeTimers();
+
+    await emitAudioResponse('assistant-audio');
+    await emitTurnComplete();
+
+    await act(async () => {
+      audioInput.config.onAudioChunk('assistant-echo-after-turn-complete');
+    });
+    expect(voice.sendAudio).not.toHaveBeenCalledWith(
+      'assistant-echo-after-turn-complete'
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(901);
+    });
+
+    await act(async () => {
+      audioInput.config.onAudioChunk('user-after-playback-drain');
+    });
+    expect(voice.sendAudio).toHaveBeenCalledWith('user-after-playback-drain');
+  });
+
+  it('does not block mic audio on turnComplete when no AI audio was queued', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+    voice.sendAudio.mockClear();
+
+    await emitTurnComplete();
+
+    await act(async () => {
+      audioInput.config.onAudioChunk('user-after-text-only-turn');
+    });
+
+    expect(voice.sendAudio).toHaveBeenCalledWith('user-after-text-only-turn');
+  });
+
+  it('clears AI speaking guard from queued playback even if turnComplete never arrives', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+    await emitConnected();
+    const voice = await waitForVoiceService();
+    const audioInput = await waitForAudioInput();
+    voice.sendAudio.mockClear();
+
+    jest.useFakeTimers();
+
+    await emitAudioResponse('assistant-audio-without-turn-complete');
+
+    await act(async () => {
+      audioInput.config.onAudioChunk('blocked-while-audio-drains');
+    });
+    expect(voice.sendAudio).not.toHaveBeenCalledWith(
+      'blocked-while-audio-drains'
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(711);
+    });
+
+    await act(async () => {
+      audioInput.config.onAudioChunk('heard-after-fallback-drain');
+    });
+    expect(voice.sendAudio).toHaveBeenCalledWith('heard-after-fallback-drain');
   });
 });

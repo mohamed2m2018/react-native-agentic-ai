@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AgentChatBar } from '../../components/AgentChatBar';
 
 const previousMessages = [
@@ -143,5 +143,85 @@ describe('AgentChatBar voice mode', () => {
 
     expect(utils.getByText('Open my profile')).toBeTruthy();
     expect(utils.queryByText('Working...')).toBeNull();
+  });
+
+  it('shows model speech status in the collapsed voice popup', () => {
+    const utils = renderChatBar({
+      mode: 'voice',
+      isAISpeaking: true,
+      statusText: 'I can open your order details.',
+    });
+
+    expect(utils.getByText('I can open your order details.')).toBeTruthy();
+  });
+
+  it('keeps the collapsed voice status popup visible for acting/status-only handoffs', () => {
+    const utils = renderChatBar({
+      mode: 'voice',
+      isThinking: false,
+      isActing: true,
+      statusText: 'Executing tap...',
+    });
+
+    expect(utils.getByText('Executing tap...')).toBeTruthy();
+  });
+
+  it('shows unread badge and preview for new voice transcripts while collapsed', async () => {
+    const utils = renderChatBar({
+      mode: 'voice',
+      voiceTranscripts: [],
+    } as any);
+
+    utils.rerender(
+      <AgentChatBar
+        onSend={jest.fn()}
+        isThinking={false}
+        lastResult={null}
+        language="en"
+        availableModes={['text', 'voice']}
+        mode="voice"
+        chatMessages={previousMessages}
+        voiceTranscripts={[
+          { id: 'vt-model-new', role: 'model', text: 'I opened Profile.' },
+        ]}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        utils.getByLabelText('Open AI Agent Chat - 1 unread messages')
+      ).toBeTruthy()
+    );
+    expect(utils.getByText('I opened Profile.')).toBeTruthy();
+  });
+
+  it('shows all unseen voice transcript lines in the collapsed preview', async () => {
+    const utils = renderChatBar({
+      mode: 'voice',
+      voiceTranscripts: [],
+    } as any);
+
+    utils.rerender(
+      <AgentChatBar
+        onSend={jest.fn()}
+        isThinking={false}
+        lastResult={null}
+        language="en"
+        availableModes={['text', 'voice']}
+        mode="voice"
+        chatMessages={previousMessages}
+        voiceTranscripts={[
+          { id: 'vt-user-new', role: 'user', text: 'Open Profile.' },
+          { id: 'vt-model-new', role: 'model', text: 'I opened Profile.' },
+        ]}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        utils.getByLabelText('Open AI Agent Chat - 2 unread messages')
+      ).toBeTruthy()
+    );
+    expect(utils.getByText('Open Profile.\nI opened Profile.')).toBeTruthy();
   });
 });

@@ -21,7 +21,11 @@ import type { Session } from '@google/genai/dist/web/index.mjs';
 function loadVoiceGenAI() {
   try {
     const mod = require('@google/genai/dist/web/index.mjs');
-    return { GoogleGenAI: mod.GoogleGenAI, Modality: mod.Modality };
+    return {
+      GoogleGenAI: mod.GoogleGenAI,
+      Modality: mod.Modality,
+      ThinkingLevel: mod.ThinkingLevel,
+    };
   } catch (e: any) {
     throw new Error(
       '[mobileai] @google/genai is required for Voice Mode. ' +
@@ -66,6 +70,14 @@ export type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const DEFAULT_INPUT_SAMPLE_RATE = 16000;
 const USER_TURN_END_WATCHDOG_MS = 1500;
+
+function isRecoverableLiveCloseCode(code: unknown): boolean {
+  return code === 1001;
+}
+
+function isGemini31LiveModel(model: string): boolean {
+  return /gemini-3\.1-.*live/i.test(model);
+}
 
 // ─── Service ───────────────────────────────────────────────────
 
@@ -134,7 +146,7 @@ export class VoiceService {
         throw new Error('[mobileai] Must provide apiKey or proxyUrl');
       }
 
-      const { GoogleGenAI, Modality } = loadVoiceGenAI();
+      const { GoogleGenAI, Modality, ThinkingLevel } = loadVoiceGenAI();
       const ai = new GoogleGenAI(genAiConfig);
 
       const toolDeclarations = this.buildToolDeclarations();
@@ -152,6 +164,12 @@ export class VoiceService {
           turnCoverage: 'TURN_INCLUDES_ONLY_ACTIVITY',
         },
       };
+
+      if (isGemini31LiveModel(model)) {
+        sdkConfig.thinkingConfig = {
+          thinkingLevel: ThinkingLevel?.MINIMAL ?? 'MINIMAL',
+        };
+      }
 
       // Enable transcription for debugging and UX
       sdkConfig.inputAudioTranscription = {};
@@ -202,6 +220,8 @@ export class VoiceService {
               : 'null';
             if (this.intentionalDisconnect) {
               logger.info('VoiceService', `SDK session closed (intentional)`);
+            } else if (isRecoverableLiveCloseCode(event?.code)) {
+              logger.warn('VoiceService', `SDK session closed recoverably — code: ${event?.code}, reason: ${event?.reason}, detail: ${closeDetail}`);
             } else {
               logger.error('VoiceService', `SDK session closed UNEXPECTEDLY — code: ${event?.code}, reason: ${event?.reason}, detail: ${closeDetail}`);
               this.callbacks.onError?.(`Connection lost (code: ${event?.code || 'unknown'})`);
@@ -295,16 +315,20 @@ export class VoiceService {
 
   // ─── Send Text ─────────────────────────────────────────────
 
-  /** Send text message via SDK's sendClientContent */
+  /** Send text message to the active Live model. */
   sendText(text: string): void {
     if (!this.isConnected || !this.session) return;
 
     logger.info('VoiceService', `🗣️ USER (text): "${text}"`);
     try {
-      this.session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text }] }],
-        turnComplete: true,
-      });
+      if (isGemini31LiveModel(this.config.model || DEFAULT_MODEL)) {
+        this.session.sendRealtimeInput({ text });
+      } else {
+        this.session.sendClientContent({
+          turns: [{ role: 'user', parts: [{ text }] }],
+          turnComplete: true,
+        });
+      }
     } catch (error: any) {
       logger.error('VoiceService', `sendText failed: ${error.message}`);
     }
@@ -312,16 +336,19 @@ export class VoiceService {
 
   /**
    * Send DOM tree as passive context during live conversation.
-   * Uses turnComplete: false — the model receives context without responding.
    */
   sendScreenContext(domText: string): void {
     if (!this.isConnected || !this.session) return;
 
     try {
-      this.session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: domText }] }],
-        turnComplete: false,
-      });
+      if (isGemini31LiveModel(this.config.model || DEFAULT_MODEL)) {
+        this.session.sendRealtimeInput({ text: domText });
+      } else {
+        this.session.sendClientContent({
+          turns: [{ role: 'user', parts: [{ text: domText }] }],
+          turnComplete: false,
+        });
+      }
       logger.info('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
     } catch (error: any) {
       logger.error('VoiceService', `sendScreenContext failed: ${error.message}`);
@@ -408,16 +435,16 @@ export class VoiceService {
         logger.info('VoiceService', `📨 RAW: ${rawDump}`);
       }
 
+      // Server content (audio, text, transcripts, turn events). Gemini 3.1 can
+      // combine multiple content parts in one event, so never return early.
+      if (message.serverContent) {
+        this.handleServerContent(message.serverContent);
+      }
+
       // Tool calls — top-level (per official docs)
       if (message.toolCall?.functionCalls) {
         this.clearUserTurnEndWatchdog();
         this.handleToolCalls(message.toolCall.functionCalls);
-        return;
-      }
-
-      // Server content (audio, text, transcripts, turn events)
-      if (message.serverContent) {
-        this.handleServerContent(message.serverContent);
       }
 
       // Setup complete acknowledgment
@@ -551,7 +578,11 @@ export class VoiceService {
   }
 
   private cleanTranscriptChunk(text: string): string {
-    return text.replace(/<ctrl\d+>/gi, '').replace(/\s+/g, ' ').trim();
+    return text
+      .replace(/<ctrl\d+>/gi, '')
+      .replace(/(?:<|\[|\()(?:noise|silence|inaudible|music|laughs?|applause|crosstalk|background noise)(?:>|\]|\))/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private mergeTranscriptChunk(current: string, incoming: string): string {
