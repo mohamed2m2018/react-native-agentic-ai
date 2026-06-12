@@ -493,6 +493,28 @@ Only pass explicit proxy props when:
 - you want a dedicated voice proxy
 - you are self-hosting the MobileAI backend
 
+For a custom production backend, pass your text proxy URL directly:
+
+```tsx
+<AIAgent
+  proxyUrl="https://myapp.example.com/api/mobileai/text"
+  proxyHeaders={{ Authorization: `Bearer ${userToken}` }}
+  navRef={navRef}
+/>
+```
+
+If Voice Mode uses a separate WebSocket backend, add `voiceProxyUrl`:
+
+```tsx
+<AIAgent
+  proxyUrl="https://myapp.example.com/api/mobileai/text"
+  voiceProxyUrl="wss://voice.myapp.example.com/mobileai/voice"
+  navRef={navRef}
+/>
+```
+
+`voiceProxyUrl` falls back to `proxyUrl` when it is not set.
+
 ### Knowledge-Only Mode — AI Assistant Without UI Automation
 
 Set `enableUIControl={false}` for a lightweight FAQ / support assistant. Single LLM call, ~70% fewer tokens:
