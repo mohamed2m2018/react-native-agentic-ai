@@ -1118,8 +1118,12 @@ export function AgentChatBar({
         )}
         {/* Unread popup bubble with message preview */}
         {localUnread > 0 && chatMessages.length > 0 && !isAndroidNativeWindow && (
-          <Pressable 
-            style={[styles.unreadPopup, isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR]} 
+          <Pressable
+            style={[
+              styles.unreadPopup,
+              tooltipSide === 'right' ? styles.collapsedPopupRight : styles.collapsedPopupLeft,
+              isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR,
+            ]}
             onPress={() => {
               onTooltipDismiss?.();
               setLocalUnread(0);
@@ -1142,7 +1146,11 @@ export function AgentChatBar({
         {/* Thinking status bubble */}
         {isThinking && !pendingApprovalQuestion && !isAndroidNativeWindow && (
           <Pressable
-            style={[styles.statusPopup, isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR]}
+            style={[
+              styles.statusPopup,
+              tooltipSide === 'right' ? styles.collapsedPopupRight : styles.collapsedPopupLeft,
+              isArabic ? styles.unreadPopupRTL : styles.unreadPopupLTR,
+            ]}
             onPress={() => {
               autoCollapsedForThinkingRef.current = false;
               setIsExpanded(true);
@@ -1588,7 +1596,6 @@ const styles = StyleSheet.create({
   unreadPopup: {
     position: 'absolute',
     bottom: 70, // Float above the FAB
-    left: -70,  // Centered over a 60px FAB
     width: 200,
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1598,6 +1605,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 5,
+  },
+  collapsedPopupRight: {
+    left: 0,
+  },
+  collapsedPopupLeft: {
+    right: 0,
   },
   unreadPopupLTR: {
     borderBottomLeftRadius: 4,
@@ -1614,7 +1627,6 @@ const styles = StyleSheet.create({
   statusPopup: {
     position: 'absolute',
     bottom: 70,
-    left: -70,
     width: 220,
     minHeight: 48,
     backgroundColor: '#fff',
