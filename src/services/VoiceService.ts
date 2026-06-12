@@ -65,6 +65,7 @@ export type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const DEFAULT_INPUT_SAMPLE_RATE = 16000;
+const USER_TURN_END_WATCHDOG_MS = 1500;
 
 // ─── Service ───────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ export class VoiceService {
     user: '',
     model: '',
   };
+  private userTurnEndWatchdog: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: VoiceServiceConfig) {
     this.config = config;
@@ -140,6 +142,15 @@ export class VoiceService {
       // Build SDK config matching the official docs pattern
       const sdkConfig: Record<string, any> = {
         responseModalities: [Modality.AUDIO],
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+            endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+            silenceDurationMs: 700,
+            prefixPaddingMs: 100,
+          },
+          turnCoverage: 'TURN_INCLUDES_ONLY_ACTIVITY',
+        },
       };
 
       // Enable transcription for debugging and UX
@@ -195,6 +206,7 @@ export class VoiceService {
               logger.error('VoiceService', `SDK session closed UNEXPECTEDLY — code: ${event?.code}, reason: ${event?.reason}, detail: ${closeDetail}`);
               this.callbacks.onError?.(`Connection lost (code: ${event?.code || 'unknown'})`);
             }
+            this.clearUserTurnEndWatchdog();
             this.session = null;
             this.setStatus('disconnected');
           },
@@ -212,6 +224,7 @@ export class VoiceService {
   }
 
   disconnect(): void {
+    this.clearUserTurnEndWatchdog();
     if (this.session) {
       logger.info('VoiceService', 'Disconnecting (intentional)...');
       this.intentionalDisconnect = true;
@@ -264,6 +277,22 @@ export class VoiceService {
     }
   }
 
+  /**
+   * Explicitly mark the current realtime audio stream as ended.
+   * With automatic activity detection enabled, this nudges Gemini Live to
+   * close the current user turn; the next audio chunk reopens the stream.
+   */
+  sendAudioStreamEnd(): void {
+    if (!this.isConnected || !this.session) return;
+
+    try {
+      this.session.sendRealtimeInput({ audioStreamEnd: true });
+      logger.info('VoiceService', '📤 Audio stream end sent');
+    } catch (error: any) {
+      logger.error('VoiceService', `sendAudioStreamEnd failed: ${error.message}`);
+    }
+  }
+
   // ─── Send Text ─────────────────────────────────────────────
 
   /** Send text message via SDK's sendClientContent */
@@ -291,7 +320,7 @@ export class VoiceService {
     try {
       this.session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: domText }] }],
-        turnComplete: true,
+        turnComplete: false,
       });
       logger.info('VoiceService', `📤 Screen context sent (${domText.length} chars)`);
     } catch (error: any) {
@@ -381,6 +410,7 @@ export class VoiceService {
 
       // Tool calls — top-level (per official docs)
       if (message.toolCall?.functionCalls) {
+        this.clearUserTurnEndWatchdog();
         this.handleToolCalls(message.toolCall.functionCalls);
         return;
       }
@@ -428,6 +458,7 @@ export class VoiceService {
 
     // Turn complete
     if (content.turnComplete) {
+      this.clearUserTurnEndWatchdog();
       logger.info('VoiceService', `🏁 Turn complete (audioChunks sent: ${this.audioResponseCount})`);
       this.audioResponseCount = 0;
       this.flushTranscriptBuffers();
@@ -436,6 +467,9 @@ export class VoiceService {
 
     // Model output parts (audio + optional thinking text)
     if (content.modelTurn?.parts) {
+      if (content.modelTurn.parts.length > 0) {
+        this.clearUserTurnEndWatchdog();
+      }
       for (const part of content.modelTurn.parts) {
         if (part.inlineData?.data) {
           this.audioResponseCount++;
@@ -458,12 +492,14 @@ export class VoiceService {
 
     // Output transcription (model's speech-to-text)
     if (content.outputTranscription?.text) {
+      this.clearUserTurnEndWatchdog();
       logger.info('VoiceService', `🤖 MODEL (voice): "${content.outputTranscription.text}"`);
       this.bufferTranscript(content.outputTranscription.text, 'model');
     }
 
     // Tool calls inside serverContent (some SDK versions deliver here)
     if (content.toolCall?.functionCalls) {
+      this.clearUserTurnEndWatchdog();
       this.handleToolCalls(content.toolCall.functionCalls);
     }
   }
@@ -476,7 +512,7 @@ export class VoiceService {
   }
 
   private bufferTranscript(text: string, role: 'user' | 'model'): void {
-    const incoming = text.trim();
+    const incoming = this.cleanTranscriptChunk(text);
     if (!incoming) return;
 
     const current = this.transcriptBuffers[role];
@@ -488,6 +524,34 @@ export class VoiceService {
     }
 
     this.transcriptBuffers[role] = remaining;
+
+    if (role === 'user' && complete.length > 0) {
+      this.scheduleUserTurnEndWatchdog();
+    }
+  }
+
+  private scheduleUserTurnEndWatchdog(): void {
+    this.clearUserTurnEndWatchdog();
+    this.userTurnEndWatchdog = setTimeout(() => {
+      this.userTurnEndWatchdog = null;
+      if (!this.isConnected || !this.session) return;
+      logger.warn(
+        'VoiceService',
+        `No model/tool event after user transcript for ${USER_TURN_END_WATCHDOG_MS}ms — ending audio stream`
+      );
+      this.sendAudioStreamEnd();
+    }, USER_TURN_END_WATCHDOG_MS);
+    (this.userTurnEndWatchdog as any)?.unref?.();
+  }
+
+  private clearUserTurnEndWatchdog(): void {
+    if (!this.userTurnEndWatchdog) return;
+    clearTimeout(this.userTurnEndWatchdog);
+    this.userTurnEndWatchdog = null;
+  }
+
+  private cleanTranscriptChunk(text: string): string {
+    return text.replace(/<ctrl\d+>/gi, '').replace(/\s+/g, ' ').trim();
   }
 
   private mergeTranscriptChunk(current: string, incoming: string): string {

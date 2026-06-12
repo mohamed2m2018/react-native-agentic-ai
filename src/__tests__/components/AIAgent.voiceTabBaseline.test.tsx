@@ -1,10 +1,10 @@
-import { fireEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
 import {
   audioInputInstances,
   audioOutputInstances,
   emitConnected,
   emitSetupComplete,
-  flushPromises,
+  emitTranscript,
   renderVoiceAgent,
   resetVoiceHarness,
   switchToText,
@@ -20,13 +20,14 @@ describe('AIAgent voice tab current baseline', () => {
     resetVoiceHarness();
   });
 
-  it('currently omits ask_user from voice tool declarations', async () => {
+  it('uses the voice-only permission tool instead of text-mode ask_user', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     const voice = await waitForVoiceService();
 
     const toolNames = voice.config.tools.map((tool: any) => tool.name);
     expect(toolNames).toContain('tap');
+    expect(toolNames).toContain('ask_user_permission_voice_mode');
     expect(toolNames).not.toContain('ask_user');
   });
 
@@ -72,17 +73,38 @@ describe('AIAgent voice tab current baseline', () => {
   it('renders final voice transcript bubbles in voice mode', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
-    const voice = await waitForVoiceService();
 
-    await voice.lastCallbacks?.onTranscript?.('Open profile.', true, 'user');
-    await voice.lastCallbacks?.onTranscript?.('I can open that.', true, 'model');
-    await flushPromises();
+    await emitTranscript('Open profile.', true, 'user');
+    await emitTranscript('I can open that.', true, 'model');
 
     expect(utils.getByText('Open profile.')).toBeTruthy();
     expect(utils.getByText('I can open that.')).toBeTruthy();
   });
 
-  it('current baseline: switching away from voice disconnects and stops mic but does not clean audio output', async () => {
+  it('does not render Gemini control-token transcript bubbles', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+
+    await emitTranscript('<ctrl46>', true, 'model');
+    await emitTranscript('Opening settings. <ctrl46>', true, 'model');
+
+    expect(utils.queryByText('<ctrl46>')).toBeNull();
+    expect(utils.queryByText('Opening settings. <ctrl46>')).toBeNull();
+    expect(utils.getByText('Opening settings.')).toBeTruthy();
+  });
+
+  it('does not render Gemini tool/protocol text as chat bubbles', async () => {
+    const utils = renderVoiceAgent();
+    await switchToVoice(utils);
+
+    await emitTranscript('ask_tool', true, 'model');
+    await emitTranscript('ask_user_permission_voice_mode(question)', true, 'model');
+
+    expect(utils.queryByText('ask_tool')).toBeNull();
+    expect(utils.queryByText('ask_user_permission_voice_mode(question)')).toBeNull();
+  });
+
+  it('switching away from voice disconnects and cleans up audio services', async () => {
     const utils = renderVoiceAgent();
     await switchToVoice(utils);
     const voice = await waitForVoiceService();
@@ -92,8 +114,8 @@ describe('AIAgent voice tab current baseline', () => {
     await switchToText(utils);
 
     expect(audioInput.stop).toHaveBeenCalledTimes(1);
-    expect(audioOutput.stop).not.toHaveBeenCalled();
-    expect(audioOutput.cleanup).not.toHaveBeenCalled();
+    expect(audioOutput.stop).toHaveBeenCalledTimes(1);
+    expect(audioOutput.cleanup).toHaveBeenCalledTimes(1);
     expect(voice.disconnect).toHaveBeenCalledTimes(1);
   });
 
@@ -104,7 +126,9 @@ describe('AIAgent voice tab current baseline', () => {
     const voice = await waitForVoiceService();
     const audioInput = await waitForAudioInput();
 
-    fireEvent.press(utils.getByLabelText('Stop recording'));
+    await act(async () => {
+      fireEvent.press(utils.getByLabelText('Stop recording'));
+    });
 
     await waitFor(() => expect(voice.disconnect).toHaveBeenCalledTimes(1));
     expect(audioInput.stop).toHaveBeenCalled();
@@ -117,7 +141,9 @@ describe('AIAgent voice tab current baseline', () => {
     const voice = await waitForVoiceService();
     const audioInput = await waitForAudioInput();
 
-    utils.unmount();
+    await act(async () => {
+      utils.unmount();
+    });
 
     expect(audioInput.stop).toHaveBeenCalledTimes(1);
     expect(voice.disconnect).toHaveBeenCalledTimes(1);

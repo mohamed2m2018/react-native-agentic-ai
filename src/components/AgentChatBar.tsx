@@ -747,6 +747,7 @@ export function AgentChatBar({
     mode !== 'human' &&
     (chatMessages.length > 0 ||
       visibleVoiceTranscripts.length > 0 ||
+      Boolean(pendingApprovalQuestion) ||
       (isThinking && mode !== 'voice'));
 
   useEffect(() => {
@@ -1515,6 +1516,17 @@ export function AgentChatBar({
                 </View>
               ) : pendingApprovalQuestion && onPendingApprovalAction ? (
                 <View style={styles.approvalPanel}>
+                  <View style={[styles.messageBubble, styles.messageBubbleAI]}>
+                    <Text
+                      style={[
+                        styles.messageText,
+                        styles.messageTextAI,
+                        { textAlign: isArabic ? 'right' : 'left' },
+                      ]}
+                    >
+                      {pendingApprovalQuestion}
+                    </Text>
+                  </View>
                   <Text style={styles.approvalHint}>
                     The AI agent is requesting permission to perform this action. Tap "Allow" to approve, or "Don’t Allow" to cancel.
                   </Text>
@@ -1587,6 +1599,39 @@ export function AgentChatBar({
           )}
 
           {mode === 'human' && selectedTicketId && null}
+
+          {mode === 'voice' && pendingApprovalQuestion && onPendingApprovalAction && (
+            <View style={styles.approvalPanel}>
+              <View style={[styles.messageBubble, styles.messageBubbleAI]}>
+                <Text
+                  style={[
+                    styles.messageText,
+                    styles.messageTextAI,
+                    { textAlign: isArabic ? 'right' : 'left' },
+                  ]}
+                >
+                  {pendingApprovalQuestion}
+                </Text>
+              </View>
+              <Text style={styles.approvalHint}>
+                The AI agent is requesting permission to perform this action. Tap "Allow" to approve, or "Don’t Allow" to cancel.
+              </Text>
+              <View style={styles.approvalActions}>
+                <Pressable
+                  style={[styles.approvalActionBtn, styles.approvalActionSecondary]}
+                  onPress={() => onPendingApprovalAction('reject')}
+                >
+                  <Text style={[styles.approvalActionText, styles.approvalActionSecondaryText]}>Don’t Allow</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.approvalActionBtn, styles.approvalActionPrimary]}
+                  onPress={() => onPendingApprovalAction('approve')}
+                >
+                  <Text style={[styles.approvalActionText, styles.approvalActionPrimaryText]}>Allow</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
 
           {mode === 'voice' && (
             <VoiceControlsRow

@@ -25,6 +25,9 @@ export function AgentOverlay({ visible, statusText, onCancel }: AgentOverlayProp
             onPress={onCancel}
             style={styles.cancelButton}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Stop AI Agent request"
           >
             <CloseIcon size={12} color="#fff" />
           </TouchableOpacity>

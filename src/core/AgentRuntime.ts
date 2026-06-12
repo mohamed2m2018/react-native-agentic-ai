@@ -67,9 +67,14 @@ const APPROVAL_ALREADY_DONE_TOKEN = '__APPROVAL_ALREADY_DONE__';
 const USER_ALREADY_COMPLETED_MESSAGE = '✅ It looks like you already completed that step yourself. Great — let me know if you want help with anything else.';
 
 const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
+const USER_DECLINED_APP_ACTION_MESSAGE = "User declined the requested app action. I won't do that. Do not perform it.";
 
 type AppActionApprovalScope = 'none' | 'workflow';
 type AppActionApprovalSource = 'none' | 'explicit_button' | 'user_input';
+
+function parseBooleanToolArg(value: unknown): boolean {
+  return value === true || (typeof value === 'string' && value.toLowerCase() === 'true');
+}
 
 // ─── Agent Runtime ─────────────────────────────────────────────
 
@@ -171,6 +176,18 @@ export class AgentRuntime {
     this.appActionApprovalScope = 'workflow';
     this.appActionApprovalSource = source;
     logger.info('AgentRuntime', `✅ Workflow approval granted via ${source} (${reason})`);
+  }
+
+  public grantVoiceWorkflowApproval(): void {
+    this.grantWorkflowApproval('explicit_button', 'user tapped Allow in voice mode');
+  }
+
+  public rejectVoiceWorkflowApproval(): void {
+    this.resetAppActionApproval('voice approval rejected');
+  }
+
+  public hasVoiceWorkflowApproval(): boolean {
+    return this.hasWorkflowApproval();
   }
 
   private hasWorkflowApproval(): boolean {
@@ -553,8 +570,8 @@ export class AgentRuntime {
         if (typeof cleanQuestion === 'string') {
           cleanQuestion = cleanQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
         }
-        const wantsExplicitAppApproval = args.request_app_action === true;
-        const grantsWorkflowApproval = args.grants_workflow_approval === true;
+        const wantsExplicitAppApproval = parseBooleanToolArg(args.request_app_action);
+        const grantsWorkflowApproval = parseBooleanToolArg(args.grants_workflow_approval);
         const kind = wantsExplicitAppApproval ? 'approval' : 'freeform';
 
         // Mark that an explicit approval checkpoint is now pending.
@@ -576,10 +593,11 @@ export class AgentRuntime {
           // Resolve approval gate based on button response
           if (answer === '__APPROVAL_GRANTED__') {
             this.grantWorkflowApproval('explicit_button', 'user tapped Allow');
+            return 'User approved the requested app action. Continue with the approved action.';
           } else if (answer === '__APPROVAL_REJECTED__') {
             this.resetAppActionApproval('explicit approval rejected');
             logger.info('AgentRuntime', '🚫 App action gate: REJECTED — UI tools remain blocked');
-            return ACTION_NOT_APPROVED_MESSAGE;
+            return USER_DECLINED_APP_ACTION_MESSAGE;
           } else if (
             grantsWorkflowApproval &&
             typeof answer === 'string' &&
@@ -1926,16 +1944,19 @@ ${snapshot.elementsText}
         // Lifecycle: onAfterStep
         await this.config.onAfterStep?.(this.history);
 
-        if (output === ACTION_NOT_APPROVED_MESSAGE) {
+        if (
+          output === ACTION_NOT_APPROVED_MESSAGE ||
+          output === USER_DECLINED_APP_ACTION_MESSAGE
+        ) {
           const result: ExecutionResult = {
             success: false,
-            message: ACTION_NOT_APPROVED_MESSAGE,
+            message: output,
             steps: this.history,
             tokenUsage: sessionUsage,
           };
           this.emitTrace('task_stopped_not_approved', {
             tool: toolCall.name,
-            message: ACTION_NOT_APPROVED_MESSAGE,
+            message: output,
           }, step);
           await this.config.onAfterTask?.(result);
           return result;

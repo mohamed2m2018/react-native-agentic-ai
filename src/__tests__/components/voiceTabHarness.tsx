@@ -249,6 +249,18 @@ export async function emitToolCall(name: string, args: Record<string, any>, id =
   await flushPromises();
 }
 
+export async function emitTranscript(
+  text: string,
+  isFinal = true,
+  role: 'user' | 'model' = 'user'
+) {
+  const voice = voiceInstances[voiceInstances.length - 1]!;
+  await act(async () => {
+    await voice.lastCallbacks?.onTranscript?.(text, isFinal, role);
+  });
+  await flushPromises();
+}
+
 export async function emitAudioResponse(audio = 'base64-audio') {
   const voice = voiceInstances[voiceInstances.length - 1]!;
   await act(async () => {
