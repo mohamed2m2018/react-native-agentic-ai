@@ -6,8 +6,8 @@
  * 2. Explains what data is shared (screen content, messages)
  * 3. Collects explicit user consent via affirmative tap
  *
- * Persists consent via AsyncStorage so the dialog is shown once per device.
- * If AsyncStorage is unavailable, consent is session-scoped (per app launch).
+ * Consent is session-scoped by default, and can be persisted when the host app
+ * installs @react-native-async-storage/async-storage and sets consent.persist.
  *
  * ## Business rationale
  * Apple rejects apps that silently send personal data to third-party AI services.
@@ -28,11 +28,10 @@ import {
 import type { AIProviderName } from '../core/types';
 import { isNativeOverlayActive } from './FloatingOverlayWrapper';
 
-// ─── AsyncStorage Helper ──────────────────────────────────────
-
 const CONSENT_STORAGE_KEY = '@mobileai_ai_consent_granted';
+let sessionConsentGranted = false;
 
-function getStorage(): any | null {
+function getConsentStorage(): any | null {
   try {
     const origError = console.error;
     console.error = (...args: unknown[]) => {
@@ -43,8 +42,9 @@ function getStorage(): any | null {
     try {
       const mod = require('@react-native-async-storage/async-storage');
       const candidate = mod?.default ?? mod?.AsyncStorage ?? null;
-      if (candidate && typeof candidate.getItem === 'function') return candidate;
-      return null;
+      return candidate && typeof candidate.getItem === 'function'
+        ? candidate
+        : null;
     } finally {
       console.error = origError;
     }
@@ -408,8 +408,8 @@ export function AIConsentDialog({
 // ─── Hook: useAIConsent ───────────────────────────────────────
 
 /**
- * Manages consent state persistence via AsyncStorage.
- * Falls back to session-scoped state if AsyncStorage is unavailable.
+ * Manages consent state. Persistence is optional and only used when AsyncStorage
+ * is installed by the host app.
  *
  * @returns [hasConsented, grantConsent, revokeConsent, isLoading]
  */
@@ -419,23 +419,24 @@ export function useAIConsent(persist: boolean = false): [
   revokeConsent: () => Promise<void>,
   isLoading: boolean,
 ] {
-  const [hasConsented, setHasConsented] = useState(false);
+  const [hasConsented, setHasConsented] = useState(sessionConsentGranted);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load persisted consent on mount (ONLY if persist is true)
   useEffect(() => {
     void (async () => {
       try {
-        if (!persist) return;
-        const AS = getStorage();
-        if (AS) {
-          const stored = await AS.getItem(CONSENT_STORAGE_KEY);
+        if (persist) {
+          const AS = getConsentStorage();
+          const stored = await AS?.getItem(CONSENT_STORAGE_KEY);
           if (stored === 'true') {
+            sessionConsentGranted = true;
             setHasConsented(true);
           }
+        } else {
+          setHasConsented(sessionConsentGranted);
         }
       } catch {
-        // No persisted consent — will prompt
+        setHasConsented(sessionConsentGranted);
       } finally {
         setIsLoading(false);
       }
@@ -443,24 +444,26 @@ export function useAIConsent(persist: boolean = false): [
   }, [persist]);
 
   const grantConsent = useCallback(async () => {
+    sessionConsentGranted = true;
     setHasConsented(true);
-    try {
-      if (!persist) return;
-      const AS = getStorage();
-      await AS?.setItem(CONSENT_STORAGE_KEY, 'true');
-    } catch {
-      // Consent granted session-only
+    if (persist) {
+      try {
+        await getConsentStorage()?.setItem(CONSENT_STORAGE_KEY, 'true');
+      } catch {
+        // Consent still applies for this session when optional local persistence fails.
+      }
     }
   }, [persist]);
 
   const revokeConsent = useCallback(async () => {
+    sessionConsentGranted = false;
     setHasConsented(false);
-    try {
-      if (!persist) return;
-      const AS = getStorage();
-      await AS?.removeItem(CONSENT_STORAGE_KEY);
-    } catch {
-      // Best effort
+    if (persist) {
+      try {
+        await getConsentStorage()?.removeItem(CONSENT_STORAGE_KEY);
+      } catch {
+        // Session consent is already revoked; persistence cleanup is best-effort.
+      }
     }
   }, [persist]);
 
