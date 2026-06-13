@@ -34,6 +34,19 @@ export interface VerifierConfig {
   proxyUrl?: string;
   proxyHeaders?: Record<string, string>;
   maxFollowupSteps?: number;
+  /**
+   * Run a goal-completion verifier when the agent calls done(success=true).
+   * Compares the user goal against the final UI state and blocks done() when
+   * the visible UI does not match the goal (wrong count, missing item, etc.).
+   * Opt-in: defaults to false. Adds one extra LLM call per task completion.
+   */
+  verifyTaskCompletion?: boolean;
+  /**
+   * Max times the loop will block done(success=true) and inject a corrective
+   * observation when the goal-completion verifier returns error/uncertain.
+   * After this many rejections, the agent's done() is accepted. Default: 2.
+   */
+  maxGoalChecks?: number;
 }
 
 // ─── Interactive Element (discovered from Fiber tree) ─────────
@@ -919,7 +932,9 @@ export interface AIProvider {
     tools: ToolDefinition[],
     history: AgentStep[],
     /** Optional base64-encoded JPEG screenshot for vision */
-    screenshot?: string
+    screenshot?: string,
+    /** Optional task-scoped signal used to cancel in-flight model requests. */
+    signal?: AbortSignal
   ): Promise<ProviderResult>;
 }
 

@@ -118,6 +118,48 @@ class ControlledProvider implements AIProvider {
   }
 }
 
+class AbortAwareProvider implements AIProvider {
+  public callCount = 0;
+  public aborted = false;
+  private resolveStarted!: () => void;
+  public readonly started = new Promise<void>((resolve) => {
+    this.resolveStarted = resolve;
+  });
+
+  constructor(private readonly response: ProviderResult) {}
+
+  async generateContent(
+    _systemPrompt: string,
+    _userMessage: string,
+    _tools: any[],
+    _history: any[],
+    _screenshot?: string,
+    signal?: AbortSignal,
+  ): Promise<ProviderResult> {
+    this.callCount++;
+    this.resolveStarted();
+    if (signal?.aborted) {
+      this.aborted = true;
+      throw new Error('Aborted');
+    }
+
+    return new Promise((resolve, reject) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const onAbort = () => {
+        this.aborted = true;
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener('abort', onAbort);
+        reject(new Error('Aborted'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      timeout = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve(this.response);
+      }, 1000);
+    });
+  }
+}
+
 class CapturingProvider extends MockProvider {
   public readonly userMessages: string[] = [];
 
@@ -626,6 +668,25 @@ describe('AgentRuntime', () => {
       expect(result.message).toContain('cancelled');
       expect(provider.callCount).toBe(1);
       expect(verifierProvider.callCount).toBe(1);
+    }, 10000);
+
+    it('aborts an in-flight provider request when cancelled', async () => {
+      const provider = new AbortAwareProvider(
+        createToolResponse('done', { text: 'Should not complete', success: true }),
+      );
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+      });
+
+      const resultPromise = runtime.execute('Keep looping');
+
+      await provider.started;
+      runtime.cancel();
+      const result = await resultPromise;
+
+      expect(provider.aborted).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('cancelled');
     }, 10000);
 
     it('releases done blocking after verifier follow-up cap is reached', async () => {
@@ -1963,5 +2024,131 @@ describe('AgentRuntime', () => {
       runtime.cancel();
       expect((runtime as any).isCancelRequested).toBe(true);
     });
+  });
+
+  // ── Goal-completion verifier ─────────────────────────────────
+  describe('goal completion verifier', () => {
+    it('blocks done(success=true) when verifier reports goal mismatch and lets the agent recover', async () => {
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'error',
+          failureKind: 'controllable',
+          evidence: 'Cart shows 3 items but the user asked for 2.',
+        }),
+        createToolResponse('report_verification', {
+          status: 'success',
+          failureKind: 'controllable',
+          evidence: 'Cart now shows 2 items as requested.',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'Added 2 items to cart.', success: true }),
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Cart now has 2 items.', success: true }),
+      ]);
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          verifyTaskCompletion: true,
+        },
+      });
+      const result = await runtime.execute('Add 2 items to my cart');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Cart now has 2 items.');
+      expect(verifierProvider.callCount).toBe(2);
+      expect(provider.callCount).toBe(3);
+    }, 10000);
+
+    it('accepts done() after maxGoalChecks rejections to avoid infinite loops', async () => {
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'uncertain',
+          failureKind: 'controllable',
+          evidence: 'Cannot determine cart count from current screen.',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'Items added.', success: true }),
+      ]);
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          verifyTaskCompletion: true,
+          maxGoalChecks: 1,
+        },
+      });
+      const result = await runtime.execute('Add 2 items to my cart');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Items added.');
+      expect(verifierProvider.callCount).toBe(1);
+    }, 10000);
+
+    it('skips goal verification entirely when verifyTaskCompletion is false', async () => {
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'error',
+          failureKind: 'controllable',
+          evidence: 'should never run',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'All set.', success: true }),
+      ]);
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          verifyTaskCompletion: false,
+        },
+      });
+      const result = await runtime.execute('Add 2 items to my cart');
+
+      expect(result.success).toBe(true);
+      expect(verifierProvider.callCount).toBe(0);
+    }, 10000);
+
+    it('does not run goal verification when done(success=false)', async () => {
+      const verifierProvider = new MockProvider([
+        createToolResponse('report_verification', {
+          status: 'error',
+          failureKind: 'controllable',
+          evidence: 'should never run',
+        }),
+      ]);
+      mockCreateProvider.mockReturnValue(verifierProvider);
+
+      const provider = new MockProvider([
+        createToolResponse('done', { text: 'I could not complete the task.', success: false }),
+      ]);
+
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        verifier: {
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          verifyTaskCompletion: true,
+        },
+      });
+      const result = await runtime.execute('Add 2 items to my cart');
+
+      expect(result.success).toBe(false);
+      expect(verifierProvider.callCount).toBe(0);
+    }, 10000);
   });
 });

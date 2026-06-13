@@ -2774,6 +2774,7 @@ export function AIAgent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [provider, config]
   );
+  const activeRuntimeRef = useRef<AgentRuntime | null>(null);
 
   // Update refs when they change
   useEffect(() => {
@@ -3805,9 +3806,11 @@ export function AIAgent({
 
       try {
         // Ensure we have the latest Fiber tree ref
-        runtime.updateRefs(rootViewRef.current, navRef);
+        const executingRuntime = runtime;
+        activeRuntimeRef.current = executingRuntime;
+        executingRuntime.updateRefs(rootViewRef.current, navRef);
 
-        const result = await runtime.execute(
+        const result = await executingRuntime.execute(
           message,
           messages.map((entry) => ({
             role: entry.role,
@@ -3965,6 +3968,9 @@ export function AIAgent({
           steps: [],
         });
       } finally {
+        if (activeRuntimeRef.current === runtime) {
+          activeRuntimeRef.current = null;
+        }
         setIsActing(false);
         setIsThinking(false);
         setStatusText('');
@@ -3994,10 +4000,13 @@ export function AIAgent({
   // ─── Context value (for useAI bridge) ─────────────────────────
 
   const handleCancel = useCallback(() => {
+    const targetRuntime = activeRuntimeRef.current ?? runtime;
+
     if (pendingApprovalQuestion) {
       const resolver = askUserResolverRef.current;
       const pendingVoicePermission = pendingVoicePermissionToolRef.current;
       const pendingVoiceAction = pendingVoiceActionToolRef.current;
+      targetRuntime.cancel();
 
       askUserResolverRef.current = null;
       pendingAskUserKindRef.current = null;
@@ -4011,7 +4020,7 @@ export function AIAgent({
       setStatusText('');
 
       if (pendingVoicePermission || pendingVoiceAction) {
-        runtime.rejectVoiceWorkflowApproval();
+        targetRuntime.rejectVoiceWorkflowApproval();
         const pendingTool = pendingVoicePermission ?? pendingVoiceAction;
         if (pendingTool) {
           voiceServiceRef.current?.sendFunctionResponse(
@@ -4034,11 +4043,12 @@ export function AIAgent({
     }
 
     if (mode === 'voice') {
+      targetRuntime.cancel();
       stopVoiceSession();
       return;
     }
 
-    runtime.cancel();
+    targetRuntime.cancel();
     setStatusText('Stopping...');
   }, [mode, pendingApprovalQuestion, runtime, stopVoiceSession]);
 

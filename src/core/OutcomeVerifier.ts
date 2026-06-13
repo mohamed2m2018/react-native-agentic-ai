@@ -172,6 +172,7 @@ function createUnverifiedResult(): VerificationResult {
 async function llmVerify(
   provider: AIProvider,
   context: VerificationContext,
+  signal?: AbortSignal,
 ): Promise<VerificationResult | null> {
   const verificationTool: ToolDefinition = {
     name: 'report_verification',
@@ -188,11 +189,14 @@ async function llmVerify(
 
   const systemPrompt = [
     'You are an outcome verifier for a mobile app agent.',
-    'Your job is to decide whether the last critical UI action actually succeeded.',
+    'Your job is to decide whether the user goal has actually been achieved based on the UI evidence.',
+    'You may be asked to verify a single critical action OR a whole-task completion when the agent calls done(). In both cases the rules are the same.',
     'The current UI is the source of truth. Ignore the actor model’s prior claims when they conflict with the UI.',
     'Compare the pre-action and post-action UI. Treat static warnings, historical issue text, and informational copy that existed before the action as context, not new failure evidence.',
-    'Return success only when the current UI clearly proves completion.',
-    'Return error when the UI shows validation, verification, submission, or other failure feedback.',
+    'When the goal mentions a specific count or quantity (e.g. "add 2 items", "select 3 colors"), the UI must visibly reflect that exact number. Off-by-one mismatches (e.g. cart shows 3 when goal says 2) are errors, not successes.',
+    'When the goal names a specific option, variant, or target (e.g. "size M", "blue", "the Cairo branch"), the UI must visibly reflect that exact selection.',
+    'Return success only when the current UI clearly proves the goal is satisfied.',
+    'Return error when the UI shows validation, verification, submission, or other failure feedback, or when visible state does not match the goal (wrong count, wrong selection, missing item, extra item).',
     'Return uncertain when the UI does not yet prove either success or error.',
     'When returning error, include visible validationMessages and missingFields when the UI makes them clear.',
   ].join(' ');
@@ -210,6 +214,7 @@ async function llmVerify(
     [verificationTool],
     [],
     context.postAction.screenshot,
+    signal,
   );
 
   const toolCall = response.toolCalls?.[0];
@@ -261,7 +266,7 @@ export class OutcomeVerifier {
     return isCriticalVerificationAction(action);
   }
 
-  public async verify(context: VerificationContext): Promise<VerificationResult> {
-    return (await llmVerify(this.provider, context)) ?? createUnverifiedResult();
+  public async verify(context: VerificationContext, signal?: AbortSignal): Promise<VerificationResult> {
+    return (await llmVerify(this.provider, context, signal)) ?? createUnverifiedResult();
   }
 }

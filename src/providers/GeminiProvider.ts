@@ -91,7 +91,8 @@ export class GeminiProvider implements AIProvider {
     userMessage: string,
     tools: ToolDefinition[],
     history: AgentStep[],
-    screenshot?: string
+    screenshot?: string,
+    signal?: AbortSignal
   ): Promise<ProviderResult> {
     logger.info(
       'GeminiProvider',
@@ -121,6 +122,7 @@ export class GeminiProvider implements AIProvider {
           },
           temperature: 0.2,
           maxOutputTokens: 2048,
+          abortSignal: signal,
         },
       });
 
