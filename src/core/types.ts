@@ -436,6 +436,17 @@ export interface AgentConfig {
    */
   voiceProxyHeaders?: Record<string, string>;
 
+  /**
+   * Outbound AI call tool configuration.
+   * When analyticsKey is set, the SDK can expose start_ai_call unless disabled.
+   */
+  outboundCalls?: {
+    enabled?: boolean;
+    proxyUrl?: string;
+    headers?: Record<string, string>;
+    allowedTargetTypes?: string[];
+  };
+
   model?: string;
 
   /**
@@ -699,6 +710,8 @@ export interface ToolDefinition {
   parameters: Record<string, ToolParam>;
   /** Optional semantic effect used by runtime guardrails. */
   effect?: ToolEffect;
+  /** Force a fresh user approval before executing this tool. */
+  requiresFreshApproval?: boolean;
   execute: (args: Record<string, any>) => Promise<string>;
 }
 

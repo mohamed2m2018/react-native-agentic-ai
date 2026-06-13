@@ -77,6 +77,7 @@ import { IdleDetector } from '../core/IdleDetector';
 import { ProactiveHint } from './ProactiveHint';
 import { createEscalateTool } from '../support/escalateTool';
 import { createReportIssueTool } from '../support/reportIssueTool';
+import { createOutboundCallTool } from '../support/outboundCallTool';
 import { EscalationSocket } from '../support/EscalationSocket';
 import { EscalationEventSource } from '../support/EscalationEventSource';
 import { ReportedIssueEventSource } from '../support/ReportedIssueEventSource';
@@ -90,6 +91,7 @@ import {
   fetchConfiguredActions,
   type RemoteConfiguredAction,
 } from '../services/MobileAIActionService';
+import type { OutboundCallConfig } from '../services/OutboundCallService';
 import { formatActionToolResult } from '../utils/actionResult';
 import {
   createAIMessage,
@@ -359,6 +361,11 @@ interface AIAgentProps {
    * Optional specific headers for voiceProxyUrl.
    */
   voiceProxyHeaders?: Record<string, string>;
+  /**
+   * Outbound AI phone calls through MobileAI.
+   * Enabled by default when analyticsKey is configured; set enabled:false to hide the tool.
+   */
+  outboundCalls?: OutboundCallConfig;
   /** LLM model name (provider-specific) */
   model?: string;
   /** Support personality preset. Default: 'warm-concise'. */
@@ -593,6 +600,7 @@ export function AIAgent({
   proxyHeaders,
   voiceProxyUrl,
   voiceProxyHeaders,
+  outboundCalls,
   provider: providerName = 'gemini',
   model,
   supportStyle = 'warm-concise',
@@ -1723,6 +1731,20 @@ export function AIAgent({
     });
   }, [analyticsKey, customTools, getResolvedScreenName, messages, userContext]);
 
+  const autoOutboundCallTool = useMemo(() => {
+    if (!analyticsKey) return null;
+    if (outboundCalls?.enabled === false) return null;
+    if (customTools?.['start_ai_call']) return null;
+    return createOutboundCallTool({
+      analyticsKey,
+      config: outboundCalls,
+      getCurrentScreen: getResolvedScreenName,
+      getHistory: () =>
+        messages.map((m) => ({ role: m.role, content: m.previewText })),
+      userContext: (userContext as Record<string, unknown> | undefined) ?? {},
+    });
+  }, [analyticsKey, customTools, getResolvedScreenName, messages, outboundCalls, userContext]);
+
   // ─── Load conversation history on mount ─────────────────────────
   useEffect(() => {
     if (!analyticsKey) return;
@@ -2322,9 +2344,10 @@ export function AIAgent({
       ...remoteActionTools,
       ...(autoEscalateTool ? { escalate_to_human: autoEscalateTool } : {}),
       ...(autoReportIssueTool ? { report_issue: autoReportIssueTool } : {}),
+      ...(autoOutboundCallTool ? { start_ai_call: autoOutboundCallTool } : {}),
       ...customTools,
     };
-  }, [autoEscalateTool, autoReportIssueTool, customTools, remoteActionTools]);
+  }, [autoEscalateTool, autoOutboundCallTool, autoReportIssueTool, customTools, remoteActionTools]);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -2549,6 +2572,7 @@ export function AIAgent({
       proxyHeaders,
       voiceProxyUrl: resolvedVoiceProxyUrl,
       voiceProxyHeaders,
+      outboundCalls,
       model,
       supportStyle,
       verifier,

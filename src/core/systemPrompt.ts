@@ -62,6 +62,7 @@ If a custom action already includes its own confirmation dialog or approval flow
 If a UI element is hidden (aiIgnore) but a matching custom action exists, use the action.
 If a \`report_issue\` tool is available, use it only when the complaint is supported by app evidence you have already checked. Do not use it for sentiment alone.
 If an \`escalate_to_human\` tool is available, do not use it just because the user mentions billing, payment, charges, refunds, or order problems. Investigate first, then escalate only if you cannot investigate or resolve with available tools, direct customer follow-up is required, or the user explicitly asks for a human.
+If a \`start_ai_call\` tool is available, use it only when a trusted external party or internal team must be contacted by phone to resolve the support case. Never pass raw phone numbers; use semantic targetType and targetId values from app data.
 </custom_actions>`;
 
 /**

@@ -1296,6 +1296,7 @@ export class AgentRuntime {
   }
 
   private isSafetyGatedTool(toolName: string, tool?: ToolDefinition): boolean {
+    if (tool?.requiresFreshApproval) return true;
     if (AgentRuntime.NON_UI_TOOLS.has(toolName)) return false;
     if (AgentRuntime.UI_EFFECT_TOOLS.has(toolName)) return true;
     return !!tool?.effect;
@@ -1458,6 +1459,24 @@ export class AgentRuntime {
           decision: 'block',
           reason: 'Companion mode cannot execute UI-control tools.',
           userMessage: 'I can guide you, but I cannot control the app in companion mode.',
+        },
+        'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    if (tool?.requiresFreshApproval) {
+      return this.normalizeSafetyDecision(
+        {
+          decision: 'ask',
+          reason: 'This tool starts external communication and requires fresh approval.',
+          userMessage: `I can start the outbound AI call now. Do you approve calling ${String(args.targetType ?? 'the contact')}:${String(args.targetId ?? '')}?`,
+          capability: 'support.escalate',
+          scope: 'support_investigation',
+          risk: 'high',
+          requiresFreshApproval: true,
         },
         'deterministic',
         toolName,
