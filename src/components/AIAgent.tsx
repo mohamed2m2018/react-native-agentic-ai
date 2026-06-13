@@ -524,7 +524,9 @@ interface AIAgentProps {
   pushTokenType?: 'fcm' | 'expo' | 'apns';
 
   /**
-   * Controls how the agent handles irreversible UI actions.
+   * Controls how the agent handles app actions.
+   * 'companion': Screen-aware guidance only. AI can read the current screen and tell
+   * the user what to do. Non-UI tools are allowed, but UI-control tools are blocked.
    * 'copilot' (default): AI may ask once before entering an app-action flow, then works
    * silently through routine steps and pauses again only for irreversible final commits
    * (place order, delete, submit, pay, cancel).

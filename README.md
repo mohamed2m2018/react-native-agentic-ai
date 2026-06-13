@@ -482,7 +482,7 @@ The examples above use **Gemini** (default). To use **OpenAI** for text mode, ad
 </AIAgent>
 ```
 
-A floating chat bar appears automatically. Ask the AI to navigate, tap buttons, fill forms, answer questions.
+A floating chat bar appears automatically. Ask the AI to answer questions, guide workflows, or perform approved app actions depending on the mode you choose.
 
 ### Hosted MobileAI Defaults
 
@@ -518,6 +518,28 @@ If Voice Mode uses a separate WebSocket backend, add `voiceProxyUrl`:
 ```
 
 `voiceProxyUrl` falls back to `proxyUrl` when it is not set.
+
+### Companion Mode — Screen-Aware Guidance Without App Control
+
+Set `interactionMode="companion"` when you want the assistant to look at the current screen and guide the user, but never control the app.
+
+```tsx
+<AIAgent interactionMode="companion" analyticsKey="mobileai_pub_xxx" navRef={navRef}>
+  <App />
+</AIAgent>
+```
+
+Companion mode:
+
+- Reads the current screen structure and screen map
+- Answers questions about what the user sees
+- Explains confusing UI states, visible options, disabled controls, and what matters next
+- Helps with support triage, comparisons, recommendations, and form validation flows
+- Gives step-by-step guidance using visible labels when steps are actually useful
+- Can use `query_knowledge`, `query_data`, and other non-UI custom tools
+- Cannot tap, type, scroll, navigate, submit, or use UI-control tools
+
+Use this when buyers or users want a safer assistant that helps them understand and decide, not just a bot that clicks for them.
 
 ### Knowledge-Only Mode — AI Assistant Without App Actions
 
@@ -926,13 +948,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `interactionMode` | `'copilot' \| 'autopilot'` | `'copilot'` | **Copilot** (default): AI pauses before app actions and irreversible steps. **Autopilot**: no-confirmation mode for trusted low-risk workflows only. |
+| `interactionMode` | `'companion' \| 'copilot' \| 'autopilot'` | `'copilot'` | **Companion**: screen-aware guidance with non-UI tools allowed and UI-control tools blocked. **Copilot** (default): AI pauses before app actions and irreversible steps. **Autopilot**: no-confirmation mode for trusted low-risk workflows only. |
 | `showDiscoveryTooltip` | `boolean` | `true` | Show one-time animated tooltip on FAB explaining AI capabilities. Dismissed after 6s or first tap. |
 | `maxSteps` | `number` | `25` | Max agent steps per task. |
 | `maxTokenBudget` | `number` | — | Max total tokens before auto-stopping the agent loop. |
 | `maxCostUSD` | `number` | — | Max estimated cost (USD) before auto-stopping. |
 | `stepDelay` | `number` | — | Delay between agent steps in ms. |
-| `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only (faster, fewer tokens). |
+| `enableUIControl` | `boolean` | `true` | When `false`, AI becomes knowledge-only (faster, fewer tokens, no screen-aware loop). Prefer `interactionMode="companion"` when you want screen-aware guidance without app control. |
 | `enableVoice` | `boolean` | `false` | Show voice mode tab. |
 | `showChatBar` | `boolean` | `true` | Show the floating chat bar. |
 

@@ -145,6 +145,7 @@ function RootLayoutNav() {
               mcpServerUrl={mcpServerUrl}
               knowledgeBase={DASHBITE_KNOWLEDGE}
               showChatBar={true}
+              interactionMode="companion"
               enableUIControl={true}
               debug={true}
               screenMap={screenMap as any}

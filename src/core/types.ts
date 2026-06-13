@@ -8,13 +8,15 @@ import type React from 'react';
 export type AgentMode = 'text' | 'voice' | 'human';
 
 /**
- * Controls how the agent handles irreversible actions.
+ * Controls how the agent handles app actions.
+ * 'companion': Screen-aware guidance only — AI reads the UI and tells the user what to do,
+ *   but cannot tap, type, navigate, or invoke UI-control tools.
  * 'copilot' (default): AI pauses before final commit actions (place order, delete, submit).
  *   The prompt instructs the AI to ask_user before the final irreversible step.
  *   Elements with aiConfirm={true} also trigger a code-level confirmation gate.
  * 'autopilot': Full autonomy — all actions execute without confirmation.
  */
-export type InteractionMode = 'copilot' | 'autopilot';
+export type InteractionMode = 'companion' | 'copilot' | 'autopilot';
 
 // ─── Provider Names ──────────────────────────────────────────
 
@@ -304,8 +306,9 @@ export interface AgentConfig {
   /** Maximum steps per task */
   maxSteps?: number;
 
-  /**
-   * Controls how the agent handles irreversible actions.
+ /**
+  * Controls how the agent handles app actions.
+   * 'companion': Screen-aware guidance only; non-UI tools are allowed, UI-control tools are blocked.
    * 'copilot' (default): AI pauses before final commit actions.
    * 'autopilot': Full autonomy, no pauses.
    */

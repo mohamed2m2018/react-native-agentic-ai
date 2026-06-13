@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
 import type { AIRichNode } from '../../core/types';
 import { normalizeRichContent } from '../../core/richContent';
 import { useBlockRegistry, useRichUITheme } from './RichUIContext';
@@ -8,6 +9,71 @@ interface RichContentRendererProps {
   surface: 'chat' | 'support' | 'zone';
   isUser?: boolean;
   textStyle?: any;
+}
+
+type InlineMarkdownSegment = {
+  text: string;
+  style?: 'bold' | 'code';
+};
+
+export function parseInlineMarkdown(text: string): InlineMarkdownSegment[] {
+  const segments: InlineMarkdownSegment[] = [];
+  let cursor = 0;
+
+  const findNextMarker = (from: number) => {
+    const candidates = [
+      { marker: '**', index: text.indexOf('**', from), style: 'bold' as const },
+      { marker: '__', index: text.indexOf('__', from), style: 'bold' as const },
+      { marker: '`', index: text.indexOf('`', from), style: 'code' as const },
+    ].filter((candidate) => candidate.index >= 0);
+
+    candidates.sort((a, b) => a.index - b.index);
+    return candidates[0];
+  };
+
+  while (cursor < text.length) {
+    const next = findNextMarker(cursor);
+    if (!next) {
+      segments.push({ text: text.slice(cursor) });
+      break;
+    }
+
+    if (next.index > cursor) {
+      segments.push({ text: text.slice(cursor, next.index) });
+    }
+
+    const contentStart = next.index + next.marker.length;
+    const contentEnd = text.indexOf(next.marker, contentStart);
+    if (contentEnd < 0) {
+      segments.push({ text: text.slice(next.index) });
+      break;
+    }
+
+    const content = text.slice(contentStart, contentEnd);
+    if (content) {
+      segments.push({ text: content, style: next.style });
+    }
+    cursor = contentEnd + next.marker.length;
+  }
+
+  return segments.filter((segment) => segment.text.length > 0);
+}
+
+function renderInlineMarkdown(text: string): ReactNode {
+  return parseInlineMarkdown(text).map((segment, index) => {
+    if (!segment.style) {
+      return segment.text;
+    }
+
+    return (
+      <Text
+        key={`${segment.style}-${index}`}
+        style={segment.style === 'bold' ? styles.boldText : styles.codeText}
+      >
+        {segment.text}
+      </Text>
+    );
+  });
 }
 
 export function RichContentRenderer({
@@ -38,7 +104,7 @@ export function RichContentRenderer({
                 textStyle,
               ]}
             >
-              {node.content}
+              {renderInlineMarkdown(node.content)}
             </Text>
           );
         }
@@ -77,6 +143,12 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 15,
     lineHeight: 22,
+  },
+  boldText: {
+    fontWeight: '700',
+  },
+  codeText: {
+    fontFamily: 'Menlo',
   },
   blockWrapper: {
     borderRadius: 20,

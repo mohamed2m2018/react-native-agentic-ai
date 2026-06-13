@@ -1,5 +1,5 @@
 import { buildSupportPrompt } from '../../support/supportPrompt';
-import { buildSystemPrompt, buildVoiceSystemPrompt } from '../../core/systemPrompt';
+import { buildCompanionPrompt, buildSystemPrompt, buildVoiceSystemPrompt } from '../../core/systemPrompt';
 
 describe('support style presets', () => {
   it('defaults support prompts to warm-concise behavior', () => {
@@ -93,5 +93,30 @@ describe('copilot approval guidance', () => {
     expect(prompt).toContain(
       'The user MUST tap the button. If the user types a text reply instead of tapping:',
     );
+  });
+});
+
+describe('companion mode guidance', () => {
+  it('keeps planning language out of user-facing companion answers', () => {
+    const prompt = buildCompanionPrompt('en', true);
+
+    expect(prompt).toContain('Speak to the user directly as "you"; never describe them as "the user".');
+    expect(prompt).toContain('The plan field is internal only.');
+    expect(prompt).toContain('Bad: "The user is reporting a late order.');
+    expect(prompt).toContain('Better: "Sorry your order is late.');
+  });
+
+  it('frames companion mode as problem solving, not just navigation tips', () => {
+    const prompt = buildCompanionPrompt('en', true);
+
+    expect(prompt).toContain('Navigation guidance is only one tactic.');
+    expect(prompt).toContain('Do not reduce every answer to "tap this tab".');
+    expect(prompt).toContain('Do not make navigation the whole answer unless the user only asked where something is.');
+    expect(prompt).toContain('For support problems, acknowledge the issue, explain what information matters, then suggest the safest next step.');
+    expect(prompt).toContain('Other non-UI tools may be available.');
+    expect(prompt).toContain('You may use available non-UI tools for read-only data, support reporting, ticket handoff, diagnostics, recommendations, or backend lookups.');
+    expect(prompt).toContain('If the user explicitly asks for a human and escalate_to_human is available, call escalate_to_human.');
+    expect(prompt).toContain('Never claim a human handoff happened unless the escalate_to_human tool actually ran successfully.');
+    expect(prompt).toContain('For comparison or choice questions, compare visible options and give a practical recommendation.');
   });
 });
