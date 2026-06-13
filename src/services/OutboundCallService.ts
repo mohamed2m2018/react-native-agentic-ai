@@ -2,6 +2,13 @@ import { ENDPOINTS } from '../config/endpoints';
 import { getDeviceId, initDeviceId } from './telemetry/device';
 import { getDeviceMetadata } from './telemetry/deviceMetadata';
 import { logger } from '../utils/logger';
+import {
+  OutboundCallWatcher,
+  type OutboundCallEvent,
+  type OutboundCallTerminal,
+} from '../support/OutboundCallWatcher';
+
+export type { OutboundCallEvent, OutboundCallTerminal };
 
 const LOG_TAG = 'OutboundCallService';
 
@@ -47,7 +54,32 @@ export type OutboundCallConfig = {
   headers?: Record<string, string>;
   /** Optional client-side target allowlist. Backend remains the source of truth. */
   allowedTargetTypes?: string[];
+  /**
+   * Optional live event callback. Fires for each transcript line, status change,
+   * tool call, and the terminal completion. Useful to surface real-time call
+   * progress in the host UI while the agent is blocked on the tool result.
+   */
+  onCallEvent?: (event: OutboundCallEvent) => void;
+  /** Hard cap on watcher wait time. Default 30 min (matches max call duration). */
+  watcherTimeoutMs?: number;
 };
+
+export function watchOutboundCall(params: {
+  callId: string;
+  analyticsKey: string;
+  proxyUrl?: string;
+  timeoutMs?: number;
+  onEvent?: (event: OutboundCallEvent) => void;
+}): { promise: Promise<OutboundCallTerminal>; close: () => void } {
+  const watcher = new OutboundCallWatcher({
+    callId: params.callId,
+    analyticsKey: params.analyticsKey,
+    proxyUrl: params.proxyUrl,
+    timeoutMs: params.timeoutMs,
+    onEvent: params.onEvent,
+  });
+  return { promise: watcher.start(), close: () => watcher.close() };
+}
 
 function resolveMobileAIBase(baseUrl?: string): string {
   return (baseUrl ?? ENDPOINTS.escalation)

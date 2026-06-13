@@ -2,6 +2,7 @@ import type { ToolDefinition } from '../core/types';
 import {
   DEFAULT_OUTBOUND_CALL_TARGET_TYPES,
   startOutboundAiCall,
+  watchOutboundCall,
 } from '../services/OutboundCallService';
 import type { OutboundCallConfig } from '../services/OutboundCallService';
 
@@ -98,14 +99,82 @@ export function createOutboundCallTool(deps: OutboundCallToolDeps): ToolDefiniti
         return `❌ Outbound AI call could not start: ${result.error || 'Unknown error'}. Fall back to human escalation or messaging.`;
       }
 
+      const callId = result.callId;
+      if (!callId) {
+        return [
+          'AI_CALL_STARTED',
+          'Call ID: unknown',
+          `Status: ${result.status ?? 'started'}`,
+          'Warning: backend did not return a call ID; live updates are not available.',
+        ].join('\n');
+      }
+
+      const { promise } = watchOutboundCall({
+        callId,
+        analyticsKey: deps.analyticsKey,
+        proxyUrl: deps.config?.proxyUrl,
+        timeoutMs: deps.config?.watcherTimeoutMs,
+        onEvent: deps.config?.onCallEvent,
+      });
+
+      let terminal;
+      try {
+        terminal = await promise;
+      } catch (err: any) {
+        return [
+          'AI_CALL_FAILED',
+          `Call ID: ${callId}`,
+          `Reason: watcher_error: ${err?.message || String(err)}`,
+          'Fall back to human escalation or messaging.',
+        ].join('\n');
+      }
+
+      const transcriptLines = terminal.transcript
+        .map((entry) => {
+          const role = entry.role || 'unknown';
+          const text = (entry.text || '').trim();
+          return text ? `${role}: ${text}` : '';
+        })
+        .filter(Boolean);
+
+      if (terminal.status !== 'completed') {
+        return [
+          'AI_CALL_FAILED',
+          `Call ID: ${callId}`,
+          `Status: ${terminal.status}`,
+          terminal.failureReason ? `Reason: ${terminal.failureReason}` : '',
+          terminal.durationSeconds != null ? `Duration: ${terminal.durationSeconds}s` : '',
+          transcriptLines.length > 0 ? 'Transcript:' : '',
+          ...transcriptLines,
+          'Fall back to human escalation or messaging if the goal was not achieved.',
+        ]
+          .filter(Boolean)
+          .join('\n');
+      }
+
+      const outcome = terminal.outcome ?? {};
+      const outcomeReason =
+        typeof (outcome as any).reason === 'string'
+          ? String((outcome as any).reason)
+          : 'unspecified';
+      const outcomeSummary =
+        typeof (outcome as any).summary === 'string' && String((outcome as any).summary).trim()
+          ? String((outcome as any).summary).trim()
+          : transcriptLines.slice(-8).join('\n') || 'No summary available.';
+
       return [
-        'AI_CALL_STARTED',
-        `Call ID: ${result.callId ?? 'unknown'}`,
-        `Status: ${result.status ?? 'started'}`,
+        'AI_CALL_COMPLETED',
+        `Call ID: ${callId}`,
         `Target: ${result.targetDisplayName ?? targetId}`,
-        result.message ? `Message: ${result.message}` : '',
-        'Continue helping the user; call transcript and outcome will appear in the MobileAI dashboard.',
-      ].filter(Boolean).join('\n');
+        `Duration: ${terminal.durationSeconds ?? 0}s`,
+        `Outcome reason: ${outcomeReason}`,
+        `Outcome summary: ${outcomeSummary}`,
+        transcriptLines.length > 0 ? 'Transcript:' : '',
+        ...transcriptLines,
+        'Use this outcome to continue helping the user.',
+      ]
+        .filter(Boolean)
+        .join('\n');
     },
   };
 }
