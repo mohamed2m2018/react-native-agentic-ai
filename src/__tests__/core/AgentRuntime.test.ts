@@ -57,7 +57,15 @@ jest.mock('../../providers/ProviderFactory', () => ({
 
 import { AgentRuntime } from '../../core/AgentRuntime';
 import { actionRegistry } from '../../core/ActionRegistry';
-import type { AIProvider, ProviderResult, AgentConfig, PlatformAdapter, TokenUsage } from '../../core/types';
+import { resolveDefaultGuardModel } from '../../core/DefaultActionSafetyClassifier';
+import type {
+  ActionSafetyClassifier,
+  AIProvider,
+  ProviderResult,
+  AgentConfig,
+  PlatformAdapter,
+  TokenUsage,
+} from '../../core/types';
 import { walkFiberTree } from '../../core/FiberTreeWalker';
 import { dehydrateScreen } from '../../core/ScreenDehydrator';
 import { createProvider } from '../../providers/ProviderFactory';
@@ -65,6 +73,8 @@ import { createProvider } from '../../providers/ProviderFactory';
 const mockWalkFiberTree = walkFiberTree as jest.Mock;
 const mockDehydrateScreen = dehydrateScreen as jest.Mock;
 const mockCreateProvider = createProvider as jest.Mock;
+const testDelay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
 
 // ─── Mock Provider Factory ─────────────────────────────────────
 
@@ -126,6 +136,9 @@ function createToolResponse(
 const defaultConfig: AgentConfig = {
   maxSteps: 10,
   stepDelay: 0,
+  toolStabilization: {
+    enabled: false,
+  },
 };
 
 function createRuntime(provider: AIProvider, configOverrides: Partial<AgentConfig> = {}): AgentRuntime {
@@ -529,12 +542,12 @@ describe('AgentRuntime', () => {
       // stepDelay > 0 ensures cancel() check fires between steps
       const runtime = createRuntime(provider, {
         interactionMode: 'autopilot',
-        stepDelay: 10,
+        stepDelay: 200,
       });
 
       // Start execution, cancel midway through
       const resultPromise = runtime.execute('Test cancel');
-      // Wait for step 0 to start (tool runs + 2000ms settle begins)
+      // Wait for step 0 to finish and the inter-step delay to begin.
       await new Promise(resolve => setTimeout(resolve, 50));
       runtime.cancel();
       const result = await resultPromise;
@@ -943,6 +956,553 @@ describe('AgentRuntime', () => {
       expect(stages).toContain('tool_execution_started');
       expect(stages).toContain('tool_result');
       expect(stages).toContain('task_completed');
+    });
+  });
+
+  // ── Action Safety Guardrails ────────────────────────────────
+
+  describe('action safety guardrails', () => {
+    function createClassifier(
+      overrides: Partial<ActionSafetyClassifier> = {}
+    ): ActionSafetyClassifier {
+      return {
+        classifyScreen: jest.fn(async (input) => ({
+          screenSignature: input.screenSignature,
+          decisions: {},
+        })),
+        classifyAction: jest.fn(async () => ({
+          decision: 'allow',
+          confidence: 0.95,
+          reason: 'Fallback action is safe.',
+        })),
+        ...overrides,
+      };
+    }
+
+    it('preclassifies the screen and uses cached allow without fallback classification', async () => {
+      const classifier = createClassifier({
+        classifyScreen: jest.fn(async (input) => ({
+          screenSignature: input.screenSignature,
+          decisions: {
+            0: {
+              decision: 'allow',
+              confidence: 0.98,
+              reason: 'Visible element is safe.',
+            },
+          },
+        })),
+        classifyAction: jest.fn(async () => ({
+          decision: 'block',
+          reason: 'Fallback should not run.',
+        })),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        actionSafety: {
+          enabled: true,
+          classifier,
+        },
+      });
+
+      const result = await runtime.execute('Open details');
+
+      expect(result.success).toBe(true);
+      expect(classifier.classifyScreen).toHaveBeenCalled();
+      expect(classifier.classifyAction).not.toHaveBeenCalled();
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('uses cached ask decisions to require approval before execution', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const classifier = createClassifier({
+        classifyScreen: jest.fn(async (input) => ({
+          screenSignature: input.screenSignature,
+          decisions: {
+            0: {
+              decision: 'ask',
+              confidence: 0.9,
+              reason: 'User-visible state change.',
+              userMessage: 'This may update your cart. Continue?',
+            },
+          },
+        })),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        onAskUser,
+        actionSafety: {
+          enabled: true,
+          classifier,
+        },
+      });
+
+      const result = await runtime.execute('Open details');
+
+      expect(result.success).toBe(true);
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'approval',
+          question: 'This may update your cart. Continue?',
+        })
+      );
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('uses cached block decisions to prevent tool execution', async () => {
+      const classifier = createClassifier({
+        classifyScreen: jest.fn(async (input) => ({
+          screenSignature: input.screenSignature,
+          decisions: {
+            0: {
+              decision: 'block',
+              confidence: 0.96,
+              reason: 'Dangerous action.',
+              userMessage: 'I cannot do that action.',
+            },
+          },
+        })),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Stopped safely', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        actionSafety: {
+          enabled: true,
+          classifier,
+        },
+      });
+
+      const result = await runtime.execute('Delete all data');
+      const executeAction = runtime.getConfig().platformAdapter!.executeAction as jest.Mock;
+
+      expect(result.steps[0]?.action.output).toContain('SAFETY_BLOCKED');
+      expect(result.steps[0]?.action.output).toContain('I cannot do that action.');
+      expect(executeAction).not.toHaveBeenCalled();
+    });
+
+    it('lets app policy override a block decision before enforcement', async () => {
+      const classifier = createClassifier({
+        classifyScreen: jest.fn(async (input) => ({
+          screenSignature: input.screenSignature,
+          decisions: {
+            0: {
+              decision: 'block',
+              confidence: 0.96,
+              reason: 'Default app policy blocks this action.',
+              userMessage: 'Blocked by default policy.',
+              capability: 'unknown',
+              scope: 'unknown_task',
+              risk: 'medium',
+            },
+          },
+        })),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        actionSafety: {
+          enabled: true,
+          classifier,
+          overrideDecision: (decision) =>
+            decision.decision === 'block'
+              ? {
+                  ...decision,
+                  decision: 'allow',
+                  reason: 'App policy explicitly allows this control.',
+                }
+              : decision,
+        },
+      });
+
+      const result = await runtime.execute('Run allowed app-specific control');
+
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('calls fallback classifyAction on cache miss', async () => {
+      const classifier = createClassifier();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        actionSafety: {
+          enabled: true,
+          classifier,
+        },
+      });
+
+      const result = await runtime.execute('Open details');
+
+      expect(result.success).toBe(true);
+      expect(classifier.classifyAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'tap',
+          args: { index: 0 },
+          targetElement: expect.objectContaining({ label: 'Open Details' }),
+        })
+      );
+    });
+
+    it('fails safe to approval when fallback classification times out', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_REJECTED__');
+      const classifier = createClassifier({
+        classifyAction: jest.fn(async () => {
+          await testDelay(50);
+          return {
+            decision: 'allow',
+            confidence: 0.95,
+            reason: 'Late allow.',
+          };
+        }),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Stopped safely', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        onAskUser,
+        actionSafety: {
+          enabled: true,
+          classifier,
+          classifierTimeoutMs: 10,
+        },
+      });
+
+      const result = await runtime.execute('Open details');
+      const executeAction = runtime.getConfig().platformAdapter!.executeAction as jest.Mock;
+
+      expect(result.steps[0]?.action.output).toContain("I won't do that");
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'approval',
+          question: 'I need your confirmation before I continue with this action.',
+        })
+      );
+      expect(executeAction).not.toHaveBeenCalled();
+    });
+
+    it('fails safe to approval when allow confidence is too low', async () => {
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const classifier = createClassifier({
+        classifyAction: jest.fn(async () => ({
+          decision: 'allow',
+          confidence: 0.4,
+          reason: 'Low-confidence allow.',
+        })),
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        onAskUser,
+        actionSafety: {
+          enabled: true,
+          classifier,
+          minConfidenceToAllow: 0.75,
+        },
+      });
+
+      const result = await runtime.execute('Open details');
+
+      expect(result.success).toBe(true);
+      expect(onAskUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'approval',
+          question: 'I am not fully sure this action is safe to do automatically. Do you want me to continue?',
+        })
+      );
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('selects default guard models by provider and respects guardModel override', () => {
+      expect(resolveDefaultGuardModel({ provider: 'gemini' })).toBe('gemini-2.5-flash-lite');
+      expect(resolveDefaultGuardModel({ provider: 'openai' })).toBe('gpt-5.4-nano');
+      expect(resolveDefaultGuardModel({
+        provider: 'openai',
+        actionSafety: { guardModel: 'gpt-5.4-mini' },
+      })).toBe('gpt-5.4-mini');
+    });
+
+    it('uses the SDK default classifier to require fresh approval for destructive actions', async () => {
+      mockDehydrateScreen.mockReturnValueOnce({
+        screenName: 'Account',
+        availableScreens: ['Account'],
+        elementsText: 'Screen: Account\n[0]<pressable>Delete Account />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Delete Account', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Stopped safely', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        onAskUser: jest.fn().mockResolvedValue('__APPROVAL_REJECTED__'),
+        actionSafety: { enabled: true },
+      });
+
+      const result = await runtime.execute('Delete my account');
+      const executeAction = runtime.getConfig().platformAdapter!.executeAction as jest.Mock;
+
+      expect(result.steps[0]?.action.output).toBe(ACTION_NOT_APPROVED_MESSAGE);
+      expect(executeAction).not.toHaveBeenCalled();
+    });
+
+    it('reuses matching explicit workflow approval for the same destructive action', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'Account',
+        availableScreens: ['Account'],
+        elementsText: 'Screen: Account\n[0]<pressable>Delete Account />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Delete Account', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const provider = new MockProvider([
+        createToolResponse('ask_user', {
+          question: "I'm about to tap Delete Account. This is irreversible. Are you sure?",
+          request_app_action: true,
+        }),
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'copilot',
+        onAskUser,
+        actionSafety: { enabled: true },
+      });
+
+      const result = await runtime.execute('Delete my account');
+
+      expect(onAskUser).toHaveBeenCalledTimes(1);
+      expect(result.steps[1]?.action.output).toContain('Tapped');
+    });
+
+    it('does not reuse explicit approval when it does not match the high-risk target', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'Account',
+        availableScreens: ['Account'],
+        elementsText: 'Screen: Account\n[0]<pressable>Delete Account />\n[1]<pressable>Change Password />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Delete Account', requiresConfirmation: false, fiberNode: {}, props: {} },
+          { index: 1, type: 'pressable' as const, label: 'Change Password', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const onAskUser = jest
+        .fn()
+        .mockResolvedValueOnce('__APPROVAL_GRANTED__')
+        .mockResolvedValueOnce('__APPROVAL_REJECTED__');
+      const provider = new MockProvider([
+        createToolResponse('ask_user', {
+          question: "I'm about to tap Delete Account. This is irreversible. Are you sure?",
+          request_app_action: true,
+        }),
+        createToolResponse('tap', { index: 1 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'copilot',
+        onAskUser,
+        actionSafety: { enabled: true },
+      });
+
+      const result = await runtime.execute('Delete my account');
+
+      expect(onAskUser).toHaveBeenCalledTimes(2);
+      expect(result.steps[1]?.action.output).toBe(ACTION_NOT_APPROVED_MESSAGE);
+    });
+
+    it('can disable only semantic classification with classifier false', async () => {
+      mockDehydrateScreen.mockReturnValueOnce({
+        screenName: 'Account',
+        availableScreens: ['Account'],
+        elementsText: 'Screen: Account\n[0]<pressable>Delete Account />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Delete Account', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        actionSafety: {
+          enabled: true,
+          classifier: false,
+        },
+      });
+
+      const result = await runtime.execute('Delete my account');
+
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('uses the guard model for ambiguous default classifications', async () => {
+      mockDehydrateScreen.mockReturnValueOnce({
+        screenName: 'Mystery',
+        availableScreens: ['Mystery'],
+        elementsText: 'Screen: Mystery\n[0]<pressable>Mystery Action />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Mystery Action', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const guardProvider: AIProvider = {
+        generateContent: jest.fn(async () => ({
+          toolCalls: [
+            {
+              name: 'classify_action',
+              args: {
+                decision: 'allow',
+                scope: 'read_or_lookup',
+                capability: 'ui.navigate',
+                risk: 'low',
+                confidence: 0.91,
+                reason: 'Guard model classified it as navigation.',
+                userMessage: '',
+                requiresFreshApproval: false,
+              },
+            },
+          ],
+          reasoning: { previousGoalEval: '', memory: '', plan: '' },
+        })),
+      };
+      mockCreateProvider.mockReturnValueOnce(guardProvider);
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        provider: 'openai',
+        apiKey: 'test-key',
+        interactionMode: 'autopilot',
+        actionSafety: { enabled: true },
+      });
+
+      const result = await runtime.execute('Open mystery details');
+
+      expect(mockCreateProvider).toHaveBeenCalledWith(
+        'openai',
+        'test-key',
+        'gpt-5.4-nano',
+        undefined,
+        undefined
+      );
+      expect(guardProvider.generateContent).toHaveBeenCalled();
+      expect(result.steps[0]?.action.output).toContain('Tapped');
+    });
+
+    it('reuses user approval inside the same action safety risk boundary', async () => {
+      mockDehydrateScreen.mockReturnValue({
+        screenName: 'Form',
+        availableScreens: ['Form'],
+        elementsText: 'Screen: Form\n[0]<pressable>Apply />\n[1]<pressable>Update />\n',
+        elements: [
+          { index: 0, type: 'pressable' as const, label: 'Apply', requiresConfirmation: false, fiberNode: {}, props: {} },
+          { index: 1, type: 'pressable' as const, label: 'Update', requiresConfirmation: false, fiberNode: {}, props: {} },
+        ],
+      });
+      const onAskUser = jest.fn().mockResolvedValue('__APPROVAL_GRANTED__');
+      const classifier = createClassifier({
+        classifyAction: jest.fn(async () => ({
+          decision: 'ask',
+          scope: 'form_assistance',
+          capability: 'state.modify',
+          risk: 'medium',
+          confidence: 0.82,
+          reason: 'May update form state.',
+          userMessage: 'This may update the form. Continue?',
+        })),
+      });
+      const runtime = createRuntime(new MockProvider([]), {
+        interactionMode: 'autopilot',
+        onAskUser,
+        actionSafety: {
+          enabled: true,
+          classifier,
+          approvalReuse: 'risk-boundary',
+        },
+      });
+
+      const first = await runtime.executeTool('tap', { index: 0 });
+      const second = await runtime.executeTool('tap', { index: 1 });
+
+      expect(onAskUser).toHaveBeenCalledTimes(1);
+      expect(first).toContain('Tapped');
+      expect(second).toContain('Tapped');
+    });
+  });
+
+  // ── UI Stabilization ────────────────────────────────────────
+
+  describe('UI stabilization', () => {
+    it('waits for snapshot stability after UI tools', async () => {
+      const onTrace = jest.fn();
+      const provider = new MockProvider([
+        createToolResponse('tap', { index: 0 }),
+        createToolResponse('done', { text: 'Done after tap', success: true }),
+      ]);
+      const runtime = createRuntime(provider, {
+        interactionMode: 'autopilot',
+        onTrace,
+        toolStabilization: {
+          enabled: true,
+          maxMs: 100,
+          stableFrames: 1,
+        },
+      });
+
+      const result = await runtime.execute('Tap once');
+
+      expect(result.success).toBe(true);
+      expect(onTrace.mock.calls.map(([event]) => event.stage)).toContain(
+        'tool_stabilization_finished'
+      );
+    });
+
+    it('skips stabilization for non-UI read tools', async () => {
+      const onTrace = jest.fn();
+      const readTool = jest.fn(async () => 'Read-only result');
+      const runtime = createRuntime(new MockProvider([]), {
+        interactionMode: 'autopilot',
+        onTrace,
+        customTools: {
+          read_status: {
+            name: 'read_status',
+            description: 'Read status without changing the UI',
+            parameters: {},
+            effect: 'read',
+            execute: readTool,
+          },
+        },
+      });
+
+      const result = await runtime.executeTool('read_status', {});
+
+      expect(result).toBe('Read-only result');
+      expect(readTool).toHaveBeenCalledTimes(1);
+      expect(onTrace.mock.calls.map(([event]) => event.stage)).not.toContain(
+        'tool_stabilization_finished'
+      );
     });
   });
 

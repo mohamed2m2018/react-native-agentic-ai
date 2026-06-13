@@ -1,6 +1,6 @@
 import { Link, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AIZone } from '@mobileai/react-native';
 
 import { useFoodDelivery } from '@/app/lib/delivery-demo';
@@ -11,11 +11,18 @@ export default function HomeScreen() {
   const router = useRouter();
   const { restaurants } = useFoodDelivery();
   const [cuisine, setCuisine] = useState<string | null>(null);
+  const [longLoading, setLongLoading] = useState(false);
 
   const restaurantsToShow = useMemo(() => {
     if (!cuisine) return restaurants;
     return restaurants.filter((restaurant) => restaurant.cuisine === cuisine);
   }, [cuisine, restaurants]);
+
+  const startLongLoadingTest = () => {
+    if (longLoading) return;
+    setLongLoading(true);
+    setTimeout(() => setLongLoading(false), 6000);
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -47,6 +54,22 @@ export default function HomeScreen() {
           <Text style={styles.helperText}>Open the UI lab and launch the React Native modal component.</Text>
         </Pressable>
       </View>
+
+      <Pressable
+        style={[styles.loadingCard, longLoading && styles.loadingCardActive]}
+        onPress={startLongLoadingTest}
+        disabled={longLoading}
+      >
+        <View style={styles.loadingTitleRow}>
+          <Text style={styles.helperTitle}>{longLoading ? 'Loading Test Running' : 'Long Loading Test'}</Text>
+          {longLoading ? <ActivityIndicator color="#0F766E" /> : null}
+        </View>
+        <Text style={styles.helperText}>
+          {longLoading
+            ? 'Simulating a slow app state for 6 seconds.'
+            : 'Tap to simulate a slow app state and test AI loading behavior.'}
+        </Text>
+      </Pressable>
 
       <AIZone id="cuisine-filter">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillRow}>
@@ -109,6 +132,17 @@ const styles = StyleSheet.create({
   cartLink: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
   testLabCard: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
   modalTestCard: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
+  loadingCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 14,
+    padding: 16,
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+  },
+  loadingCardActive: { backgroundColor: '#CCFBF1', borderColor: '#2DD4BF' },
+  loadingTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   helperTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   helperText: { color: '#475569', fontSize: 13, lineHeight: 18 },
   pillRow: { marginHorizontal: 12, marginTop: 16, marginBottom: 14 },

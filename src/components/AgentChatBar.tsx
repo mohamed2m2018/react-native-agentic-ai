@@ -1556,17 +1556,6 @@ export function AgentChatBar({
                 </View>
               ) : pendingApprovalQuestion && onPendingApprovalAction ? (
                 <View style={styles.approvalPanel}>
-                  <View style={[styles.messageBubble, styles.messageBubbleAI]}>
-                    <Text
-                      style={[
-                        styles.messageText,
-                        styles.messageTextAI,
-                        { textAlign: isArabic ? 'right' : 'left' },
-                      ]}
-                    >
-                      {pendingApprovalQuestion}
-                    </Text>
-                  </View>
                   <Text style={styles.approvalHint}>
                     The AI agent is requesting permission to perform this action. Tap "Allow" to approve, or "Don’t Allow" to cancel.
                   </Text>

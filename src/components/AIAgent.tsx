@@ -68,6 +68,8 @@ import type {
   AgentTraceEvent,
   VerifierConfig,
   SupportStyle,
+  ActionSafetyConfig,
+  ToolStabilizationConfig,
 } from '../core/types';
 import { AgentErrorBoundary } from './AgentErrorBoundary';
 import { HighlightOverlay } from './HighlightOverlay';
@@ -363,6 +365,13 @@ interface AIAgentProps {
   supportStyle?: SupportStyle;
   /** Optional outcome verifier configuration for critical actions. */
   verifier?: VerifierConfig;
+  /**
+   * Semantic guardrails for generic app actions. The runtime remains the final
+   * authority and uses the optional classifier to allow, ask, or block.
+   */
+  actionSafety?: ActionSafetyConfig;
+  /** UI stabilization after tool actions without a fixed post-tool sleep. */
+  toolStabilization?: ToolStabilizationConfig;
   /** Navigation container ref (from useNavigationContainerRef) */
   navRef?: any;
 
@@ -588,6 +597,8 @@ export function AIAgent({
   model,
   supportStyle = 'warm-concise',
   verifier,
+  actionSafety,
+  toolStabilization,
   navRef,
 
   maxSteps = 25,
@@ -2541,6 +2552,8 @@ export function AIAgent({
       model,
       supportStyle,
       verifier,
+      actionSafety,
+      toolStabilization,
       language: 'en',
       maxSteps,
       interactiveBlacklist,
@@ -2676,6 +2689,17 @@ export function AIAgent({
         telemetryRef.current?.setAgentActing(active);
       },
       onTrace: (event: AgentTraceEvent) => {
+        if (
+          debug &&
+          (
+            event.stage.startsWith('action_safety') ||
+            event.stage.startsWith('app_action_gate') ||
+            event.stage.startsWith('confirmation') ||
+            event.stage.startsWith('tool_stabilization')
+          )
+        ) {
+          logger.info('AIAgent', `[trace:${event.stage}]`, JSON.stringify(event.data ?? {}));
+        }
         telemetryRef.current?.track('agent_trace', {
           traceId: event.traceId,
           stage: event.stage,
@@ -2704,6 +2728,8 @@ export function AIAgent({
       mergedCustomTools,
       resolvedInstructions,
       stepDelay,
+      actionSafety,
+      toolStabilization,
       mcpServerUrl,
       router,
       pathname,

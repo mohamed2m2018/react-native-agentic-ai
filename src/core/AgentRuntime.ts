@@ -18,6 +18,7 @@ import {
   type PendingVerification,
   type VerificationSnapshot,
 } from './OutcomeVerifier';
+import { DefaultActionSafetyClassifier } from './DefaultActionSafetyClassifier';
 import { KnowledgeBaseService } from '../services/KnowledgeBaseService';
 import { installAlertInterceptor, uninstallAlertInterceptor } from './NativeAlertInterceptor';
 import {
@@ -41,11 +42,16 @@ import type {
   AgentConfig,
   AgentTraceEvent,
   AgentStep,
+  ActionSafetyClassifier,
+  ActionSafetyDecision,
+  ActionSafetyInput,
   ExecutionResult,
   InteractiveElement,
   NavigationSnapshot,
   PlatformAdapter,
+  ScreenSnapshot,
   ToolDefinition,
+  ToolEffect,
   TokenUsage,
 } from './types';
 import { actionRegistry } from './ActionRegistry';
@@ -55,9 +61,75 @@ import { formatActionToolResult } from '../utils/actionResult';
 import { normalizeRichContent, richContentToPlainText } from './richContent';
 
 const DEFAULT_MAX_STEPS = 25;
+const DEFAULT_STABILIZATION_MAX_MS = 1000;
+const DEFAULT_STABILIZATION_STABLE_FRAMES = 2;
+const DEFAULT_ACTION_SAFETY_TIMEOUT_MS = 300;
+const DEFAULT_MIN_CONFIDENCE_TO_ALLOW = 0.75;
 
 function generateTraceId(): string {
   return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function stableJson(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (seen.has(value)) {
+    return '"[Circular]"';
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry, seen)).join(',')}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key], seen)}`)
+    .join(',')}}`;
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
+
+async function runAfterInteractions(): Promise<void> {
+  const requestIdle = (globalThis as any).requestIdleCallback;
+  if (typeof requestIdle === 'function') {
+    await new Promise<void>((resolve) => requestIdle(() => resolve(), { timeout: 50 }));
+    return;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<{ status: 'resolved'; value: T } | { status: 'timeout' }> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ status: 'resolved' as const, value })),
+      new Promise<{ status: 'timeout' }>((resolve) => {
+        timeout = setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 
@@ -71,9 +143,23 @@ const USER_DECLINED_APP_ACTION_MESSAGE = "User declined the requested app action
 
 type AppActionApprovalScope = 'none' | 'workflow';
 type AppActionApprovalSource = 'none' | 'explicit_button' | 'user_input';
+type ExplicitActionApproval = {
+  question: string;
+  userGoal: string;
+  screenName: string;
+  approvedAt: number;
+};
 
 function parseBooleanToolArg(value: unknown): boolean {
   return value === true || (typeof value === 'string' && value.toLowerCase() === 'true');
+}
+
+function normalizeApprovalMatchText(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ─── Agent Runtime ─────────────────────────────────────────────
@@ -95,6 +181,13 @@ export class AgentRuntime {
   private outcomeVerifier: OutcomeVerifier | null = null;
   private pendingCriticalVerification: PendingVerification | null = null;
   private staleMapWarned = false;
+  private currentScreenContent = '';
+  private currentScreenSignature = '';
+  private actionSafetyCache = new Map<string, ActionSafetyDecision>();
+  private screenSafetyPromises = new Map<string, Promise<void>>();
+  private defaultActionSafetyClassifier: ActionSafetyClassifier | null = null;
+  private actionSafetyApprovedBoundaries = new Set<string>();
+  private lastExplicitActionApproval: ExplicitActionApproval | null = null;
 
   // ─── Task-scoped error suppression ──────────────────────────
   // Installed once at execute() start, removed after grace period.
@@ -116,6 +209,24 @@ export class AgentRuntime {
   // Tools that physically alter the app — must be gated by workflow approval
   private static readonly APP_ACTION_TOOLS = new Set([
     'tap', 'type', 'scroll', 'navigate', 'long_press', 'adjust_slider', 'select_picker', 'set_date', 'dismiss_keyboard',
+  ]);
+  private static readonly UI_EFFECT_TOOLS = new Set([
+    ...AgentRuntime.APP_ACTION_TOOLS,
+    'guide_user',
+    'simplify_zone',
+    'render_block',
+    'inject_card',
+    'restore_zone',
+  ]);
+  private static readonly NON_UI_TOOLS = new Set([
+    'done',
+    'ask_user',
+    'wait',
+    'capture_screenshot',
+    'query_knowledge',
+    'query_data',
+    'escalate_to_human',
+    'report_issue',
   ]);
 
   public getConfig(): AgentConfig {
@@ -169,6 +280,7 @@ export class AgentRuntime {
   private resetAppActionApproval(reason: string): void {
     this.appActionApprovalScope = 'none';
     this.appActionApprovalSource = 'none';
+    this.lastExplicitActionApproval = null;
     logger.info('AgentRuntime', `🔒 Workflow approval cleared (${reason})`);
   }
 
@@ -176,6 +288,16 @@ export class AgentRuntime {
     this.appActionApprovalScope = 'workflow';
     this.appActionApprovalSource = source;
     logger.info('AgentRuntime', `✅ Workflow approval granted via ${source} (${reason})`);
+  }
+
+  private rememberExplicitActionApproval(question: string): void {
+    this.lastExplicitActionApproval = {
+      question,
+      userGoal: this.currentUserGoal,
+      screenName: this.getNavigationSnapshot().currentScreenName,
+      approvedAt: Date.now(),
+    };
+    logger.info('AgentRuntime', '✅ Fresh action approval remembered for semantic safety gate');
   }
 
   public grantVoiceWorkflowApproval(): void {
@@ -615,6 +737,7 @@ export class AgentRuntime {
           // Resolve approval gate based on button response
           if (answer === '__APPROVAL_GRANTED__') {
             this.grantWorkflowApproval('explicit_button', 'user tapped Allow');
+            this.rememberExplicitActionApproval(cleanQuestion);
             return 'User approved the requested app action. Continue with the approved action.';
           } else if (answer === '__APPROVAL_REJECTED__') {
             this.resetAppActionApproval('explicit approval rejected');
@@ -890,6 +1013,627 @@ export class AgentRuntime {
     return this.getPlatformAdapter().getNavigationSnapshot();
   }
 
+  private getActionSafetyTimeoutMs(): number {
+    return this.config.actionSafety?.classifierTimeoutMs ?? DEFAULT_ACTION_SAFETY_TIMEOUT_MS;
+  }
+
+  private getMinConfidenceToAllow(): number {
+    return this.config.actionSafety?.minConfidenceToAllow ?? DEFAULT_MIN_CONFIDENCE_TO_ALLOW;
+  }
+
+  private isActionSafetyEnabled(): boolean {
+    if (this.config.actionSafety?.enabled === false) return false;
+    if (this.config.interactionMode === 'companion') return true;
+    if (this.config.interactionMode === 'autopilot' && this.config.actionSafety?.enabled !== true) {
+      return !!this.config.actionSafety?.classifier;
+    }
+    return true;
+  }
+
+  private getActionSafetyClassifier(): ActionSafetyClassifier | null {
+    const configured = this.config.actionSafety?.classifier;
+    if (configured === false) return null;
+    if (configured && configured !== 'default') return configured;
+
+    const shouldUseDefault =
+      configured === 'default' ||
+      this.config.interactionMode === 'copilot' ||
+      (this.config.interactionMode === 'autopilot' && this.config.actionSafety?.enabled === true);
+
+    if (!shouldUseDefault) return null;
+    if (!this.defaultActionSafetyClassifier) {
+      this.defaultActionSafetyClassifier = new DefaultActionSafetyClassifier({
+        config: this.config,
+      });
+    }
+    return this.defaultActionSafetyClassifier;
+  }
+
+  private getScreenSignature(
+    screen: ScreenSnapshot | null,
+    screenContent?: string
+  ): string {
+    if (!screen) return 'no-screen';
+    const elementSummary = screen.elements
+      .map((element) => `${element.index}:${element.type}:${element.label}:${element.requiresConfirmation === true}`)
+      .join('|');
+    return hashString(
+      [
+        screen.screenName,
+        screen.availableScreens.join(','),
+        screenContent ?? screen.elementsText,
+        elementSummary,
+      ].join('\n')
+    );
+  }
+
+  private getElementSignature(element?: InteractiveElement): string {
+    if (!element) return 'no-target';
+    return hashString(
+      [
+        element.index,
+        element.type,
+        element.label,
+        element.requiresConfirmation === true,
+        element.analyticsElementKind ?? '',
+        element.analyticsComponentName ?? '',
+      ].join('|')
+    );
+  }
+
+  private getElementSafetyCacheKey(
+    screenSignature: string,
+    element: InteractiveElement
+  ): string {
+    return `${this.currentTraceId ?? 'trace'}:${screenSignature}:element:${element.index}:${this.getElementSignature(element)}`;
+  }
+
+  private getActionSafetyCacheKey(
+    screenSignature: string,
+    toolName: string,
+    args: Record<string, any>,
+    targetElement?: InteractiveElement
+  ): string {
+    if (targetElement) {
+      return this.getElementSafetyCacheKey(screenSignature, targetElement);
+    }
+    return `${this.currentTraceId ?? 'trace'}:${screenSignature}:tool:${toolName}:${hashString(stableJson(args))}`;
+  }
+
+  private getPolicyTargetElement(
+    toolName: string,
+    args: Record<string, any>
+  ): InteractiveElement | undefined {
+    if (!AgentRuntime.UI_EFFECT_TOOLS.has(toolName)) return undefined;
+    const index = args?.index;
+    if (typeof index !== 'number') return undefined;
+    const screen = this.lastDehydratedRoot as ScreenSnapshot | null;
+    return screen?.elements?.find((element) => element.index === index);
+  }
+
+  private getToolEffect(toolName: string, tool?: ToolDefinition): ToolEffect {
+    if (tool?.effect) return tool.effect;
+    switch (toolName) {
+      case 'query_data':
+      case 'query_knowledge':
+      case 'capture_screenshot':
+        return 'read';
+      case 'escalate_to_human':
+      case 'report_issue':
+        return 'support';
+      case 'navigate':
+      case 'scroll':
+      case 'guide_user':
+        return 'navigate';
+      case 'type':
+        return 'fill';
+      case 'select_picker':
+      case 'adjust_slider':
+      case 'set_date':
+      case 'dismiss_keyboard':
+        return 'select';
+      case 'tap':
+      case 'long_press':
+      case 'render_block':
+      case 'inject_card':
+      case 'simplify_zone':
+      case 'restore_zone':
+        return 'unknown';
+      default:
+        return 'unknown';
+    }
+  }
+
+  private isSafetyGatedTool(toolName: string, tool?: ToolDefinition): boolean {
+    if (AgentRuntime.NON_UI_TOOLS.has(toolName)) return false;
+    if (AgentRuntime.UI_EFFECT_TOOLS.has(toolName)) return true;
+    return !!tool?.effect;
+  }
+
+  private normalizeSafetyDecision(
+    decision: ActionSafetyDecision,
+    source: 'deterministic' | 'cache' | 'classifier' | 'timeout' | 'disabled',
+    toolName?: string,
+    args?: Record<string, any>,
+    targetElement?: InteractiveElement
+	  ): ActionSafetyDecision {
+	    let normalized = { ...decision };
+	    const decisionContext = {
+	      source,
+	      toolName,
+	      args,
+	      targetElement,
+	    };
+	    const override = this.config.actionSafety?.overrideDecision?.({
+	      ...normalized,
+	      ...decisionContext,
+	    });
+	    if (override) {
+	      normalized = {
+	        ...override,
+	        reason: override.reason || normalized.reason || 'Decision overridden by app policy.',
+	      };
+	    }
+	    const confidence = normalized.confidence ?? 1;
+    if (
+      normalized.decision === 'allow' &&
+      confidence < this.getMinConfidenceToAllow()
+    ) {
+      normalized = {
+        decision: 'ask',
+        confidence,
+        reason:
+          normalized.reason ||
+          `Safety confidence ${confidence.toFixed(2)} is below the allow threshold.`,
+        userMessage:
+          normalized.userMessage ||
+          'I am not fully sure this action is safe to do automatically. Do you want me to continue?',
+      };
+    }
+
+	    this.config.actionSafety?.onDecision?.({
+	      ...normalized,
+	      ...decisionContext,
+	    });
+    this.emitTrace('action_safety_decision', {
+      source,
+      tool: toolName,
+      args,
+      targetLabel: targetElement?.label,
+      decision: normalized.decision,
+      confidence: normalized.confidence,
+      scope: normalized.scope,
+      capability: normalized.capability,
+      risk: normalized.risk,
+      reason: normalized.reason,
+    });
+    return normalized;
+  }
+
+  private async startScreenSafetyPreclassification(
+    screen: ScreenSnapshot,
+    screenContent: string,
+    stepIndex?: number
+  ): Promise<void> {
+    const classifier = this.getActionSafetyClassifier();
+    if (!this.isActionSafetyEnabled() || !classifier || screen.elements.length === 0) {
+      return;
+    }
+
+    const screenSignature = this.getScreenSignature(screen, screenContent);
+    this.currentScreenSignature = screenSignature;
+    if (this.screenSafetyPromises.has(screenSignature)) return;
+
+    const promise = (async () => {
+      const result = await withTimeout(
+        classifier.classifyScreen({
+          userRequest: this.currentUserGoal,
+          screen,
+          screenContent,
+          screenSignature,
+          mode: this.config.interactionMode || 'copilot',
+          history: this.history,
+        }),
+        this.getActionSafetyTimeoutMs()
+      );
+      if (result.status === 'timeout') {
+        this.emitTrace('action_safety_preclassification_timeout', {
+          screenSignature,
+        }, stepIndex);
+        return;
+      }
+
+      const safetyMap = result.value;
+      for (const [rawIndex, decision] of Object.entries(safetyMap.decisions ?? {})) {
+        const index = Number(rawIndex);
+        const element = screen.elements.find((entry) => entry.index === index);
+        if (!element) continue;
+        this.actionSafetyCache.set(
+          this.getElementSafetyCacheKey(screenSignature, element),
+          decision
+        );
+      }
+      this.emitTrace('action_safety_preclassified', {
+        screenSignature,
+        decisionCount: Object.keys(safetyMap.decisions ?? {}).length,
+      }, stepIndex);
+    })().catch((error: any) => {
+      this.emitTrace('action_safety_preclassification_failed', {
+        screenSignature,
+        error: error?.message ?? String(error),
+      }, stepIndex);
+    }).finally(() => {
+      this.screenSafetyPromises.delete(screenSignature);
+    });
+
+    this.screenSafetyPromises.set(screenSignature, promise);
+  }
+
+  private async evaluateActionSafety(
+    tool: ToolDefinition,
+    args: Record<string, any>,
+    toolName: string,
+    _stepIndex?: number
+  ): Promise<ActionSafetyDecision> {
+    const targetElement = this.getPolicyTargetElement(toolName, args);
+    const screen = (this.lastDehydratedRoot as ScreenSnapshot | null) ?? null;
+    const screenSignature =
+      this.currentScreenSignature || this.getScreenSignature(screen, this.currentScreenContent);
+    const toolEffect = this.getToolEffect(toolName, tool);
+
+    if (!this.isActionSafetyEnabled()) {
+      return this.normalizeSafetyDecision(
+        { decision: 'allow', reason: 'Action safety is disabled.' },
+        'disabled',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    if (!this.isSafetyGatedTool(toolName, tool)) {
+      return this.normalizeSafetyDecision(
+        { decision: 'allow', reason: 'Tool is not UI/action safety-gated.' },
+        'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    if (this.config.interactionMode === 'companion' && AgentRuntime.UI_EFFECT_TOOLS.has(toolName)) {
+      return this.normalizeSafetyDecision(
+        {
+          decision: 'block',
+          reason: 'Companion mode cannot execute UI-control tools.',
+          userMessage: 'I can guide you, but I cannot control the app in companion mode.',
+        },
+        'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    if (toolEffect === 'read' || toolEffect === 'support' || toolEffect === 'navigate' || toolEffect === 'fill' || toolEffect === 'select') {
+      return this.normalizeSafetyDecision(
+        { decision: 'allow', reason: `Known low-risk tool effect: ${toolEffect}.` },
+        'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    if (toolEffect === 'commit' || toolEffect === 'payment' || toolEffect === 'destructive') {
+      return this.normalizeSafetyDecision(
+        {
+          decision: 'ask',
+          reason: `Tool effect "${toolEffect}" requires explicit approval.`,
+          userMessage: 'This action may make a real change. Do you want me to continue?',
+        },
+        'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    const cacheKey = this.getActionSafetyCacheKey(screenSignature, toolName, args, targetElement);
+    const cached = this.actionSafetyCache.get(cacheKey);
+    if (cached) {
+      return this.normalizeSafetyDecision(cached, 'cache', toolName, args, targetElement);
+    }
+
+    const pendingPreclassification = this.screenSafetyPromises.get(screenSignature);
+    if (pendingPreclassification) {
+      await withTimeout(pendingPreclassification, this.getActionSafetyTimeoutMs());
+      const refreshed = this.actionSafetyCache.get(cacheKey);
+      if (refreshed) {
+        return this.normalizeSafetyDecision(refreshed, 'cache', toolName, args, targetElement);
+      }
+    }
+
+    const classifier = this.getActionSafetyClassifier();
+    if (!classifier) {
+      return this.normalizeSafetyDecision(
+        {
+          decision: 'allow',
+          reason:
+            this.config.actionSafety?.classifier === false
+              ? 'Semantic action safety classifier is disabled by configuration.'
+              : 'No semantic action safety classifier is configured.',
+        },
+        this.config.actionSafety?.classifier === false ? 'disabled' : 'deterministic',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    const input: ActionSafetyInput = {
+      userRequest: this.currentUserGoal,
+      toolName,
+      args,
+      targetElement,
+      screen,
+      screenContent: this.currentScreenContent,
+      screenSignature,
+      mode: this.config.interactionMode || 'copilot',
+      history: this.history,
+      toolEffect,
+    };
+    const result = await withTimeout(
+      classifier.classifyAction(input),
+      this.getActionSafetyTimeoutMs()
+    );
+
+    if (result.status === 'timeout') {
+      return this.normalizeSafetyDecision(
+        {
+          decision: 'ask',
+          confidence: 0,
+          reason: 'Semantic action safety classifier timed out.',
+          userMessage: 'I need your confirmation before I continue with this action.',
+          capability: 'unknown',
+          scope: 'unknown_task',
+          risk: 'medium',
+        },
+        'timeout',
+        toolName,
+        args,
+        targetElement
+      );
+    }
+
+    this.actionSafetyCache.set(cacheKey, result.value);
+    return this.normalizeSafetyDecision(result.value, 'classifier', toolName, args, targetElement);
+  }
+
+  private async enforceActionSafetyDecision(
+    decision: ActionSafetyDecision,
+    toolName: string,
+    args: Record<string, any>,
+    stepIndex?: number
+	  ): Promise<string | null> {
+	    if (decision.decision === 'allow') return null;
+	    if (decision.decision === 'block') {
+	      const message = decision.userMessage || `Action blocked by safety guard: ${decision.reason}`;
+	      const agentMessage = `SAFETY_BLOCKED: ${message} Do not retry this action. Explain the limitation to the user and offer a safe alternative.`;
+	      this.emitTrace('action_safety_blocked', {
+	        tool: toolName,
+	        args,
+	        reason: decision.reason,
+	        message,
+	        scope: decision.scope,
+	        capability: decision.capability,
+	        risk: decision.risk,
+	      }, stepIndex);
+	      return agentMessage;
+	    }
+
+    const question = decision.userMessage || 'Do you want me to continue with this action?';
+    this.emitTrace('action_safety_approval_required', {
+      tool: toolName,
+      args,
+      reason: decision.reason,
+      question,
+      scope: decision.scope,
+      capability: decision.capability,
+      risk: decision.risk,
+    }, stepIndex);
+
+    if (
+      decision.requiresFreshApproval &&
+      this.hasMatchingExplicitActionApproval(decision, toolName, args)
+    ) {
+      this.rememberActionSafetyApproval(decision);
+      this.emitTrace('action_safety_fresh_approval_reused', {
+        tool: toolName,
+        args,
+        reason: decision.reason,
+        scope: decision.scope,
+        capability: decision.capability,
+        risk: decision.risk,
+      }, stepIndex);
+      return null;
+    }
+
+    if (this.canReuseActionSafetyApproval(decision)) {
+      this.emitTrace('action_safety_approval_reused', {
+        tool: toolName,
+        args,
+        reason: decision.reason,
+        scope: decision.scope,
+        capability: decision.capability,
+        risk: decision.risk,
+      }, stepIndex);
+      return null;
+    }
+
+    if (this.config.actionSafety?.userOverride?.allowAskDecision === false) {
+      this.emitTrace('action_safety_user_override_disabled', {
+        tool: toolName,
+        args,
+        reason: decision.reason,
+      }, stepIndex);
+      return `Action needs approval but user override is disabled: ${decision.reason}`;
+    }
+
+    if (this.config.onAskUser) {
+      const response = await this.config.onAskUser({ question, kind: 'approval' });
+      if (response === APPROVAL_GRANTED_TOKEN || /^yes|allow|confirm|continue$/i.test(String(response).trim())) {
+        this.rememberActionSafetyApproval(decision);
+        this.emitTrace('action_safety_approved', { tool: toolName, args }, stepIndex);
+        return null;
+      }
+      this.emitTrace('action_safety_rejected', { tool: toolName, args, response: String(response) }, stepIndex);
+      return ACTION_NOT_APPROVED_MESSAGE;
+    }
+
+    try {
+      const { Alert } = require('react-native');
+      const approved = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Confirm Action',
+          question,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Continue', onPress: () => resolve(true) },
+          ],
+          { cancelable: false }
+        );
+      });
+      if (approved) {
+        this.rememberActionSafetyApproval(decision);
+        return null;
+      }
+      return ACTION_NOT_APPROVED_MESSAGE;
+    } catch {
+      return `Action needs confirmation but no approval UI is available: ${decision.reason}`;
+    }
+  }
+
+  private getActionSafetyBoundaryKey(decision: ActionSafetyDecision): string | null {
+    if (!decision.scope || !decision.capability || !decision.risk) return null;
+    return `${decision.scope}:${decision.capability}:${decision.risk}`;
+  }
+
+  private hasMatchingExplicitActionApproval(
+    decision: ActionSafetyDecision,
+    toolName: string,
+    args: Record<string, any>
+  ): boolean {
+    const approval = this.lastExplicitActionApproval;
+    if (!approval || this.appActionApprovalSource !== 'explicit_button') return false;
+    if (Date.now() - approval.approvedAt > 2 * 60 * 1000) return false;
+    if (approval.userGoal !== this.currentUserGoal) return false;
+    if (approval.screenName !== this.getNavigationSnapshot().currentScreenName) return false;
+
+    const target = this.getPolicyTargetElement(toolName, args);
+    const approvalText = normalizeApprovalMatchText(approval.question);
+    const goalText = normalizeApprovalMatchText(this.currentUserGoal);
+    const targetText = normalizeApprovalMatchText(target?.label);
+    if (!targetText) return false;
+
+    const targetWords = targetText.split(' ').filter((word) => word.length >= 4);
+    const targetMentioned =
+      approvalText.includes(targetText) ||
+      goalText.includes(targetText) ||
+      targetWords.some((word) => approvalText.includes(word) && goalText.includes(word));
+    if (!targetMentioned) return false;
+
+    if (decision.scope && decision.scope !== 'unknown_task') {
+      const scopeHint = normalizeApprovalMatchText(decision.scope.replace(/_/g, ' '));
+      if (
+        scopeHint &&
+        !approvalText.includes(scopeHint) &&
+        !goalText.includes(scopeHint) &&
+        targetWords.length === 0
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private canReuseActionSafetyApproval(decision: ActionSafetyDecision): boolean {
+    const reuse = this.config.actionSafety?.approvalReuse ?? 'risk-boundary';
+    if (reuse === 'none' || decision.requiresFreshApproval) return false;
+    if (decision.risk === 'high' || decision.risk === 'critical') return false;
+    const boundaryKey = this.getActionSafetyBoundaryKey(decision);
+    if (boundaryKey && this.actionSafetyApprovedBoundaries.has(boundaryKey)) {
+      return true;
+    }
+    if (!this.hasWorkflowApproval()) return false;
+    if (reuse === 'workflow') return true;
+    return decision.risk === 'low';
+  }
+
+  private rememberActionSafetyApproval(decision: ActionSafetyDecision): void {
+    const boundaryKey = this.getActionSafetyBoundaryKey(decision);
+    if (boundaryKey) {
+      this.actionSafetyApprovedBoundaries.add(boundaryKey);
+    }
+  }
+
+  private shouldStabilizeAfterTool(toolName: string, tool?: ToolDefinition): boolean {
+    if (this.config.toolStabilization?.enabled === false) return false;
+    if (tool?.effect === 'read' || tool?.effect === 'support') return false;
+    return AgentRuntime.UI_EFFECT_TOOLS.has(toolName);
+  }
+
+  private async waitForUIStability(
+    toolName: string,
+    beforeSignature: string,
+    stepIndex?: number
+  ): Promise<void> {
+    const maxMs = this.config.toolStabilization?.maxMs ?? DEFAULT_STABILIZATION_MAX_MS;
+    const stableFrames = Math.max(
+      1,
+      this.config.toolStabilization?.stableFrames ?? DEFAULT_STABILIZATION_STABLE_FRAMES
+    );
+    const started = Date.now();
+    let lastSignature = '';
+    let stableCount = 0;
+    let changed = false;
+    let reason: 'unchanged_stable' | 'changed_stable' | 'async_error' | 'timeout' = 'timeout';
+
+    while (Date.now() - started < maxMs) {
+      await runAfterInteractions();
+      await nextFrame();
+
+      if (this.lastSuppressedError) {
+        reason = 'async_error';
+        break;
+      }
+
+      const current = this.getPlatformAdapter().getScreenSnapshot();
+      const signature = this.getScreenSignature(current, current.elementsText);
+      if (signature !== beforeSignature) changed = true;
+
+      if (signature === lastSignature) {
+        stableCount += 1;
+      } else {
+        stableCount = 1;
+        lastSignature = signature;
+      }
+
+      if (stableCount >= stableFrames) {
+        reason = changed ? 'changed_stable' : 'unchanged_stable';
+        break;
+      }
+    }
+
+    this.emitTrace('tool_stabilization_finished', {
+      tool: toolName,
+      reason,
+      durationMs: Date.now() - started,
+      changed,
+    }, stepIndex);
+  }
+
   // ─── Dynamic Config Overrides ────────────────────────────────
 
   public setUIControlOverride(enabled: boolean | undefined) {
@@ -1110,6 +1854,7 @@ ${snapshot.elementsText}
         name: action.name,
         description: action.description,
         parameters: toolParams,
+        effect: action.effect,
         execute: async (args) => {
           try {
             const result = await action.handler(args);
@@ -1223,12 +1968,12 @@ ${snapshot.elementsText}
   /**
    * Execute a tool with safety checks.
    * Validates args before execution (Detox/Appium pattern).
-   * Checks for async errors that were suppressed during the settle window.
+   * Checks for async errors that were suppressed during UI stabilization.
    * The global ErrorUtils handler is task-scoped (installed in execute()),
    * so this method only needs to CHECK for errors, not install/remove.
    */
   private async executeToolSafely(
-    tool: { execute: (args: any) => Promise<string> },
+    tool: ToolDefinition,
     args: any,
     toolName: string,
     stepIndex?: number,
@@ -1290,11 +2035,24 @@ ${snapshot.elementsText}
         return blockedMsg;
       }
 
+      const safetyDecision = await this.evaluateActionSafety(tool, args, toolName, stepIndex);
+      const safetyBlock = await this.enforceActionSafetyDecision(
+        safetyDecision,
+        toolName,
+        args,
+        stepIndex
+      );
+      if (safetyBlock) return safetyBlock;
+
+      const beforeToolSignature = this.getScreenSignature(
+        (this.lastDehydratedRoot as ScreenSnapshot | null) ?? null,
+        this.currentScreenContent
+      );
       const result = await tool.execute(args);
 
-      // Settle window for async side-effects (useEffect, native callbacks)
-      // The global ErrorUtils handler catches any errors during this window
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (this.shouldStabilizeAfterTool(toolName, tool)) {
+        await this.waitForUIStability(toolName, beforeToolSignature, stepIndex);
+      }
 
       const suppressedError = this.lastSuppressedError as Error | null;
       if (suppressedError) {
@@ -1770,6 +2528,11 @@ ${snapshot.elementsText}
     this.pendingCriticalVerification = null;
     this.outcomeVerifier = null;
     this.verifierProvider = null;
+    this.actionSafetyCache.clear();
+    this.screenSafetyPromises.clear();
+    this.actionSafetyApprovedBoundaries.clear();
+    this.currentScreenContent = '';
+    this.currentScreenSignature = '';
     this.currentUserGoal = userMessage;
     // Reset workflow approval for each new task
     this.resetAppActionApproval('new task');
@@ -1936,6 +2699,8 @@ ${snapshot.elementsText}
         if (this.config.transformScreenContent) {
           screenContent = await this.config.transformScreenContent(screenContent);
         }
+        this.currentScreenContent = screenContent;
+        this.currentScreenSignature = this.getScreenSignature(screen, screenContent);
 
         // 3. Handle observations
         this.handleObservations(step, maxSteps, screenName);
@@ -1977,6 +2742,8 @@ ${snapshot.elementsText}
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
         logger.debug('AgentRuntime', 'System prompt length:', systemPrompt.length);
         logger.debug('AgentRuntime', 'User context preview:', contextMessage.substring(0, 300));
+
+        void this.startScreenSafetyPreclassification(screen, screenContent, step);
 
         const response = await this.provider.generateContent(
           systemPrompt,

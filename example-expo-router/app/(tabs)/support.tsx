@@ -47,6 +47,23 @@ function buildMessageForAction(context: SupportEscalationContext | null, issueTy
   return `Issue: ${issueType}. Order ${context.orderId}, status ${context.status}.`;
 }
 
+function messageToText(message: AIMessage): string {
+  if (message.previewText) return message.previewText;
+  return message.content
+    .map((node) => {
+      if (node.type === 'text') return node.content;
+      const props = node.props || {};
+      return [
+        typeof props.title === 'string' ? props.title : '',
+        typeof props.subtitle === 'string' ? props.subtitle : '',
+        typeof props.description === 'string' ? props.description : '',
+        typeof props.body === 'string' ? props.body : '',
+      ].filter(Boolean).join('\n');
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 export default function SupportScreen() {
   const params = useLocalSearchParams<{
     orderId?: string;
@@ -93,7 +110,7 @@ export default function SupportScreen() {
         styles.messageText,
         item.role === 'user' ? styles.userText : styles.assistantText,
       ]}>
-        {item.content}
+        {messageToText(item)}
       </Text>
     </View>
   );

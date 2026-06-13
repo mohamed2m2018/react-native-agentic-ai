@@ -1,5 +1,6 @@
-import { Link } from 'expo-router';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Link, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useFoodDelivery } from '@/app/lib/delivery-demo';
 
@@ -11,19 +12,46 @@ function getStatusColor(status: string): string {
 
 export default function OrdersScreen() {
   const { activeOrders } = useFoodDelivery();
+  const [longLoading, setLongLoading] = useState(false);
   const active = activeOrders.filter((order) => order.status !== 'Delivered' && order.status !== 'Undelivered');
   const completed = activeOrders.filter((order) => order.status === 'Delivered' || order.status === 'Undelivered');
+  const orders = longLoading ? [] : [...active, ...completed];
+
+  useFocusEffect(
+    useCallback(() => {
+      const timeout = setTimeout(() => setLongLoading(false), 6000);
+      setLongLoading(true);
+
+      return () => {
+        clearTimeout(timeout);
+        setLongLoading(false);
+      };
+    }, [])
+  );
 
   return (
     <FlatList
       style={styles.container}
       contentContainerStyle={styles.content}
-      data={[...active, ...completed]}
+      data={orders}
       keyExtractor={(order) => order.id}
       ListHeaderComponent={() => (
         <View>
           <Text style={styles.title}>Your Orders</Text>
           <Text style={styles.subtitle}>Track active deliveries and review support-ready history.</Text>
+          <View style={[styles.loadingCard, longLoading && styles.loadingCardActive]}>
+            <View style={styles.loadingTitleRow}>
+              <Text style={styles.loadingTitle}>
+                {longLoading ? 'Loading Orders' : 'Orders Loaded'}
+              </Text>
+              {longLoading ? <ActivityIndicator color="#0F766E" /> : null}
+            </View>
+            <Text style={styles.loadingText}>
+              {longLoading
+                ? 'Fetching your latest orders.'
+                : 'The focus-triggered orders load is complete.'}
+            </Text>
+          </View>
         </View>
       )}
       renderItem={({ item }) => {
@@ -60,12 +88,16 @@ export default function OrdersScreen() {
         );
       }}
       ListEmptyComponent={() => (
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>No recent orders yet.</Text>
-          <Link href="/" asChild>
-            <Pressable style={styles.secondaryBtn}><Text style={styles.secondaryText}>Start an order</Text></Pressable>
-          </Link>
-        </View>
+        longLoading
+          ? null
+          : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>No recent orders yet.</Text>
+              <Link href="/" asChild>
+                <Pressable style={styles.secondaryBtn}><Text style={styles.secondaryText}>Start an order</Text></Pressable>
+              </Link>
+            </View>
+          )
       )}
     />
   );
@@ -76,6 +108,18 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   title: { fontSize: 28, fontWeight: '800', marginBottom: 4 },
   subtitle: { color: '#64748B', marginBottom: 16 },
+  loadingCard: {
+    borderRadius: 14,
+    padding: 16,
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    marginBottom: 16,
+  },
+  loadingCardActive: { backgroundColor: '#CCFBF1', borderColor: '#2DD4BF' },
+  loadingTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  loadingTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  loadingText: { color: '#475569', fontSize: 13, lineHeight: 18 },
   card: {
     borderRadius: 14,
     backgroundColor: 'rgba(241,245,249,0.9)',
