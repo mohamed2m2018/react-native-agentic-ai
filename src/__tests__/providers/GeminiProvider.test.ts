@@ -80,6 +80,19 @@ const sampleTools: ToolDefinition[] = [
   },
 ];
 
+const verifierTools: ToolDefinition[] = [
+  {
+    name: 'report_verification',
+    description: 'Report whether an action succeeded',
+    parameters: {
+      status: { type: 'string', description: 'success, error, or uncertain', required: true },
+      failureKind: { type: 'string', description: 'controllable or uncontrollable', required: true },
+      evidence: { type: 'string', description: 'UI evidence', required: true },
+    },
+    execute: jest.fn(),
+  },
+];
+
 // ─── Tests ─────────────────────────────────────────────────────
 
 describe('GeminiProvider', () => {
@@ -166,6 +179,71 @@ describe('GeminiProvider', () => {
       expect(result.reasoning.plan).toBe('Tap the pizza button');
       expect(result.reasoning.previousGoalEval).toBe('Success');
       expect(result.reasoning.memory).toBe('test memory');
+    });
+
+    it('accepts object action_input returned by Gemini for verifier tools', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        candidates: [{
+          content: {
+            parts: [{
+              functionCall: {
+                name: 'agent_step',
+                args: {
+                  action_name: 'report_verification',
+                  action_input: {
+                    status: 'success',
+                    failureKind: 'controllable',
+                    evidence: 'The post-action UI shows Cancellation requested.',
+                  },
+                  plan: 'The UI proves the cancellation succeeded.',
+                },
+              },
+            }],
+          },
+        }],
+      });
+
+      const provider = createProvider();
+      const result = await provider.generateContent('sys', 'msg', verifierTools, []);
+
+      expect(result.toolCalls[0]).toEqual({
+        name: 'report_verification',
+        args: {
+          status: 'success',
+          failureKind: 'controllable',
+          evidence: 'The post-action UI shows Cancellation requested.',
+        },
+      });
+    });
+
+    it('falls back to matched top-level fields when action_input is missing', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        candidates: [{
+          content: {
+            parts: [{
+              functionCall: {
+                name: 'agent_step',
+                args: {
+                  action_name: 'report_verification',
+                  status: 'success',
+                  failureKind: 'controllable',
+                  evidence: 'The confirmation message is visible.',
+                  plan: 'Report success.',
+                },
+              },
+            }],
+          },
+        }],
+      });
+
+      const provider = createProvider();
+      const result = await provider.generateContent('sys', 'msg', verifierTools, []);
+
+      expect(result.toolCalls[0]!.args).toEqual({
+        status: 'success',
+        failureKind: 'controllable',
+        evidence: 'The confirmation message is visible.',
+      });
     });
 
     it('falls back to done when no candidates', async () => {

@@ -31,7 +31,10 @@ Interactive elements are listed as [index]<type attrs>label />
 - label: visible text content of the element
 
 Only elements with [index] are interactive. Use the index to tap or type into them.
-Pure text elements without [] are NOT interactive — they are informational content you can read.
+
+Disabled (gated) elements appear as [disabled]<type>label />. They have no index and cannot be tapped or typed yet, but they exist on screen. When a [disabled] element matches the user's goal (e.g. a Submit, Confirm, or Review button), DO NOT give up or report a blocker. The element is gated by another control on the same screen — typically an unset switch (value="false"), an unchecked checkbox, an empty text-input, or an unselected chip/radio. Find the gating control nearby, set it (toggle the switch, fill the input, pick the chip), then re-read the screen — the gated element will become [index]ed and tappable. Never invent policy reasons for a disabled state from informational text on the screen; the gate is always a sibling control.
+
+Pure text elements without [] or [disabled] are NOT interactive — they are informational content you can read.
 </screen_state>`;
 
 const COMPANION_SCREEN_STATE_GUIDE = `<screen_state>
@@ -40,6 +43,8 @@ Interactive elements are listed as [index]<type attrs>label />
 - type: element type (pressable, text-input, switch, radio)
 - attrs: state attributes like value="true", checked="false", role="switch"
 - label: visible text content of the element
+
+Disabled (gated) elements appear as [disabled]<type>label />. They are visible but currently un-tappable. When the user wants to use a [disabled] control, guide them to set the gating sibling control first (a switch, checkbox, text-input, or chip on the same screen) — never explain the gate as a policy or system rule.
 
 Use the labels and screen structure to guide the user in plain language.
 You cannot tap, type, scroll, navigate, select controls, submit forms, or invoke UI-control actions.

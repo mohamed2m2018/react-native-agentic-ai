@@ -476,7 +476,7 @@ export default function App() {
           analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY || ''}
           navRef={navRef}
           screenMap={screenMap}
-          maxSteps={25}
+          maxSteps={40}
           enableVoice
           debug
           knowledgeBase={mockKnowledgeBase}

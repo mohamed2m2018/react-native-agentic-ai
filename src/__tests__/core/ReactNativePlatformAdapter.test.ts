@@ -85,6 +85,7 @@ function FactCard() {
 describe('ReactNativePlatformAdapter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWalkFiberTree.mockReset();
     globalBlockRegistry.clear();
     globalZoneRegistry.unregister('test-zone');
   });
@@ -246,6 +247,62 @@ describe('ReactNativePlatformAdapter', () => {
 
       expect(result).toContain('✅ Tapped [3] "Buy now"');
       expect(onPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for async press handlers before checking the post-action screen', async () => {
+      let completed = false;
+      let resolvePress: (() => void) | undefined;
+      const onPress = jest.fn(() => new Promise<void>((resolve) => {
+        resolvePress = () => {
+          completed = true;
+          resolve();
+        };
+      }));
+      const before = createElement(3, 'Submit cancellation review', {
+        props: { onPress, accessibilityRole: 'button' },
+      });
+      const after = createElement(3, 'Review cancellation request', {
+        props: { onPress: jest.fn(), accessibilityRole: 'button' },
+      });
+      const adapter = createAdapter();
+
+      mockWalk([before]);
+      mockWalk([after]);
+
+      const resultPromise = adapter.executeAction({ type: 'tap', index: 3 });
+      await Promise.resolve();
+
+      expect(onPress).toHaveBeenCalledTimes(1);
+      expect(completed).toBe(false);
+      resolvePress?.();
+
+      const result = await resultPromise;
+
+      expect(result).toContain('✅ Tapped [3] "Submit cancellation review"');
+      expect(completed).toBe(true);
+    });
+
+    it('does not use static sleeps or immediate post-action tree reads after synchronous press handlers', async () => {
+      let completed = false;
+      const onPress = jest.fn(() => {
+        completed = true;
+      });
+      const button = createElement(3, 'Submit cancellation review', {
+        props: { onPress, accessibilityRole: 'button' },
+      });
+      const adapter = createAdapter();
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+      mockWalk([button]);
+
+      const result = await adapter.executeAction({ type: 'tap', index: 3 });
+
+      expect(result).toContain('✅ Tapped [3] "Submit cancellation review"');
+      expect(onPress).toHaveBeenCalledTimes(1);
+      expect(completed).toBe(true);
+      expect(mockWalkFiberTree).toHaveBeenCalledTimes(1);
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+      setTimeoutSpy.mockRestore();
     });
 
     it('blocks a dangerous same-index semantic mismatch', async () => {

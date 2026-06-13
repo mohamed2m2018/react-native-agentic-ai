@@ -282,16 +282,47 @@ describe('FiberTreeWalker', () => {
       expect(result.elementsText).toBe('');
     });
 
-    it('disabled elements are skipped', () => {
-      const disabled = createFiberNode('Pressable', {
-        onPress: () => {},
-        disabled: true,
+    it('disabled elements are skipped from interactives but emitted as [disabled] markers', () => {
+      const text = createFiberNode('Text', {
+        children: 'Review cancellation request',
       });
+      const disabled = createFiberNode(
+        'Pressable',
+        { onPress: () => {}, disabled: true },
+        [text]
+      );
       const root = createFiberNode('View', {}, [disabled]);
 
       const result = walkFiberTree(createFiberRoot(root));
 
       expect(result.interactives).toHaveLength(0);
+      expect(result.elementsText).toContain('[disabled]<pressable>');
+      expect(result.elementsText).toContain('Review cancellation request');
+    });
+
+    it('emits [disabled] marker alongside an unset gating Switch so the agent can find the gate', () => {
+      const ackSwitch = createFiberNode('RCTSwitch', {
+        onValueChange: () => {},
+        value: false,
+      });
+      const submitText = createFiberNode('Text', {
+        children: 'Submit cancellation',
+      });
+      const submitButton = createFiberNode(
+        'Pressable',
+        { onPress: () => {}, disabled: true },
+        [submitText]
+      );
+      const root = createFiberNode('View', {}, [ackSwitch, submitButton]);
+
+      const result = walkFiberTree(createFiberRoot(root));
+
+      // Switch is enabled and indexed. Submit is disabled and marker-only.
+      expect(result.interactives).toHaveLength(1);
+      expect(result.interactives[0]!.type).toBe('switch');
+      expect(result.elementsText).toMatch(/\[\d+\]<switch[^>]*value="false"/);
+      expect(result.elementsText).toContain('[disabled]<pressable>');
+      expect(result.elementsText).toContain('Submit cancellation');
     });
   });
 

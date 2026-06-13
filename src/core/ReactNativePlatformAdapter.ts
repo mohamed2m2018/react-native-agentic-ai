@@ -49,6 +49,16 @@ type TargetResolution =
       message: string;
     };
 
+async function awaitHandlerResult(result: unknown): Promise<void> {
+  if (
+    result
+    && (typeof result === 'object' || typeof result === 'function')
+    && typeof (result as PromiseLike<unknown>).then === 'function'
+  ) {
+    await result;
+  }
+}
+
 function isScalarSelectionValue(
   value: unknown
 ): value is string | number | boolean {
@@ -603,11 +613,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     return params;
   }
 
-  private getInteractiveElements(): InteractiveElement[] {
-    const snapshot = this.getScreenSnapshot();
-    return snapshot.elements;
-  }
-
   private resolveInteractiveElement(
     index: number,
     actionName: string
@@ -703,22 +708,17 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
   private async tap(index: number): Promise<string> {
     const resolved = this.resolveInteractiveElement(index, 'tap');
     if (!resolved.ok) return resolved.message;
-    const { element, elements } = resolved;
+    const { element } = resolved;
     index = element.index;
-
-    const elementCountBefore = elements.length;
-    const screenBefore = this.getCurrentScreenName();
 
     if (element.virtual?.kind === 'alert_button') {
       dismissAlert(element.virtual.alertButtonIndex);
-      await new Promise((resolve) => setTimeout(resolve, 500));
       return `✅ Tapped native alert button [${index}] "${element.label}" → dialog dismissed`;
     }
 
     if (element.type === 'switch' && element.props.onValueChange) {
       try {
-        element.props.onValueChange(!element.props.value);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await awaitHandlerResult(element.props.onValueChange(!element.props.value));
         return `✅ Toggled [${index}] "${element.label}" to ${!element.props.value}`;
       } catch (error: any) {
         return `❌ Error toggling [${index}]: ${error.message}`;
@@ -731,8 +731,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
       if (element.props.onPress) {
         try {
-          element.props.onPress();
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await awaitHandlerResult(element.props.onPress());
           return `✅ Selected [${index}] "${element.label}"`;
         } catch (error: any) {
           return `❌ Error selecting [${index}]: ${error.message}`;
@@ -741,8 +740,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
       if (ownSelectionHandler) {
         try {
-          ownSelectionHandler.handler(radioPayload);
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await awaitHandlerResult(ownSelectionHandler.handler(radioPayload));
           return `✅ Selected [${index}] "${element.label}"`;
         } catch (error: any) {
           return `❌ Error selecting [${index}]: ${error.message}`;
@@ -752,20 +750,8 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
     if (element.props.onPress) {
       try {
-        element.props.onPress();
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        const postElements = this.getInteractiveElements();
-        const screenAfter = this.getCurrentScreenName();
-        const elementCountAfter = postElements.length;
-
-        if (screenAfter !== screenBefore) {
-          return `✅ Tapped [${index}] "${element.label}" → navigated to "${screenAfter}"`;
-        }
-        if (Math.abs(elementCountAfter - elementCountBefore) > 0) {
-          return `✅ Tapped [${index}] "${element.label}" → screen updated (${elementCountBefore} → ${elementCountAfter} elements)`;
-        }
-        return `✅ Tapped [${index}] "${element.label}" → action executed successfully. Proceed to your next step.`;
+        await awaitHandlerResult(element.props.onPress());
+        return `✅ Tapped [${index}] "${element.label}"`;
       } catch (error: any) {
         return `❌ Error tapping [${index}]: ${error.message}`;
       }
@@ -781,8 +767,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       const parentProps = getProps(fiber);
       if (parentProps.onPress && typeof parentProps.onPress === 'function') {
         try {
-          parentProps.onPress();
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await awaitHandlerResult(parentProps.onPress());
           return `✅ Tapped parent of [${index}] "${element.label}"`;
         } catch (error: any) {
           return `❌ Error tapping parent of [${index}]: ${error.message}`;
@@ -792,8 +777,7 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         const parentSelectionHandler = getRadioSelectionHandler(parentProps);
         if (parentSelectionHandler) {
           try {
-            parentSelectionHandler.handler(radioPayload);
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            await awaitHandlerResult(parentSelectionHandler.handler(radioPayload));
             return `✅ Selected [${index}] "${element.label}" via parent group`;
           } catch (error: any) {
             return `❌ Error selecting [${index}] via parent group: ${error.message}`;
@@ -819,7 +803,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     ) {
       try {
         element.props.onLongPress();
-        await new Promise((resolve) => setTimeout(resolve, 500));
         return `✅ Long-pressed [${index}] "${element.label}"`;
       } catch (error: any) {
         return `❌ Error long-pressing [${index}]: ${error.message}`;
@@ -836,7 +819,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       ) {
         try {
           parentProps.onLongPress();
-          await new Promise((resolve) => setTimeout(resolve, 500));
           return `✅ Long-pressed parent of [${index}] "${element.label}"`;
         } catch (error: any) {
           return `❌ Error long-pressing parent of [${index}]: ${error.message}`;
@@ -1095,7 +1077,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       ) {
         element.props.onSlidingComplete(actualValue);
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
       return `✅ Adjusted slider [${index}] "${element.label}" to ${Math.round(normalizedValue * 100)}% (value: ${actualValue.toFixed(2)})`;
     } catch (error: any) {
       return `❌ Error adjusting slider: ${error.message}`;
@@ -1130,7 +1111,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       try {
         const matchIndex = options.indexOf(match);
         onValueChange(match.value, matchIndex);
-        await new Promise((resolve) => setTimeout(resolve, 500));
         return `✅ Selected "${match.label}" in picker [${index}] "${element.label}"`;
       } catch (error: any) {
         return `❌ Error selecting picker value: ${error.message}`;
@@ -1139,7 +1119,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
 
     try {
       onValueChange(value, 0);
-      await new Promise((resolve) => setTimeout(resolve, 500));
       return `✅ Set picker [${index}] "${element.label}" to "${value}"`;
     } catch (error: any) {
       return `❌ Error setting picker value: ${error.message}`;
@@ -1174,7 +1153,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
         },
       };
       onChange(syntheticEvent, dateObj);
-      await new Promise((resolve) => setTimeout(resolve, 500));
       return `✅ Set date picker [${index}] "${element.label}" to ${dateObj.toLocaleDateString()}`;
     } catch (error: any) {
       return `❌ Error setting date: ${error.message}`;
@@ -1388,7 +1366,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       try {
         const path = screen.startsWith('/') ? screen : `/${screen}`;
         this.options.router.push(path);
-        await new Promise((resolve) => setTimeout(resolve, 500));
         return `✅ Navigated to "${path}"`;
       } catch (error: any) {
         return `❌ Navigation error: ${error.message}`;
@@ -1432,7 +1409,6 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
       } else {
         navRef.navigate(matchedScreen, params);
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
       return `✅ Navigated to "${matchedScreen}"${params ? ` with params: ${JSON.stringify(params)}` : ''}`;
     } catch (error: any) {
       return `❌ Navigation error: ${error.message}. Available screens: ${this.getRouteNames().join(', ')}`;

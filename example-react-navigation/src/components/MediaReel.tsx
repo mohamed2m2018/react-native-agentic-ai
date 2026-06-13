@@ -1,70 +1,26 @@
-import { View, Text, StyleSheet, ScrollView, Image, Pressable  } from 'react-native';
-import { useState } from 'react';
-// @ts-ignore — expo-video types resolve at build time
-import { useVideoPlayer, VideoView } from 'expo-video';
-
-const FOOD_VIDEO_URL = 'https://upload.wikimedia.org/wikipedia/commons/1/1c/Creation_of_a_Papa_Murphy%E2%80%99s_Pizza.webm';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 const MOCK_MEDIA = [
   { id: '1', type: 'image' as const, url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=400&fit=crop', title: 'Cheesy Pizza' },
-  { id: '2', type: 'video' as const, url: FOOD_VIDEO_URL, title: 'Making a Burger', poster: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=400&h=400&fit=crop' },
+  { id: '2', type: 'image' as const, url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=400&h=400&fit=crop', title: 'Making a Burger' },
   { id: '3', type: 'image' as const, url: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=400&h=400&fit=crop', title: 'Sweet Donut' },
-  { id: '4', type: 'video' as const, url: FOOD_VIDEO_URL, title: 'Grilling Steak', poster: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop' },
+  { id: '4', type: 'image' as const, url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop', title: 'Grilling Steak' },
 ];
-
-function VideoCard({ item }: { item: typeof MOCK_MEDIA[1] }) {
-  const player = useVideoPlayer(item.url, (p: any) => {
-    p.loop = true;
-    p.muted = true;
-    p.play();
-  });
-  const [isPlaying, setIsPlaying] = useState(true);
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      player.pause();
-    } else {
-      player.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  return (
-    <Pressable style={styles.mediaCard} onPress={togglePlay}>
-      <VideoView
-        style={styles.mediaFrame}
-        player={player}
-        nativeControls={false}
-      />
-      <View style={styles.overlay}>
-        {!isPlaying && (
-          <View style={styles.playIconContainer}>
-            <Text style={styles.playIcon}>▶️</Text>
-          </View>
-        )}
-      </View>
-    </Pressable>
-  );
-}
 
 export default function MediaReel() {
   return (
     <View style={styles.container}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {MOCK_MEDIA.map(item =>
-          item.type === 'video' ? (
-            <VideoCard key={item.id} item={item} />
-          ) : (
-            <Pressable
-              key={item.id}
-              style={styles.mediaCard}
-              onPress={() => {}}
-            >
-              <Image source={{ uri: item.url }} style={styles.mediaFrame} />
-              <View style={styles.overlay}></View>
-            </Pressable>
-          )
-        )}
+        {MOCK_MEDIA.map(item => (
+          <Pressable
+            key={item.id}
+            style={styles.mediaCard}
+            onPress={() => {}}
+          >
+            <Image source={{ uri: item.url }} style={styles.mediaFrame} />
+            <View style={styles.overlay}></View>
+          </Pressable>
+        ))}
       </ScrollView>
     </View>
   );
@@ -95,21 +51,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  playIconContainer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -20,
-    marginTop: -20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playIcon: {
-    fontSize: 20,
-    marginLeft: 4,
-  }
 });

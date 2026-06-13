@@ -342,6 +342,18 @@ export class GeminiProvider implements AIProvider {
           `Invalid action_input JSON for ${actionName}: ${(error as Error).message}`
         );
       }
+    } else if (
+      rawActionInput &&
+      typeof rawActionInput === 'object' &&
+      !Array.isArray(rawActionInput)
+    ) {
+      actionArgs = rawActionInput as Record<string, any>;
+    } else if (matchedTool) {
+      for (const paramName of Object.keys(matchedTool.parameters)) {
+        if (args[paramName] !== undefined) {
+          actionArgs[paramName] = args[paramName];
+        }
+      }
     }
 
     if (matchedTool) {
