@@ -44,6 +44,9 @@ export const ENDPOINTS = {
   /** Hosted MobileAI voice proxy — used by default when analyticsKey is set */
   hostedVoiceProxy: `${toWebSocketBase(MOBILEAI_BASE)}/ws/hosted-proxy/voice`,
 
+  /** Proxy session token exchange — exchanges analyticsKey for short-lived session token */
+  proxySession: `${MOBILEAI_BASE}/api/v1/proxy-session`,
+
   /** Telemetry event ingest — receives batched SDK events */
   telemetryIngest: `${MOBILEAI_BASE}/api/v1/events`,
 
@@ -55,4 +58,7 @@ export const ENDPOINTS = {
 
   /** AI conversation history — save and retrieve per-user AI chat sessions */
   conversations: `${MOBILEAI_BASE}/api/v1/conversations`,
+
+  /** Proactive outreach — triggers and messages for user engagement */
+  proactiveOutreach: `${MOBILEAI_BASE}/api/v1/outreach`,
 } as const;

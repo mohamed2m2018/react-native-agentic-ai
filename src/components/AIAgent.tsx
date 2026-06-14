@@ -87,6 +87,7 @@ import { ENDPOINTS } from '../config/endpoints';
 import type { ReportedIssue, SupportModeConfig } from '../support/types';
 import * as ConversationService from '../services/ConversationService';
 import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
+import { getSessionToken, clearSession as clearProxySession } from '../services/ProxySessionService';
 import {
   executeConfiguredAction,
   fetchConfiguredActions,
@@ -708,6 +709,17 @@ export function AIAgent({
   }, [debug]);
 
   const rootViewRef = useRef<any>(null);
+  const [proxySessionToken, setProxySessionToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!analyticsKey) return;
+    let cancelled = false;
+    getSessionToken(analyticsKey)
+      .then((token) => { if (!cancelled) setProxySessionToken(token); })
+      .catch((err) => logger.warn('AIAgent', `Proxy session exchange failed: ${err.message}`));
+    return () => { cancelled = true; clearProxySession(); };
+  }, [analyticsKey]);
+
   const [isThinking, setIsThinking] = useState(false);
   const [isActing, setIsActing] = useState(false);
   const [statusText, setStatusText] = useState('');
@@ -1226,13 +1238,19 @@ export function AIAgent({
   );
 
   const clearMessages = useCallback(() => {
+    if (activeConversationIdRef.current && analyticsKey) {
+      ConversationService.endConversation({
+        conversationId: activeConversationIdRef.current,
+        analyticsKey,
+      });
+    }
     clearPendingConversationSave();
     conversationGenerationRef.current += 1;
     activeConversationIdRef.current = null;
     lastSavedMessageCountRef.current = 0;
     setMessages([]);
     setLastResult(null);
-  }, [clearPendingConversationSave]);
+  }, [clearPendingConversationSave, analyticsKey]);
 
   const openSupportTicketModal = useCallback(
     (
@@ -1844,8 +1862,8 @@ export function AIAgent({
         setTickets(fetchedTickets);
         setUnreadCounts(initialUnreadCounts);
 
-        // Switch the widget to human mode so support is immediately available.
-        setMode('human');
+        // Make Human mode available, but do NOT auto-switch the user away from
+        // Text/Voice. The user explicitly chooses Human by tapping the tab.
         setAutoExpandTrigger((prev) => prev + 1);
 
         // Open SSE for every restored ticket — reliable ticket_closed delivery
@@ -2542,29 +2560,39 @@ export function AIAgent({
 
   const effectiveProxyHeaders = useMemo(() => {
     if (!analyticsKey) return proxyHeaders;
+
+    const authToken = proxySessionToken || analyticsKey;
+    const deviceId = getDeviceId();
     const isAuthMissing =
       !proxyHeaders ||
       !Object.keys(proxyHeaders).some(
         (k) => k.toLowerCase() === 'authorization'
       );
-    if (isAuthMissing) {
-      return { ...proxyHeaders, Authorization: `Bearer ${analyticsKey}` };
-    }
-    return proxyHeaders;
-  }, [proxyHeaders, analyticsKey]);
+
+    return {
+      ...proxyHeaders,
+      ...(isAuthMissing && { Authorization: `Bearer ${authToken}` }),
+      ...(deviceId && { 'X-MobileAI-Device-Id': deviceId }),
+    };
+  }, [proxyHeaders, analyticsKey, proxySessionToken]);
 
   const effectiveVoiceProxyHeaders = useMemo(() => {
     if (!analyticsKey) return voiceProxyHeaders;
+
+    const authToken = proxySessionToken || analyticsKey;
+    const deviceId = getDeviceId();
     const isAuthMissing =
       !voiceProxyHeaders ||
       !Object.keys(voiceProxyHeaders).some(
         (k) => k.toLowerCase() === 'authorization'
       );
-    if (isAuthMissing) {
-      return { ...voiceProxyHeaders, Authorization: `Bearer ${analyticsKey}` };
-    }
-    return voiceProxyHeaders;
-  }, [voiceProxyHeaders, analyticsKey]);
+
+    return {
+      ...voiceProxyHeaders,
+      ...(isAuthMissing && { Authorization: `Bearer ${authToken}` }),
+      ...(deviceId && { 'X-MobileAI-Device-Id': deviceId }),
+    };
+  }, [voiceProxyHeaders, analyticsKey, proxySessionToken]);
 
   const resolvedProxyUrl = useMemo(() => {
     if (proxyUrl) return proxyUrl;
@@ -3182,7 +3210,7 @@ export function AIAgent({
             pendingVoiceActionToolRef.current
           ) {
             if (!pendingVoicePermissionToolRef.current) {
-              setStatusText((current) => current || 'One moment...');
+              setStatusText((current) => current || 'Thinking...');
             }
             logger.debug(
               'AIAgent',
@@ -3452,8 +3480,8 @@ export function AIAgent({
             `🔧 Tool result for ${toolCall.name}: ${result}`
           );
 
-          // Step delay — matches text mode's stepDelay (line 820 in AgentRuntime).
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          // Brief pause so the app can commit the tool result before sending context.
+          await new Promise((resolve) => setTimeout(resolve, 120));
           if (!isCurrentVoiceSession()) return;
 
           // Include updated screen context IN the tool response
@@ -3760,7 +3788,7 @@ export function AIAgent({
             }),
           ]);
           setIsThinking(true);
-          setStatusText('Sending to agent...');
+          setStatusText('Thinking...');
           setTimeout(() => {
             setIsThinking(false);
             setStatusText('');
@@ -3815,7 +3843,7 @@ export function AIAgent({
           });
 
           setIsThinking(true);
-          setStatusText('Answering your question...');
+          setStatusText('Thinking...');
           setLastResult(null);
           resolver(message.trim());
           return;
@@ -3826,7 +3854,7 @@ export function AIAgent({
         pendingAppApprovalRef.current = false; // CRITICAL FIX: Unlock the agent state
         setPendingApprovalQuestion(null);
         setIsThinking(true);
-        setStatusText('Processing your answer...');
+        setStatusText('Thinking...');
         setLastResult(null);
         logger.info(
           'AIAgent',
@@ -3873,7 +3901,7 @@ export function AIAgent({
       pendingAppApprovalRef.current = false;
       queuedApprovalAnswerRef.current = null;
       setIsThinking(true);
-      setStatusText('Thinking...');
+      setStatusText('Looking at your screen...');
       setLastResult(null);
       const requestStartedAt = Date.now();
       logger.info(
@@ -4174,6 +4202,12 @@ export function AIAgent({
   );
 
   const handleNewConversation = useCallback(() => {
+    if (activeConversationIdRef.current && analyticsKey) {
+      ConversationService.endConversation({
+        conversationId: activeConversationIdRef.current,
+        analyticsKey,
+      });
+    }
     clearPendingConversationSave();
     conversationGenerationRef.current += 1;
     activeConversationIdRef.current = null;
@@ -4181,7 +4215,7 @@ export function AIAgent({
     setMessages([]);
     setLastResult(null);
     setLastUserMessage(null);
-  }, [clearPendingConversationSave]);
+  }, [clearPendingConversationSave, analyticsKey]);
 
   const handlePendingApprovalAction = useCallback(
     async (action: 'approve' | 'reject') => {
@@ -4230,7 +4264,7 @@ export function AIAgent({
           : '__APPROVAL_REJECTED__';
       if (action === 'approve') {
         setIsThinking(true);
-        setStatusText('Working...');
+        setStatusText('Thinking...');
       }
       telemetryRef.current?.track('agent_trace', {
         stage: 'approval_button_pressed',
@@ -4268,7 +4302,7 @@ export function AIAgent({
             pendingVoiceAction.args
           );
           if (!isSameVoiceSession()) return;
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 120));
           if (!isSameVoiceSession()) return;
           const updatedContext = runtime.getScreenContext();
           lastScreenContextRef.current = updatedContext;
