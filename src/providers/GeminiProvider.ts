@@ -52,6 +52,35 @@ import type {
 // ─── Constants ─────────────────────────────────────────────────
 
 const AGENT_STEP_FN = 'agent_step';
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 1000;
+const RATE_LIMIT_BACKOFF_MS = 3000;
+
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  tag: string,
+  maxRetries = MAX_RETRIES,
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const status = error.status ?? error.httpCode ?? 0;
+      const msg = String(error.message || '');
+      const isRateLimit = status === 429 || msg.includes('device_rate_limited') || msg.includes('token_rate_limited');
+      const isRetryable = isRateLimit || status === 503;
+      if (!isRetryable || attempt === maxRetries) throw error;
+
+      const base = isRateLimit ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;
+      const delay = base * Math.pow(2, attempt);
+      logger.warn(tag, `${status} — retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
 
 // ─── Provider ──────────────────────────────────────────────────
 
@@ -59,12 +88,16 @@ export class GeminiProvider implements AIProvider {
   private ai: any; // GoogleGenAI instance, loaded lazily
   private model: string;
 
+  private enableWebSearch: boolean;
+
   constructor(
     apiKey?: string,
     model: string = 'gemini-2.5-flash',
     proxyUrl?: string,
-    proxyHeaders?: Record<string, string>
+    proxyHeaders?: Record<string, string>,
+    enableWebSearch?: boolean,
   ) {
+    this.enableWebSearch = enableWebSearch ?? false;
     const config: any = {};
 
     if (proxyUrl) {
@@ -84,6 +117,71 @@ export class GeminiProvider implements AIProvider {
     const { GoogleGenAI } = loadGenAI();
     this.ai = new GoogleGenAI(config);
     this.model = model;
+  }
+
+  /**
+   * Returns a web_search tool that makes a separate Gemini call with
+   * Google Search grounding. This avoids the limitation where built-in
+   * tools (googleSearch) cannot be combined with function calling.
+   */
+  createWebSearchTool(): ToolDefinition | null {
+    if (!this.enableWebSearch) return null;
+
+    const ai = this.ai;
+    const model = this.model;
+
+    return {
+      name: 'web_search',
+      description:
+        'Search the web for real-time, domain-relevant information that is NOT available '
+        + 'on screen or in the knowledge base. Use ONLY for app-related queries: product info, '
+        + 'current promotions, store/restaurant details, delivery status from external sources, '
+        + 'dietary or allergen info for menu items, etc. '
+        + 'Do NOT use for general knowledge questions unrelated to the app.',
+      parameters: {
+        query: {
+          type: 'string' as const,
+          description: 'The search query — should be specific and related to the app domain',
+          required: true,
+        },
+      },
+      execute: async (args: Record<string, any>) => {
+        const query = args.query;
+        if (!query?.trim()) return 'Error: search query is required.';
+
+        logger.info('WebSearch', `Searching: "${query}"`);
+        try {
+          const response: any = await retryWithBackoff(
+            () => ai.models.generateContent({
+              model,
+              contents: query,
+              config: {
+                tools: [{ googleSearch: {} }],
+                temperature: 0.1,
+                maxOutputTokens: 1024,
+              },
+            }),
+            'WebSearch',
+          );
+
+          const text = response?.candidates?.[0]?.content?.parts
+            ?.filter((p: any) => p.text)
+            ?.map((p: any) => p.text)
+            ?.join('\n');
+
+          if (!text) {
+            logger.warn('WebSearch', 'No text in search response');
+            return 'Web search returned no results for this query.';
+          }
+
+          logger.info('WebSearch', `Got ${text.length} chars`);
+          return `Web search results for "${query}":\n\n${text}`;
+        } catch (error: any) {
+          logger.error('WebSearch', `Failed: ${error.message}`);
+          return `Web search failed: ${error.message}. Try answering from available app data instead.`;
+        }
+      },
+    };
   }
 
   async generateContent(
@@ -109,23 +207,26 @@ export class GeminiProvider implements AIProvider {
     const startTime = Date.now();
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: this.model,
-        contents,
-        config: {
-          systemInstruction: systemPrompt,
-          tools: [{ functionDeclarations: [agentStepDeclaration] }],
-          toolConfig: {
-            functionCallingConfig: {
-              mode: loadGenAI().FunctionCallingConfigMode.ANY,
-              allowedFunctionNames: [AGENT_STEP_FN],
+      const response = await retryWithBackoff(
+        () => this.ai.models.generateContent({
+          model: this.model,
+          contents,
+          config: {
+            systemInstruction: systemPrompt,
+            tools: [{ functionDeclarations: [agentStepDeclaration] }],
+            toolConfig: {
+              functionCallingConfig: {
+                mode: loadGenAI().FunctionCallingConfigMode.ANY,
+                allowedFunctionNames: [AGENT_STEP_FN],
+              },
             },
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+            abortSignal: signal,
           },
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-          abortSignal: signal,
-        },
-      });
+        }),
+        'GeminiProvider',
+      );
 
       const elapsed = Date.now() - startTime;
       logger.info('GeminiProvider', `Response received in ${elapsed}ms`);
@@ -286,6 +387,7 @@ export class GeminiProvider implements AIProvider {
     // Find the function call part
     const fnCallPart = parts.find((p: any) => p.functionCall);
     const textPart = parts.find((p: any) => p.text);
+    const groundingMeta = candidate.groundingMetadata;
 
     if (!fnCallPart?.functionCall) {
       logger.warn(
@@ -386,6 +488,7 @@ export class GeminiProvider implements AIProvider {
       toolCalls: [{ name: actionName, args: actionArgs }],
       reasoning,
       text: textPart?.text,
+      groundingMetadata: groundingMeta,
     };
   }
 

@@ -18,5 +18,7 @@ export { createSimplifyTool } from './simplifyTool';
 export { createRenderBlockTool } from './renderBlockTool';
 export { createInjectCardTool } from './injectCardTool';
 export { createRestoreTool } from './restoreTool';
+export { createWebSearchTool } from './webSearchTool';
+export type { WebSearchConfig } from './webSearchTool';
 
 export type { AgentTool, ToolContext, ToolParameter } from './types';

@@ -432,6 +432,8 @@ interface AIAgentProps {
   pathname?: string;
   /** Enable voice mode (requires expo-av) */
   enableVoice?: boolean;
+  /** Enable web search grounding — Gemini uses Google Search, OpenAI uses web_search_preview. Text mode only. Default: true. */
+  enableWebSearch?: boolean;
   /** Called after each step with token usage data */
   onTokenUsage?: (usage: TokenUsage) => void;
   /** Enable SDK debug logging (disabled by default) */
@@ -640,6 +642,7 @@ export function AIAgent({
   pathname,
   interceptNativeAlerts,
   enableVoice = false,
+  enableWebSearch = true,
   onTokenUsage,
   debug = false,
   knowledgeBase,
@@ -2618,6 +2621,7 @@ export function AIAgent({
       outboundCalls,
       model,
       supportStyle,
+      enableWebSearch,
       verifier,
       actionSafety,
       toolStabilization,
@@ -2831,9 +2835,10 @@ export function AIAgent({
         apiKey,
         model,
         resolvedProxyUrl,
-        effectiveProxyHeaders
+        effectiveProxyHeaders,
+        enableWebSearch
       ),
-    [providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders]
+    [providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders, enableWebSearch]
   );
 
   const runtime = useMemo(

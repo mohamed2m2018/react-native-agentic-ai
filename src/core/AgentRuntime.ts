@@ -61,10 +61,11 @@ import { formatActionToolResult } from '../utils/actionResult';
 import { normalizeRichContent, richContentToPlainText } from './richContent';
 
 const DEFAULT_MAX_STEPS = 40;
-const DEFAULT_STABILIZATION_MAX_MS = 1000;
+const DEFAULT_STABILIZATION_MAX_MS = 650;
 const DEFAULT_STABILIZATION_STABLE_FRAMES = 2;
 const DEFAULT_ACTION_SAFETY_TIMEOUT_MS = 300;
 const DEFAULT_MIN_CONFIDENCE_TO_ALLOW = 0.75;
+const DEFAULT_STEP_DELAY_MS = 80;
 
 function generateTraceId(): string {
   return `trace_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -104,15 +105,6 @@ function nextFrame(): Promise<void> {
       setTimeout(resolve, 16);
     }
   });
-}
-
-async function runAfterInteractions(): Promise<void> {
-  const requestIdle = (globalThis as any).requestIdleCallback;
-  if (typeof requestIdle === 'function') {
-    await new Promise<void>((resolve) => requestIdle(() => resolve(), { timeout: 50 }));
-    return;
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 function waitForTimeout(ms: number, signal?: AbortSignal | null): Promise<void> {
@@ -951,6 +943,15 @@ export class AgentRuntime {
       });
     }
 
+    // web_search — grounded web search (only if enableWebSearch is true and provider supports it)
+    if (this.config.enableWebSearch !== false) {
+      const searchTool = this.provider.createWebSearchTool?.();
+      if (searchTool) {
+        this.tools.set('web_search', searchTool);
+        logger.info('AgentRuntime', 'Web search tool registered');
+      }
+    }
+
     this.tools.set('query_data', {
       name: 'query_data',
       description:
@@ -1267,6 +1268,7 @@ export class AgentRuntime {
     switch (toolName) {
       case 'query_data':
       case 'query_knowledge':
+      case 'web_search':
       case 'capture_screenshot':
         return 'read';
       case 'escalate_to_human':
@@ -1748,9 +1750,14 @@ export class AgentRuntime {
     }
   }
 
+  private static readonly SKIP_STABILIZATION_TOOLS = new Set([
+    'guide_user', 'simplify_zone', 'render_block', 'inject_card', 'restore_zone',
+  ]);
+
   private shouldStabilizeAfterTool(toolName: string, tool?: ToolDefinition): boolean {
     if (this.config.toolStabilization?.enabled === false) return false;
     if (tool?.effect === 'read' || tool?.effect === 'support') return false;
+    if (AgentRuntime.SKIP_STABILIZATION_TOOLS.has(toolName)) return false;
     return AgentRuntime.UI_EFFECT_TOOLS.has(toolName);
   }
 
@@ -1759,6 +1766,8 @@ export class AgentRuntime {
     beforeSignature: string,
     stepIndex?: number
   ): Promise<void> {
+    this.config.onStatusUpdate?.('Waiting for screen to settle...');
+
     const maxMs = this.config.toolStabilization?.maxMs ?? DEFAULT_STABILIZATION_MAX_MS;
     const stableFrames = Math.max(
       1,
@@ -1774,7 +1783,7 @@ export class AgentRuntime {
       if (this.isCancelRequested) {
         break;
       }
-      await runAfterInteractions();
+      // Single frame wait instead of runAfterInteractions + nextFrame
       await nextFrame();
 
       if (this.lastSuppressedError) {
@@ -1788,14 +1797,13 @@ export class AgentRuntime {
 
       if (signature === lastSignature) {
         stableCount += 1;
+        if (stableCount >= stableFrames) {
+          reason = changed ? 'changed_stable' : 'unchanged_stable';
+          break;
+        }
       } else {
         stableCount = 1;
         lastSignature = signature;
-      }
-
-      if (stableCount >= stableFrames) {
-        reason = changed ? 'changed_stable' : 'unchanged_stable';
-        break;
       }
     }
 
@@ -1821,36 +1829,61 @@ export class AgentRuntime {
 
   /** Maps a tool call to a user-friendly status label for the loading overlay. */
   private getToolStatusLabel(toolName: string, args: Record<string, any>): string {
+    const targetLabel = this.getToolTargetLabel(args);
+
     switch (toolName) {
       case 'tap':
-        return 'Tapping a button...';
+        return targetLabel ? `Tapping "${targetLabel}"` : 'Tapping...';
       case 'type':
-        return 'Typing into a field...';
+        return targetLabel ? `Typing in "${targetLabel}"` : 'Typing...';
       case 'navigate':
-        return `Navigating to ${args.screen || 'another screen'}...`;
+        return `Opening ${args.screen || 'screen'}...`;
       case 'done':
-        return 'Wrapping up...';
+        return 'Writing response...';
       case 'ask_user':
-        return 'Asking you a question...';
+        return '';
+      case 'query_data':
+        return `Looking up ${args.source || 'data'}...`;
       case 'query_knowledge':
         return 'Searching knowledge base...';
       case 'scroll':
         return `Scrolling ${args.direction || 'down'}...`;
       case 'wait':
-        return 'Waiting for the screen to load...';
+        return 'Waiting for screen to load...';
       case 'long_press':
-        return 'Long-pressing an element...';
+        return targetLabel ? `Holding "${targetLabel}"` : 'Long pressing...';
       case 'adjust_slider':
-        return `Adjusting slider to ${Math.round((args.value ?? 0) * 100)}%...`;
+        return targetLabel ? `Setting ${targetLabel}...` : 'Adjusting slider...';
       case 'select_picker':
-        return `Selecting "${args.value || ''}" from a dropdown...`;
+        return targetLabel ? `Choosing ${targetLabel}...` : `Choosing "${args.value || ''}"...`;
       case 'set_date':
-        return `Setting date to ${args.date || ''}...`;
+        return `Setting date...`;
       case 'dismiss_keyboard':
-        return 'Dismissing keyboard...';
+        return 'Closing keyboard...';
+      case 'guide_user':
+        return targetLabel ? `Showing "${targetLabel}"` : '';
       default:
-        return `Running ${toolName}...`;
+        return `${toolName}...`;
     }
+  }
+
+  private getToolTargetLabel(args: Record<string, any>): string | null {
+    const index = args?.index;
+    if (typeof index !== 'number') return null;
+
+    const screen = this.lastDehydratedRoot as ScreenSnapshot | null;
+    const label = screen?.elements?.find((element) => element.index === index)?.label;
+    if (!label || /^\[[^\]]+\]$/.test(label)) return null;
+
+    const normalized = label
+      .replace(/,\s*tab,\s*\d+\s*of\s*\d+/i, '')
+      .replace(/,\s*button$/i, '')
+      .replace(/,\s*selected$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return null;
+
+    return normalized.length > 34 ? `${normalized.slice(0, 31)}...` : normalized;
   }
 
   private isCompanionInternalPlanText(value: unknown): boolean {
@@ -2206,6 +2239,12 @@ ${snapshot.elementsText}
         logger.warn('AgentRuntime', blockedMsg);
         this.emitTrace('app_action_gate_blocked', { tool: toolName, args }, stepIndex);
         return blockedMsg;
+      }
+
+      // Approval gate passed — now show status for action tools that were deferred
+      if (AgentRuntime.APP_ACTION_TOOLS.has(toolName)) {
+        const statusLabel = this.getToolStatusLabel(toolName, args);
+        this.config.onStatusUpdate?.(statusLabel);
       }
 
       const safetyDecision = await this.evaluateActionSafety(tool, args, toolName, stepIndex);
@@ -2714,7 +2753,7 @@ ${snapshot.elementsText}
     // Reset workflow approval for each new task
     this.resetAppActionApproval('new task');
     const maxSteps = this.config.maxSteps || DEFAULT_MAX_STEPS;
-    const stepDelay = this.config.stepDelay ?? 300;
+    const stepDelay = this.config.stepDelay ?? DEFAULT_STEP_DELAY_MS;
 
     // Token usage accumulator for the entire task
     const sessionUsage: TokenUsage = {
@@ -2757,7 +2796,7 @@ ${snapshot.elementsText}
       // Skip fiber walk, dehydration, screenshots, and multi-step loop.
       // Only sends the user question → single LLM call → done.
       if (!this.isUIEnabled()) {
-        this.config.onStatusUpdate?.('Thinking...');
+        this.config.onStatusUpdate?.('Checking knowledge...');
         const hasKnowledge = !!this.knowledgeService;
         const systemPrompt = buildKnowledgeOnlyPrompt(
           'en', hasKnowledge, this.config.instructions?.system,
@@ -2834,6 +2873,14 @@ ${snapshot.elementsText}
       }
 
       // ─── Full agent loop (UI control enabled) ─────────────────────
+      const hasKnowledge = !!this.knowledgeService;
+      const isCompanion = this.config.interactionMode === 'companion';
+      const isCopilot = this.config.interactionMode !== 'autopilot';
+      const systemPrompt = isCompanion
+        ? buildCompanionPrompt('en', hasKnowledge)
+        : buildSystemPrompt('en', hasKnowledge, isCopilot, this.config.supportStyle, undefined, this.config.enableWebSearch);
+      let tools = this.buildToolsForProvider();
+
       for (let step = 0; step < maxSteps; step++) {
         // ── Cancel check ──
         const cancelResult = await this.finishCancelledTask(step, sessionUsage);
@@ -2854,7 +2901,34 @@ ${snapshot.elementsText}
         if (afterBeforeStepCancelResult) return afterBeforeStepCancelResult;
 
         // 1. Walk Fiber tree with security config and dehydrate screen
-        const screen = this.getPlatformAdapter().getScreenSnapshot();
+        this.config.onStatusUpdate?.(step === 0 ? 'Looking at your screen...' : 'Checking what changed...');
+        let screen = this.getPlatformAdapter().getScreenSnapshot();
+
+        // Auto-wait when loading indicators detected — avoids wasting an LLM call
+        if (screen.hasLoadingIndicator && step > 0) {
+          logger.info('AgentRuntime', 'Loading indicator detected — waiting for content');
+          this.config.onStatusUpdate?.(`Loading ${screen.screenName || 'screen'}...`);
+          this.emitTrace('loading_auto_wait_started', { screenName: screen.screenName }, step);
+          const loadingStart = Date.now();
+          const maxLoadingWaitMs = 3000;
+          while (Date.now() - loadingStart < maxLoadingWaitMs) {
+            await nextFrame();
+            if (this.isCancelRequested) break;
+            const fresh = this.getPlatformAdapter().getScreenSnapshot();
+            if (!fresh.hasLoadingIndicator) {
+              screen = fresh;
+              break;
+            }
+          }
+          if (screen.hasLoadingIndicator) {
+            screen = this.getPlatformAdapter().getScreenSnapshot();
+          }
+          this.emitTrace('loading_auto_wait_finished', {
+            durationMs: Date.now() - loadingStart,
+            stillLoading: screen.hasLoadingIndicator,
+          }, step);
+        }
+
         const screenName = screen.screenName;
 
         // Store root for tooling access (e.g., GuideTool measuring)
@@ -2867,7 +2941,11 @@ ${snapshot.elementsText}
 
         logger.info('AgentRuntime', `Screen: ${screen.screenName}`);
 
-        // 2. Apply transformScreenContent
+        // 2. Start screenshot capture early (native I/O overlaps with CPU work below)
+        this.config.onStatusUpdate?.(`Capturing ${screenName || 'screen'}...`);
+        const screenshotPromise = this.getPlatformAdapter().captureScreenshot();
+
+        // 3. Apply transformScreenContent (CPU) while screenshot captures in parallel
         let screenContent = screen.elementsText;
         if (this.config.transformScreenContent) {
           screenContent = await this.config.transformScreenContent(screenContent);
@@ -2875,14 +2953,15 @@ ${snapshot.elementsText}
         this.currentScreenContent = screenContent;
         this.currentScreenSignature = this.getScreenSignature(screen, screenContent);
 
-        // 3. Handle observations
+        // 4. Start safety preclassification early — overlaps with screenshot I/O
+        void this.startScreenSafetyPreclassification(screen, screenContent, step);
+
+        // 5. Handle observations while screenshot still capturing
         this.handleObservations(step, maxSteps, screenName);
 
-        // 4. Capture screenshot for Gemini vision (optional)
-        const screenshot = await this.getPlatformAdapter().captureScreenshot();
+        // 6. Await screenshot now that parallel CPU work is done
+        const screenshot = await screenshotPromise;
 
-        // Capture the very first screen snapshot of the task so the
-        // goal-completion verifier can compare task-start vs final UI on done().
         if (!this.preTaskSnapshot) {
           this.preTaskSnapshot = this.createCurrentVerificationSnapshot(
             screenName,
@@ -2902,7 +2981,7 @@ ${snapshot.elementsText}
         const afterVerificationCancelResult = await this.finishCancelledTask(step, sessionUsage);
         if (afterVerificationCancelResult) return afterVerificationCancelResult;
 
-        // 5. Assemble structured user prompt after verification updates so
+        // 8. Assemble structured user prompt after verification updates so
         // any new observations are included in the very next model turn.
         const contextMessage = this.assembleUserPrompt(
           step, maxSteps, contextualMessage, screenName, screenContent, chatHistory
@@ -2915,21 +2994,49 @@ ${snapshot.elementsText}
           contextMessage,
         );
 
-        // 6. Send to AI provider
-        this.config.onStatusUpdate?.('Thinking...');
-        const hasKnowledge = !!this.knowledgeService;
-        const isCompanion = this.config.interactionMode === 'companion';
-        const isCopilot = this.config.interactionMode !== 'autopilot';
-        const systemPrompt = isCompanion
-          ? buildCompanionPrompt('en', hasKnowledge)
-          : buildSystemPrompt('en', hasKnowledge, isCopilot, this.config.supportStyle);
-        const tools = this.buildToolsForProvider();
+        // 9. Send to AI provider
+        if (step === 0) {
+          this.config.onStatusUpdate?.('Thinking...');
+        } else {
+          const lastStep = this.history[this.history.length - 1];
+          const lastOutput = lastStep?.action?.output ?? '';
+          const wasBlocked = typeof lastOutput === 'string' && lastOutput.startsWith('🚫');
+          const lastTool = wasBlocked ? null : lastStep?.action?.name;
+          const lastLabel = lastStep?.action?.input
+            ? this.getToolTargetLabel(lastStep.action.input as Record<string, any>)
+            : null;
+          let stepStatus: string;
+          switch (lastTool) {
+            case 'tap':
+              stepStatus = lastLabel ? `Tapped "${lastLabel}", checking result...` : 'Checking result...';
+              break;
+            case 'type':
+              stepStatus = lastLabel ? `Typed in "${lastLabel}", checking...` : 'Checking what happened...';
+              break;
+            case 'navigate':
+              stepStatus = `Arrived at ${(lastStep?.action?.input as any)?.screen || 'screen'}, reading...`;
+              break;
+            case 'scroll':
+              stepStatus = 'Reading new content...';
+              break;
+            case 'query_data':
+              stepStatus = 'Reviewing results...';
+              break;
+            case 'query_knowledge':
+              stepStatus = 'Reviewing what I found...';
+              break;
+            case 'guide_user':
+              stepStatus = 'Thinking...';
+              break;
+            default:
+              stepStatus = 'Thinking...';
+          }
+          this.config.onStatusUpdate?.(stepStatus);
+        }
 
         logger.info('AgentRuntime', `Sending to AI with ${tools.length} tools...`);
         logger.debug('AgentRuntime', 'System prompt length:', systemPrompt.length);
         logger.debug('AgentRuntime', 'User context preview:', contextMessage.substring(0, 300));
-
-        void this.startScreenSafetyPreclassification(screen, screenContent, step);
 
         const skipScreenshotForImages = step === 0 && userImages?.length;
         const response = await this.provider.generateContent(
@@ -3053,13 +3160,16 @@ ${snapshot.elementsText}
           logger.info('AgentRuntime', `🛡️ Tool "${toolCall.name}" chosen without prompt-level pause; relying on model plan-following and aiConfirm safeguards if present`);
         }
 
-        // Dynamic status update based on tool being executed + Reasoning
+        // Dynamic status update — skip for APP_ACTION tools in copilot until approved
         const statusLabel = this.getToolStatusLabel(toolCall.name, toolCall.args);
-        // Prefer the human-readable plan over the raw tool status if available to avoid double statuses
-        const statusDisplay = this.config.interactionMode === 'companion'
-          ? statusLabel
-          : reasoning.plan || statusLabel;
-        this.config.onStatusUpdate?.(statusDisplay);
+        const needsApprovalGate =
+          this.config.interactionMode !== 'autopilot' &&
+          this.config.onAskUser &&
+          AgentRuntime.APP_ACTION_TOOLS.has(toolCall.name) &&
+          !this.hasWorkflowApproval();
+        if (!needsApprovalGate) {
+          this.config.onStatusUpdate?.(statusLabel);
+        }
 
         const preActionSnapshot = this.createCurrentVerificationSnapshot(
           screenName,
