@@ -69,7 +69,10 @@ async function retryWithBackoff<T>(
       lastError = error;
       const status = error.status ?? error.httpCode ?? 0;
       const msg = String(error.message || '');
-      const isRateLimit = status === 429 || msg.includes('device_rate_limited') || msg.includes('token_rate_limited');
+      // Don't retry our own proxy rate limits — they won't resolve in seconds
+      const isProxyLimit = msg.includes('device_rate_limited') || msg.includes('token_rate_limited') || msg.includes('session_token_budget');
+      if (isProxyLimit) throw error;
+      const isRateLimit = status === 429;
       const isRetryable = isRateLimit || status === 503;
       if (!isRetryable || attempt === maxRetries) throw error;
 
@@ -553,6 +556,15 @@ export class GeminiProvider implements AIProvider {
         'Proxy blocked: project has run out of hosted proxy credits.'
       );
       return 'This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.';
+    }
+    if (errorCode === 'session_token_budget_exhausted') {
+      return 'Session token limit reached. Please start a new conversation.';
+    }
+    if (errorCode === 'token_rate_limited' || errorCode === 'device_rate_limited') {
+      return 'You\'re sending messages too quickly. Please wait a moment and try again.';
+    }
+    if (errorCode === 'provider_rate_limited') {
+      return 'The AI service is busy. Please wait a moment and try again.';
     }
     if (errorCode === 'hosted_proxy_disabled') {
       return 'The MobileAI hosted proxy is not enabled for this project yet.';

@@ -1,5 +1,5 @@
 import { ENDPOINTS } from '../config/endpoints';
-import { getDeviceId } from './telemetry/device';
+import { getDeviceId, initDeviceId } from './telemetry/device';
 
 const REFRESH_BUFFER_SECONDS = 300;
 const MAX_RETRIES = 2;
@@ -72,7 +72,7 @@ export async function exchangeToken(analyticsKey: string): Promise<string> {
 
   exchangePromise = (async () => {
     try {
-      const deviceId = getDeviceId() || 'unknown';
+      const deviceId = getDeviceId() || await initDeviceId();
       const result = await fetchSession(analyticsKey, deviceId);
       const now = Date.now();
 
