@@ -92,18 +92,19 @@ export class GeminiProvider implements AIProvider {
     tools: ToolDefinition[],
     history: AgentStep[],
     screenshot?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    userImages?: Array<{ base64: string; mimeType: string }>,
   ): Promise<ProviderResult> {
     logger.info(
       'GeminiProvider',
-      `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}`
+      `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}${userImages?.length ? `, with ${userImages.length} user image(s)` : ''}`
     );
 
     // Build single agent_step function declaration
     const agentStepDeclaration = this.buildAgentStepDeclaration(tools);
 
-    // Build contents (user message + optional screenshot)
-    const contents = this.buildContents(userMessage, history, screenshot);
+    // Build contents (user message + optional screenshot + user images)
+    const contents = this.buildContents(userMessage, history, screenshot, userImages);
 
     const startTime = Date.now();
 
@@ -143,7 +144,6 @@ export class GeminiProvider implements AIProvider {
       return result;
     } catch (error: any) {
       logger.error('GeminiProvider', 'Request failed:', error.message);
-
       if (error.status) {
         throw new Error(this.formatProviderError(error.status, error.message));
       }
@@ -163,7 +163,7 @@ export class GeminiProvider implements AIProvider {
    * Flattening every tool parameter into top-level properties can trigger
    * Gemini's "too much branching for serving" error once the toolset grows.
    */
-  private buildAgentStepDeclaration(tools: ToolDefinition[]): any {
+  private buildAgentStepDeclaration(tools: ToolDefinition[]) {
     const toolNames = tools.map((t) => t.name);
 
     // Build tool descriptions for the action_name enum
@@ -226,11 +226,23 @@ export class GeminiProvider implements AIProvider {
   private buildContents(
     userMessage: string,
     _history: AgentStep[],
-    screenshot?: string
+    screenshot?: string,
+    userImages?: Array<{ base64: string; mimeType: string }>,
   ): any[] {
     const parts: any[] = [{ text: userMessage }];
 
-    // Append screenshot as inlineData for Gemini vision
+    if (userImages?.length) {
+      for (const img of userImages) {
+        parts.push({
+          inlineData: {
+            mimeType: img.mimeType,
+            data: img.base64,
+          },
+        });
+      }
+      parts.push({ text: '\n[The user attached the above image(s) to their message. Describe what you see if relevant to their request.]' });
+    }
+
     if (screenshot) {
       parts.push({
         inlineData: {
@@ -254,7 +266,6 @@ export class GeminiProvider implements AIProvider {
     tools: ToolDefinition[]
   ): ProviderResult {
     const candidates = response.candidates || [];
-
     if (candidates.length === 0) {
       logger.warn('GeminiProvider', 'No candidates in response');
       return {
@@ -307,7 +318,7 @@ export class GeminiProvider implements AIProvider {
     };
 
     // Extract action
-    const actionName = args.action_name;
+    const actionName = args.action_name as string;
     if (!actionName) {
       logger.warn(
         'GeminiProvider',
@@ -327,8 +338,8 @@ export class GeminiProvider implements AIProvider {
 
     const matchedTool = tools.find((t) => t.name === actionName);
     let actionArgs: Record<string, any> = {};
-    const rawActionInput = args.action_input;
 
+    const rawActionInput = args.action_input;
     if (
       typeof rawActionInput === 'string' &&
       rawActionInput.trim().length > 0
@@ -336,12 +347,12 @@ export class GeminiProvider implements AIProvider {
       try {
         const parsed = JSON.parse(rawActionInput);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          actionArgs = parsed as Record<string, any>;
+          actionArgs = parsed;
         }
-      } catch (error) {
+      } catch (error: any) {
         logger.warn(
           'GeminiProvider',
-          `Invalid action_input JSON for ${actionName}: ${(error as Error).message}`
+          `Invalid action_input JSON for ${actionName}: ${error.message}`
         );
       }
     } else if (
@@ -360,9 +371,7 @@ export class GeminiProvider implements AIProvider {
 
     if (matchedTool) {
       actionArgs = Object.fromEntries(
-        Object.entries(actionArgs).filter(
-          ([key]) => key in matchedTool.parameters
-        )
+        Object.entries(actionArgs).filter(([key]) => key in matchedTool.parameters)
       );
     } else {
       actionArgs = {};
@@ -400,7 +409,6 @@ export class GeminiProvider implements AIProvider {
     // Cost estimation based on Gemini 2.5 Flash pricing
     const INPUT_COST_PER_M = 0.3;
     const OUTPUT_COST_PER_M = 2.5;
-
     const estimatedCostUSD =
       (promptTokens / 1_000_000) * INPUT_COST_PER_M +
       (completionTokens / 1_000_000) * OUTPUT_COST_PER_M;
@@ -437,14 +445,15 @@ export class GeminiProvider implements AIProvider {
     }
 
     if (errorCode === 'budget_exhausted' || errorCode === 'proxy_blocked') {
-      logger.error('GeminiProvider', 'Proxy blocked: project has run out of hosted proxy credits.');
+      logger.error(
+        'GeminiProvider',
+        'Proxy blocked: project has run out of hosted proxy credits.'
+      );
       return 'This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.';
     }
-
     if (errorCode === 'hosted_proxy_disabled') {
       return 'The MobileAI hosted proxy is not enabled for this project yet.';
     }
-
     if (errorCode === 'invalid_auth_key') {
       return 'This MobileAI key is invalid. Use the publishable key from your dashboard project settings.';
     }
@@ -452,28 +461,17 @@ export class GeminiProvider implements AIProvider {
     // Map status codes to friendly descriptions
     switch (status) {
       case 429:
-        return (
-          humanMessage ||
-          'Too many requests. Please wait a moment and try again.'
-        );
+        return humanMessage || 'Too many requests. Please wait a moment and try again.';
       case 503:
-        return (
-          humanMessage ||
-          'The AI service is temporarily unavailable. Please try again shortly.'
-        );
+        return humanMessage || 'The AI service is temporarily unavailable. Please try again shortly.';
       case 500:
-        return (
-          humanMessage ||
-          'The AI service encountered an internal error. Please try again.'
-        );
+        return humanMessage || 'The AI service encountered an internal error. Please try again.';
       case 401:
         return 'Authentication failed. Please check your API key.';
       case 403:
         return 'Access denied. Your API key may not have the required permissions.';
       default:
-        return (
-          humanMessage || `Something went wrong (${status}). Please try again.`
-        );
+        return humanMessage || `Something went wrong (${status}). Please try again.`;
     }
   }
 }

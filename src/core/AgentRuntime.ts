@@ -2221,7 +2221,7 @@ ${snapshot.elementsText}
         (this.lastDehydratedRoot as ScreenSnapshot | null) ?? null,
         this.currentScreenContent
       );
-      const result = await tool.execute(args);
+      const result = await tool.execute(args, this.taskAbortController?.signal);
 
       if (this.shouldStabilizeAfterTool(toolName, tool)) {
         await this.waitForUIStability(toolName, beforeToolSignature, stepIndex);
@@ -2687,7 +2687,7 @@ ${snapshot.elementsText}
 
   // ─── Main Execution Loop ──────────────────────────────────────
 
-  async execute(userMessage: string, chatHistory?: { role: string; content: string }[]): Promise<ExecutionResult> {
+  async execute(userMessage: string, chatHistory?: { role: string; content: string }[], userImages?: Array<{ base64: string; mimeType: string }>): Promise<ExecutionResult> {
     if (this.isRunning) {
       return { success: false, message: 'Agent is already running.', steps: [] };
     }
@@ -2769,7 +2769,7 @@ ${snapshot.elementsText}
         const userPrompt = `Current screen: ${screenName}\n\nUser: ${contextualMessage}`;
 
         const response = await this.provider.generateContent(
-          systemPrompt, userPrompt, tools, [], undefined, taskAbortController.signal,
+          systemPrompt, userPrompt, tools, [], undefined, taskAbortController.signal, userImages,
         );
         const knowledgeCancelResult = await this.finishCancelledTask(0, sessionUsage);
         if (knowledgeCancelResult) return knowledgeCancelResult;
@@ -2931,13 +2931,15 @@ ${snapshot.elementsText}
 
         void this.startScreenSafetyPreclassification(screen, screenContent, step);
 
+        const skipScreenshotForImages = step === 0 && userImages?.length;
         const response = await this.provider.generateContent(
           systemPrompt,
           contextMessage,
           tools,
           this.history,
-          screenshot,
+          skipScreenshotForImages ? undefined : screenshot,
           taskAbortController.signal,
+          step === 0 ? userImages : undefined,
         );
         const afterProviderCancelResult = await this.finishCancelledTask(step, sessionUsage);
         if (afterProviderCancelResult) return afterProviderCancelResult;
@@ -3325,6 +3327,15 @@ ${snapshot.elementsText}
       this.isCancelRequested = true;
       this.taskAbortController?.abort();
       logger.info('AgentRuntime', 'Cancel requested — will stop after current step completes');
+    }
+  }
+
+  async cancelAndWait(timeoutMs = 5000): Promise<void> {
+    this.cancel();
+    if (!this.isRunning) return;
+    const start = Date.now();
+    while (this.isRunning && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 50));
     }
   }
 }

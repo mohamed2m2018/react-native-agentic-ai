@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import type { ReactNode } from 'react';
 import type { AIRichNode } from '../../core/types';
 import { normalizeRichContent } from '../../core/richContent';
@@ -109,6 +109,21 @@ export function RichContentRenderer({
           );
         }
 
+        if (node.type === 'image') {
+          const source = node.base64
+            ? { uri: `data:${node.mimeType};base64,${node.base64}` }
+            : { uri: node.uri };
+          return (
+            <Image
+              key={node.id || `image-${index}`}
+              source={source}
+              style={styles.chatImage}
+              resizeMode="cover"
+              accessibilityLabel="User uploaded image"
+            />
+          );
+        }
+
         const definition = registry.get(node.blockType);
         if (!definition) {
           return null;
@@ -149,6 +164,12 @@ const styles = StyleSheet.create({
   },
   codeText: {
     fontFamily: 'Menlo',
+  },
+  chatImage: {
+    width: 220,
+    maxWidth: '100%',
+    aspectRatio: 4 / 3,
+    borderRadius: 12,
   },
   blockWrapper: {
     borderRadius: 20,
