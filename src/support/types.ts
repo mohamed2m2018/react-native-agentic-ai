@@ -66,6 +66,12 @@ export interface SupportModeConfig {
   };
 
   /**
+   * Self-service layer — shows categorized help topics with pre-defined answers
+   * before the user reaches the AI agent. Zero LLM cost for resolved queries.
+   */
+  quickActions?: QuickActionsConfig;
+
+  /**
    * Consumer-defined "WOW actions" — special tools the AI can use to surprise/delight
    * the user (e.g. apply discount, extend trial) when they've had a frustrating experience.
    */
@@ -90,6 +96,52 @@ export interface QuickReply {
   message?: string;
   /** Icon emoji (optional) */
   icon?: string;
+}
+
+// ─── Quick Actions (Self-Service Layer) ──────────────────
+
+export interface HelpArticle {
+  /** Question text displayed in the list */
+  question: string;
+  /** Answer content (supports markdown) */
+  answer: string;
+  /** Deep link to navigate user to a relevant screen */
+  deepLink?: string;
+  /** Tags for search matching */
+  tags?: string[];
+}
+
+export interface HelpTopic {
+  /** Unique identifier */
+  id: string;
+  /** Display label (e.g., "Orders", "Payments") */
+  label: string;
+  /** Icon emoji */
+  icon?: string;
+  /** Pre-defined Q&A articles */
+  articles: HelpArticle[];
+  /**
+   * Context trigger — return true when this topic is relevant to the given screen.
+   * Used to sort relevant topics first and optionally show a "Suggested" badge.
+   */
+  contextTrigger?: (screenName: string) => boolean;
+}
+
+export interface QuickActionsConfig {
+  /** Enable the self-service layer before AI chat. Default: false */
+  enabled: boolean;
+  /** Categorized help topics with pre-defined answers */
+  topics: HelpTopic[];
+  /** Show a search bar to filter across all articles. Default: true */
+  showSearchBar?: boolean;
+  /** Label for the fallback button that opens AI chat. Default: "Chat with AI" */
+  otherLabel?: string;
+  /** Track which topics/articles users view. Default: true when analyticsKey is set */
+  analyticsOnView?: boolean;
+  /** Called when user taps "Did this help?" → Yes on an article */
+  onArticleHelpful?: (topicId: string, article: HelpArticle) => void;
+  /** Called when user taps "Did this help?" → No on an article */
+  onArticleNotHelpful?: (topicId: string, article: HelpArticle) => void;
 }
 
 // ─── Escalation ───────────────────────────────────────────
