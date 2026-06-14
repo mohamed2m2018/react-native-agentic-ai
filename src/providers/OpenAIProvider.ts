@@ -69,14 +69,15 @@ export class OpenAIProvider implements AIProvider {
     _history: AgentStep[],
     screenshot?: string,
     signal?: AbortSignal,
+    userImages?: Array<{ base64: string; mimeType: string }>,
   ): Promise<ProviderResult> {
     logger.info(
       'OpenAIProvider',
-      `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}`,
+      `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}${userImages?.length ? `, with ${userImages.length} user image(s)` : ''}`,
     );
 
     const agentStepTool = this.buildAgentStepTool(tools);
-    const messages = this.buildMessages(systemPrompt, userMessage, screenshot);
+    const messages = this.buildMessages(systemPrompt, userMessage, screenshot, userImages);
 
     const startTime = Date.now();
 
@@ -200,26 +201,44 @@ export class OpenAIProvider implements AIProvider {
     systemPrompt: string,
     userMessage: string,
     screenshot?: string,
+    userImages?: Array<{ base64: string; mimeType: string }>,
   ): any[] {
     const messages: any[] = [
       { role: 'system', content: systemPrompt },
     ];
 
-    // User message — text or multimodal with screenshot
-    if (screenshot) {
-      messages.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: userMessage },
-          {
+    const hasImages = screenshot || userImages?.length;
+
+    if (hasImages) {
+      const contentParts: any[] = [{ type: 'text', text: userMessage }];
+
+      if (userImages?.length) {
+        for (const img of userImages) {
+          contentParts.push({
             type: 'image_url',
             image_url: {
-              url: `data:image/jpeg;base64,${screenshot}`,
+              url: `data:${img.mimeType};base64,${img.base64}`,
               detail: 'low',
             },
+          });
+        }
+        contentParts.push({
+          type: 'text',
+          text: '\n[The user attached the above image(s) to their message. Describe what you see if relevant to their request.]',
+        });
+      }
+
+      if (screenshot) {
+        contentParts.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:image/jpeg;base64,${screenshot}`,
+            detail: 'low',
           },
-        ],
-      });
+        });
+      }
+
+      messages.push({ role: 'user', content: contentParts });
     } else {
       messages.push({ role: 'user', content: userMessage });
     }

@@ -712,7 +712,7 @@ export interface ToolDefinition {
   effect?: ToolEffect;
   /** Force a fresh user approval before executing this tool. */
   requiresFreshApproval?: boolean;
-  execute: (args: Record<string, any>) => Promise<string>;
+  execute: (args: Record<string, any>, signal?: AbortSignal) => Promise<string>;
 }
 
 export interface ToolParam {
@@ -812,6 +812,14 @@ export interface AIRichTextNode {
   id?: string;
 }
 
+export interface AIRichImageNode {
+  type: 'image';
+  uri: string;
+  base64?: string;
+  mimeType: string;
+  id?: string;
+}
+
 export interface AIRichBlockNode {
   type: 'block';
   blockType: string;
@@ -821,7 +829,12 @@ export interface AIRichBlockNode {
   lifecycle?: AIRichBlockLifecycle;
 }
 
-export type AIRichNode = AIRichTextNode | AIRichBlockNode;
+export type AIRichNode = AIRichTextNode | AIRichImageNode | AIRichBlockNode;
+
+export interface UserImage {
+  base64: string;
+  mimeType: string;
+}
 
 export interface BlockPropDefinition {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
@@ -947,7 +960,9 @@ export interface AIProvider {
     /** Optional base64-encoded JPEG screenshot for vision */
     screenshot?: string,
     /** Optional task-scoped signal used to cancel in-flight model requests. */
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    /** Optional user-uploaded images to send alongside the message */
+    userImages?: UserImage[],
   ): Promise<ProviderResult>;
 }
 

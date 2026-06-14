@@ -1,4 +1,4 @@
-import type { AIMessage, AIRichNode, AIRichTextNode, ExecutionResult } from './types';
+import type { AIMessage, AIRichNode, AIRichImageNode, AIRichTextNode, ExecutionResult } from './types';
 
 function makeTextNode(content: string, id?: string): AIRichTextNode {
   return {
@@ -12,6 +12,14 @@ export function createTextContent(content: string, id?: string): AIRichNode[] {
   return [makeTextNode(content, id)];
 }
 
+export function createImageNode(uri: string, mimeType: string, base64?: string, id?: string): AIRichImageNode {
+  return { type: 'image', uri, mimeType, base64, id };
+}
+
+export function createImageContent(uri: string, mimeType: string, base64?: string, id?: string): AIRichNode[] {
+  return [createImageNode(uri, mimeType, base64, id)];
+}
+
 export function normalizeRichContent(
   input: AIRichNode[] | string | null | undefined,
   fallbackText = '',
@@ -22,6 +30,16 @@ export function normalizeRichContent(
         if (!node) return null;
         if (node.type === 'text') {
           return makeTextNode(typeof node.content === 'string' ? node.content : '', node.id || `text-${index}`);
+        }
+
+        if (node.type === 'image' && typeof node.uri === 'string') {
+          return {
+            type: 'image' as const,
+            uri: node.uri,
+            mimeType: node.mimeType || 'image/jpeg',
+            base64: node.base64,
+            id: node.id || `image-${index}`,
+          };
         }
 
         if (node.type === 'block' && typeof node.blockType === 'string') {
@@ -55,6 +73,10 @@ export function richContentToPlainText(
   const parts = content.flatMap((node) => {
     if (node.type === 'text') {
       return node.content.trim() ? [node.content.trim()] : [];
+    }
+
+    if (node.type === 'image') {
+      return ['[Image]'];
     }
 
     const props = node.props || {};

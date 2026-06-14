@@ -92,6 +92,8 @@ export type {
   ChatBarTheme,
   AIMessage,
   AIRichNode,
+  AIRichImageNode,
+  UserImage,
   BlockDefinition,
   AIProviderName,
   ScreenMap,
