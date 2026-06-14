@@ -48,21 +48,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Ensure the build is fresh
+# Ensure the build is fresh (full prepare: build + cleanup cli)
 echo "📦 Building package..."
-npx bob build
+npm run prepare
 
 # ─── Publish under name A ────────────────────────────────────────
+# --ignore-scripts avoids re-running prepare (build already done above)
 echo ""
 echo "🚀 Publishing as $NAME_A..."
 swap_name "$NAME_A"
-npm publish --access public $DRY_RUN
+npm publish --access public --ignore-scripts $DRY_RUN
 
 # ─── Publish under name B ────────────────────────────────────────
 echo ""
 echo "🚀 Publishing as $NAME_B..."
 swap_name "$NAME_B"
-npm publish --access public $DRY_RUN
+npm publish --access public --ignore-scripts $DRY_RUN
 
 echo ""
 echo "✅ Done! Published under both names:"
