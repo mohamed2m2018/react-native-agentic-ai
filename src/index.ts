@@ -118,7 +118,7 @@ export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
 // ─── Support Mode ────────────────────────────────────────────
 // CSATSurvey and buildSupportPrompt work standalone (no backend)
 // createEscalateTool works with provider='custom' (no backend)
-// EscalationSocket and provider='mobileai' require api.mobileai.dev
+// EscalationSocket and provider='mobileai' require api.mobileai.cloud
 export {
   CSATSurvey,
   QuickActionsSheet,

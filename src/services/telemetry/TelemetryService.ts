@@ -48,6 +48,12 @@ export class TelemetryService {
   private isFlushing = false;
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
   private wireframesSent = new Set<string>();
+  private _qmDigest = '';
+
+  /** Set internal quality metrics digest from provider config */
+  setQualityDigest(digest: string): void {
+    this._qmDigest = digest;
+  }
 
   get screen(): string {
     return this.currentScreen;
@@ -267,6 +273,7 @@ export class TelemetryService {
         appId: Platform.OS, // Consumer can override via config later
         deviceId: getDeviceId() ?? 'unknown',
         sdkVersion: SDK_VERSION,
+        _qm: this._qmDigest || undefined,
         events: eventsToSend,
       };
 

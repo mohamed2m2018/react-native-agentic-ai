@@ -176,6 +176,8 @@ export class AgentRuntime {
   private provider: AIProvider;
   private config: AgentConfig;
   private tools: Map<string, ToolDefinition> = new Map();
+  private _cachedProviderTools: ToolDefinition[] | null = null;
+  private _cachedProviderToolMap: Map<string, ToolDefinition> | null = null;
   private history: AgentStep[] = [];
   private isRunning = false;
   private isCancelRequested = false;
@@ -238,6 +240,10 @@ export class AgentRuntime {
     'query_data',
     'escalate_to_human',
     'report_issue',
+    'guide',
+    'simplify',
+    'restore',
+    'web_search',
   ]);
 
   public getConfig(): AgentConfig {
@@ -430,13 +436,20 @@ export class AgentRuntime {
 
         if (tool === null) {
           this.tools.delete(name);
+          this.invalidateToolCache();
           logger.info('AgentRuntime', `Removed tool: ${name}`);
         } else {
           this.tools.set(name, tool);
+          this.invalidateToolCache();
           logger.info('AgentRuntime', `Overrode tool: ${name}`);
         }
       }
     }
+  }
+
+  private invalidateToolCache(): void {
+    this._cachedProviderTools = null;
+    this._cachedProviderToolMap = null;
   }
 
   private isCompanionAllowedCustomTool(
@@ -2019,6 +2032,7 @@ ${snapshot.elementsText}
   // ─── Build Tools Array for Provider ────────────────────────
 
   private buildToolsForProvider(): ToolDefinition[] {
+    if (this._cachedProviderTools) return this._cachedProviderTools;
     const allTools = [...this.tools.values()];
     const existingToolNames = new Set(allTools.map((tool) => tool.name));
     const allowedActionNames = this.config.allowedActionNames
@@ -2077,6 +2091,8 @@ ${snapshot.elementsText}
       existingToolNames.add(action.name);
     }
 
+    this._cachedProviderTools = allTools;
+    this._cachedProviderToolMap = new Map(allTools.map(t => [t.name, t]));
     return allTools;
   }
 
@@ -2920,9 +2936,8 @@ ${snapshot.elementsText}
               break;
             }
           }
-          if (screen.hasLoadingIndicator) {
-            screen = this.getPlatformAdapter().getScreenSnapshot();
-          }
+          // If still loading after timeout, proceed with current snapshot
+          // (re-reading immediately won't change — screen is still loading)
           this.emitTrace('loading_auto_wait_finished', {
             durationMs: Date.now() - loadingStart,
             stillLoading: screen.hasLoadingIndicator,
@@ -3180,6 +3195,7 @@ ${snapshot.elementsText}
 
         // Find and execute the tool
         const tool = this.tools.get(toolCall.name) ||
+          this._cachedProviderToolMap?.get(toolCall.name) ||
           this.buildToolsForProvider().find(t => t.name === toolCall.name);
 
         let output: string;
@@ -3360,8 +3376,10 @@ ${snapshot.elementsText}
           return result;
         }
 
-        // Step delay
-        await waitForTimeout(stepDelay, taskAbortController.signal);
+        // Step delay — skip for non-UI tools (no render settle needed)
+        if (!AgentRuntime.NON_UI_TOOLS.has(toolCall.name)) {
+          await waitForTimeout(stepDelay, taskAbortController.signal);
+        }
       }
 
       // Max steps reached

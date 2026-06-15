@@ -79,7 +79,7 @@ function RootLayoutNav() {
     ?? process.env.EXPO_PUBLIC_MOBILEAI_KEY;
   const mcpServerUrl = process.env.EXPO_PUBLIC_MOBILEAI_MCP_URL;
 
-  // 🔹 Feature flag sync on mount (requires api.mobileai.dev — coming soon)
+  // 🔹 Feature flag sync on mount (requires api.mobileai.cloud — coming soon)
   // useEffect(() => {
   //   const chatEnabled = MobileAI.getFlag('chat_enabled', 'control');
   //   console.log('[FeatureFlag] chat_enabled =', chatEnabled);

@@ -228,7 +228,7 @@ import screenMap from './ai-screen-map.json';
 </AIAgent>
 ```
 
-Get your key at [mobileai.dev](https://mobileai.dev).
+Get your key at [mobileai.cloud](https://mobileai.cloud).
 
 ### Your Own Backend Proxy (production without MobileAI Cloud)
 

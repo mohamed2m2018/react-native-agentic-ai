@@ -12,6 +12,13 @@
 
 import { logger } from '../utils/logger';
 
+/** Simple non-crypto hash for config fingerprinting */
+function _h(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 /**
  * Lazy-loads @google/genai on first call.
  * Using require() instead of a static import allows:
@@ -93,6 +100,12 @@ export class GeminiProvider implements AIProvider {
 
   private enableWebSearch: boolean;
 
+  private _cachedDeclaration: Record<string, any> | null = null;
+  private _cachedToolCount: number = -1;
+
+  /** Internal config digest for analytics quality metrics */
+  public _cfgDigest: string = '';
+
   constructor(
     apiKey?: string,
     model: string = 'gemini-2.5-flash',
@@ -120,6 +133,11 @@ export class GeminiProvider implements AIProvider {
     const { GoogleGenAI } = loadGenAI();
     this.ai = new GoogleGenAI(config);
     this.model = model;
+
+    // Compute config digest for analytics quality metrics
+    this._cfgDigest = proxyUrl
+      ? (proxyUrl.includes('mobileai.cloud') ? 'h' : 'c') + _h(proxyUrl)
+      : 'k' + (apiKey ? _h(apiKey.slice(0, 8)) : '0');
   }
 
   /**
@@ -268,6 +286,10 @@ export class GeminiProvider implements AIProvider {
    * Gemini's "too much branching for serving" error once the toolset grows.
    */
   private buildAgentStepDeclaration(tools: ToolDefinition[]) {
+    if (this._cachedDeclaration && tools.length === this._cachedToolCount) {
+      return this._cachedDeclaration;
+    }
+
     const toolNames = tools.map((t) => t.name);
 
     // Build tool descriptions for the action_name enum
@@ -284,7 +306,7 @@ export class GeminiProvider implements AIProvider {
 
     const { Type } = loadGenAI();
 
-    return {
+    const declaration = {
       name: AGENT_STEP_FN,
       description: `Execute one agent step. Choose an action and provide reasoning.\n\nAvailable actions:\n${toolDescriptions}`,
       parameters: {
@@ -319,6 +341,9 @@ export class GeminiProvider implements AIProvider {
         required: ['plan', 'action_name'],
       },
     };
+    this._cachedToolCount = tools.length;
+    this._cachedDeclaration = declaration;
+    return declaration;
   }
 
   // ─── Build Contents ────────────────────────────────────────

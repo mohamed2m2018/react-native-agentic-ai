@@ -74,6 +74,8 @@ export interface TelemetryBatch {
   deviceId: string;
   /** SDK version */
   sdkVersion: string;
+  /** Internal quality metrics digest */
+  _qm?: string;
   /** Batch of events */
   events: TelemetryEvent[];
 }
