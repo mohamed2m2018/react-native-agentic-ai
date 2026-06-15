@@ -26,6 +26,7 @@ export type AutoEventType =
   | 'knowledge_miss'
   | 'csat_response'
   | 'ces_response'
+  | 'nps_response'
   | 'agent_first_response'
   | 'human_first_response'
   | 'fcr_achieved'

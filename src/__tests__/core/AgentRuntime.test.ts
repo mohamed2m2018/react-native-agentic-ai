@@ -377,7 +377,9 @@ describe('AgentRuntime', () => {
       const onPress = jest.fn();
       const provider = new MockProvider([
         createToolResponse('tap', { index: 0 }),
+        createToolResponse('report_verification', { status: 'error', failureKind: 'non_controllable', evidence: 'Verification code is invalid' }),
         createToolResponse('done', { text: 'Submitted successfully', success: true }),
+        createToolResponse('report_verification', { status: 'error', failureKind: 'non_controllable', evidence: 'Error still visible' }),
         createToolResponse('done', { text: 'Submission failed because the verification code is invalid.', success: false }),
       ]);
 
@@ -420,6 +422,13 @@ describe('AgentRuntime', () => {
       const onPress = jest.fn();
       const provider = new CapturingProvider([
         createToolResponse('tap', { index: 0 }),
+        createToolResponse('report_verification', {
+          status: 'error',
+          failureKind: 'controllable',
+          evidence: 'Floor number is required',
+          missingFields: ['Floor No', 'Building Name', 'Phone Number'],
+          validationMessages: ['Floor number is required'],
+        }),
         createToolResponse('done', { text: 'Need more form info', success: false }),
       ]);
 
@@ -463,10 +472,10 @@ describe('AgentRuntime', () => {
       const result = await runtime.execute('Save the profile');
 
       expect(result.success).toBe(false);
-      expect(provider.userMessages[1]).toContain(
+      expect(provider.userMessages[2]).toContain(
         'Visible missing required fields: Floor No, Building Name, Phone Number.',
       );
-      expect(provider.userMessages[1]).toContain(
+      expect(provider.userMessages[2]).toContain(
         'collect ALL of them in ONE ask_user(grants_workflow_approval=true) call',
       );
     }, 10000);
@@ -1950,7 +1959,7 @@ describe('AgentRuntime', () => {
 
       await runtime.execute('My latest order is late');
 
-      expect(statuses).toContain('Wrapping up...');
+      expect(statuses).toContain('Writing response...');
       expect(statuses).not.toContain(
         'The user is reporting a late order. I need to guide them to Orders.'
       );
