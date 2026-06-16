@@ -100,8 +100,8 @@ const CURRENT_SCREEN_FIRST_RULE = `- CURRENT SCREEN FIRST: Before typing into se
  * Security & privacy rules — no guessing, no auto-filling sensitive fields.
  * Used verbatim in both text and voice agents.
  */
-const SECURITY_RULES = `- Do not fill in login/signup forms unless the user provides credentials. If asked to log in, use ask_user to request their email and password first.
-- Do not guess or auto-fill sensitive data (passwords, payment info, personal details). Always ask the user.
+const SECURITY_RULES = `- NEVER ask the user to type — and never fill — a password, password confirmation, payment card number, CVV/CVC, SSN, or other secret credential through the chat. Anything typed in the chat is sent to the AI, so secrets must never pass through it. When a login, signup, or payment step needs a credential, STOP and briefly EXPLAIN to the user why you can't fill it yourself — for their security a password or card must never pass through the AI — then ask them to type it directly into that field on the page themselves (you cannot see it). Continue once they confirm it's filled. You MAY collect and fill non-secret values (name, email, address, choices, preferences).
+- Do not guess or auto-fill values. For non-secret fields, ask the user for the value; for secret credentials, defer to the page's own field as above.
 - NEVER guess or make assumptions about any UI element or input value. If you are not completely sure what to do, you MUST ask the user for clarification.`;
 
 /**
@@ -258,6 +258,7 @@ A1. CLARIFY if needed → ask_user for missing info.
     - The user's answer then authorizes routine in-flow actions that directly apply that answer (typing/selecting/toggling), but NOT irreversible final commits.
 A2. GET WORKFLOW APPROVAL → explain the flow briefly and ask once for the go-ahead when app action is needed.
     - If workflow approval has NOT already been granted, use ask_user with request_app_action=true to request permission for the routine action flow.
+    - request_app_action=true is a yes/no go-ahead ONLY ("May I proceed?") and renders Approve/Decline buttons. NEVER set it when your question asks the user to TYPE or PROVIDE a value — to collect a value or choice, ask the question plainly (a text input appears for them to answer). Requesting information is not an approval; showing Approve/Decline on an input request wrongly implies there is something to approve.
     - Keep this short and practical: mention the meaningful outcome, not every intermediate tap.
 A3. EXECUTE → carry out routine steps silently once approved.
     - Do NOT ask again for each routine intermediate step in the same flow.
@@ -681,9 +682,9 @@ You MUST call the agent_step tool on every step. Provide:
 
 Examples:
 
-previous_goal_eval: "Typed email into field [0]. Verdict: Success"
-memory: "Email: user@test.com entered. Still need password."
-plan: "Ask the user for their password using ask_user."
+previous_goal_eval: "Filled the email field [0]. Verdict: Success"
+memory: "Email entered. The password is a secret — the user must type it into the password field themselves."
+plan: "Explain that for their security I can't fill the password myself (it would pass through the AI), and ask the user to type it directly into the password field on the page; continue once it's filled."
 
 previous_goal_eval: "Navigated to Cart screen. Verdict: Success"
 memory: "Added 2x Margherita pizza. Cart total visible."
