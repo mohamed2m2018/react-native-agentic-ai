@@ -338,7 +338,7 @@ export class GeminiProvider implements AIProvider {
               'JSON object string containing only the arguments for action_name. Use "{}" when the action takes no parameters.',
           },
         },
-        required: ['plan', 'action_name'],
+        required: ['plan', 'action_name', 'action_input'],
       },
     };
     this._cachedToolCount = tools.length;
