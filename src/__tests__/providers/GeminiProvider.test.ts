@@ -322,7 +322,7 @@ describe('GeminiProvider', () => {
       const provider = createProvider();
       await expect(
         provider.generateContent('sys', 'msg', sampleTools, [])
-      ).rejects.toThrow('This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.');
+      ).rejects.toThrow('This project has run out of AI credits. Add more credits in the Twomilia dashboard to continue.');
     });
 
     it('throws on network failure', async () => {

@@ -6,9 +6,9 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { PaperProvider } from 'react-native-paper';
-import { AIAgent } from '@mobileai/react-native';
-import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
-import type { KnowledgeEntry } from '@mobileai/react-native';
+import { AIAgent } from '@twomilia/react-native';
+import { buildSupportPrompt, createEscalateTool } from '@twomilia/react-native';
+import type { KnowledgeEntry } from '@twomilia/react-native';
 import screenMap from '../ai-screen-map.json';
 import { useColorScheme } from '@/components/useColorScheme';
 import { FoodDeliveryProvider, getSupportContext } from '@/app/lib/delivery-demo';
@@ -79,7 +79,7 @@ function RootLayoutNav() {
     ?? process.env.EXPO_PUBLIC_MOBILEAI_KEY;
   const mcpServerUrl = process.env.EXPO_PUBLIC_MOBILEAI_MCP_URL;
 
-  // 🔹 Feature flag sync on mount (requires api.mobileai.cloud — coming soon)
+  // 🔹 Feature flag sync on mount (requires api.twomilia.com — coming soon)
   // useEffect(() => {
   //   const chatEnabled = MobileAI.getFlag('chat_enabled', 'control');
   //   console.log('[FeatureFlag] chat_enabled =', chatEnabled);

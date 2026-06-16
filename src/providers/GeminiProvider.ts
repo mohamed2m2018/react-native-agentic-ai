@@ -41,7 +41,7 @@ function loadGenAI() {
     };
   } catch (e: any) {
     throw new Error(
-      '[mobileai] @google/genai is required for the Gemini provider. ' +
+      '[twomilia] @google/genai is required for the Gemini provider. ' +
       'Install it: npm install @google/genai'
     );
   }
@@ -126,7 +126,7 @@ export class GeminiProvider implements AIProvider {
       config.apiKey = apiKey;
     } else {
       throw new Error(
-        '[mobileai] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
+        '[twomilia] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
       );
     }
 
@@ -136,7 +136,7 @@ export class GeminiProvider implements AIProvider {
 
     // Compute config digest for analytics quality metrics
     this._cfgDigest = proxyUrl
-      ? (proxyUrl.includes('mobileai.cloud') ? 'h' : 'c') + _h(proxyUrl)
+      ? (proxyUrl.includes('twomilia.com') ? 'h' : 'c') + _h(proxyUrl)
       : 'k' + (apiKey ? _h(apiKey.slice(0, 8)) : '0');
   }
 
@@ -580,7 +580,7 @@ export class GeminiProvider implements AIProvider {
         'GeminiProvider',
         'Proxy blocked: project has run out of hosted proxy credits.'
       );
-      return 'This project has run out of AI credits. Add more credits in the MobileAI dashboard to continue.';
+      return 'This project has run out of AI credits. Add more credits in the Twomilia dashboard to continue.';
     }
     if (errorCode === 'session_token_budget_exhausted') {
       return 'Session token limit reached. Please start a new conversation.';
@@ -592,10 +592,10 @@ export class GeminiProvider implements AIProvider {
       return 'The AI service is busy. Please wait a moment and try again.';
     }
     if (errorCode === 'hosted_proxy_disabled') {
-      return 'The MobileAI hosted proxy is not enabled for this project yet.';
+      return 'The Twomilia hosted proxy is not enabled for this project yet.';
     }
     if (errorCode === 'invalid_auth_key') {
-      return 'This MobileAI key is invalid. Use the publishable key from your dashboard project settings.';
+      return 'This Twomilia key is invalid. Use the publishable key from your dashboard project settings.';
     }
 
     // Map status codes to friendly descriptions

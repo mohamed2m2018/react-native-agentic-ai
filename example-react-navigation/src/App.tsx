@@ -5,9 +5,9 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@twomilia/react-native';
 import screenMap from '../ai-screen-map.json';
-import type { ExecutionResult, TokenUsage } from '@mobileai/react-native';
+import type { ExecutionResult, TokenUsage } from '@twomilia/react-native';
 import { CartProvider } from './CartContext';
 import { AuthProvider } from './AuthContext';
 import type { MenuItem } from './menuData';

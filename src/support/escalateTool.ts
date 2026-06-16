@@ -3,7 +3,7 @@
  *
  * Providers:
  * - 'mobileai' (default when analyticsKey present):
- *   POSTs to MobileAI /api/v1/escalations → gets ticketId + wsUrl
+ *   POSTs to Twomilia /api/v1/escalations → gets ticketId + wsUrl
  *   Opens WebSocket via EscalationSocket → agent reply pushed in real time
  * - 'custom': fires the consumer's onEscalate callback (backward compatible)
  */

@@ -243,7 +243,7 @@ app.post('/mcp/messages', async (req, res) => {
 app.listen(HTTP_PORT, () => {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
-║          @mobileai/mcp-server  ready! 🚀             ║
+║          @twomilia/mcp-server  ready! 🚀             ║
 ╠══════════════════════════════════════════════════════╣
 ║  MCP Streamable HTTP  →  http://localhost:${HTTP_PORT}/mcp     ║
 ║  MCP Legacy SSE       →  http://localhost:${HTTP_PORT}/mcp/sse ║

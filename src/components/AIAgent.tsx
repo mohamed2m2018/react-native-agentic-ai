@@ -87,13 +87,13 @@ import { ENDPOINTS } from '../config/endpoints';
 import type { ReportedIssue, SupportModeConfig, CSATRating } from '../support/types';
 import { CSATSurvey } from '../support/CSATSurvey';
 import * as ConversationService from '../services/ConversationService';
-import { createMobileAIKnowledgeRetriever } from '../services/MobileAIKnowledgeRetriever';
+import { createTwomiliaKnowledgeRetriever } from '../services/TwomiliaKnowledgeRetriever';
 import { getSessionToken, clearSession as clearProxySession } from '../services/ProxySessionService';
 import {
   executeConfiguredAction,
   fetchConfiguredActions,
   type RemoteConfiguredAction,
-} from '../services/MobileAIActionService';
+} from '../services/TwomiliaActionService';
 import type { OutboundCallConfig } from '../services/OutboundCallService';
 import { formatActionToolResult } from '../utils/actionResult';
 import {
@@ -367,7 +367,7 @@ interface AIAgentProps {
    */
   voiceProxyHeaders?: Record<string, string>;
   /**
-   * Outbound AI phone calls through MobileAI.
+   * Outbound AI phone calls through Twomilia.
    * Enabled by default when analyticsKey is configured; set enabled:false to hide the tool.
    */
   outboundCalls?: OutboundCallConfig;
@@ -443,7 +443,7 @@ interface AIAgentProps {
    * Domain knowledge the AI can query via the query_knowledge tool.
    * Pass a static KnowledgeEntry[] or a { retrieve(query, screen) } function.
    * If omitted and analyticsKey is configured, the SDK will query the project
-   * knowledge configured in the MobileAI dashboard automatically.
+   * knowledge configured in the Twomilia dashboard automatically.
    */
   knowledgeBase?: KnowledgeBaseConfig;
   /** Max token budget for knowledge retrieval (default: 2000) */
@@ -501,7 +501,7 @@ interface AIAgentProps {
   // ── Analytics (opt-in) ──
 
   /**
-   * Publishable analytics key (mobileai_pub_xxx).
+   * Publishable analytics key (twomilia_pub_xxx).
    */
   analyticsKey?: string;
   /**
@@ -586,7 +586,7 @@ interface AIAgentProps {
 
   /**
    * Health score configuration. Enable to automatically track screen
-   * flow, feature adoption, and success milestones for the MobileAI Dashboard.
+   * flow, feature adoption, and success milestones for the Twomilia Dashboard.
    */
   customerSuccess?: CustomerSuccessConfig;
 
@@ -1538,7 +1538,7 @@ export function AIAgent({
     if (knowledgeBase) return knowledgeBase;
     if (!analyticsKey) return undefined;
 
-    return createMobileAIKnowledgeRetriever({
+    return createTwomiliaKnowledgeRetriever({
       analyticsKey: analyticsKey,
       baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
       headers: analyticsProxyHeaders,
@@ -1594,9 +1594,9 @@ export function AIAgent({
     };
   }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl]);
 
-  // ─── Auto-create MobileAI escalation tool ─────────────────────
+  // ─── Auto-create Twomilia escalation tool ─────────────────────
   // When analyticsKey is present and consumer hasn't provided their own
-  // escalate_to_human tool, auto-wire the MobileAI platform provider.
+  // escalate_to_human tool, auto-wire the Twomilia platform provider.
   // Human replies from the dashboard inbox are injected into chat messages.
   const autoEscalateTool = useMemo(() => {
     if (!analyticsKey) return null;
@@ -2215,13 +2215,13 @@ export function AIAgent({
     const lines = remoteConfiguredActions.map((action) => {
       const modeLabel =
         action.executionType === "webhook"
-          ? "executes directly in MobileAI"
-          : "executes in app code after MobileAI authorization";
+          ? "executes directly in Twomilia"
+          : "executes in app code after Twomilia authorization";
       return `- Tool \`${action.name}\` (${modeLabel}): ${action.triggerHint}`;
     });
 
     return [
-      "### MobileAI Configured Actions",
+      "### Twomilia Configured Actions",
       "Only use the configured actions below. Do not invent or call unconfigured app actions.",
       ...lines,
     ].join("\n");
@@ -2249,7 +2249,7 @@ export function AIAgent({
     });
 
     return [
-      "### MobileAI Registered Data Sources",
+      "### Twomilia Registered Data Sources",
       "The app exposes live data sources you can query with `query_data(source, query)`.",
       "Use them for recommendations, catalog lookup, live pricing, inventory, order status, or any structured data that is better fetched directly than inferred from the current screen.",
       ...lines,
@@ -2312,7 +2312,7 @@ export function AIAgent({
       remoteConfiguredActions.map((action) => {
         const description =
           action.executionType === "webhook"
-            ? `${action.description} This action is fully configured in MobileAI and runs via webhook.`
+            ? `${action.description} This action is fully configured in Twomilia and runs via webhook.`
             : `${action.description} This action requires a matching useAction('${action.name}', ...) implementation in the app.`;
 
         const tool: ToolDefinition = {
@@ -2350,7 +2350,7 @@ export function AIAgent({
 
             const registeredAction = actionRegistry.get(action.name);
             if (!registeredAction) {
-              return `❌ Action "${action.name}" is configured in MobileAI as app_code, but no matching useAction('${action.name}', ...) is mounted in the app.`;
+              return `❌ Action "${action.name}" is configured in Twomilia as app_code, but no matching useAction('${action.name}', ...) is mounted in the app.`;
             }
 
             try {
@@ -2961,7 +2961,7 @@ export function AIAgent({
       !resolvedProxyUrl
     ) {
       logger.warn(
-        '[MobileAI] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
+        '[Twomilia] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
           'This exposes your LLM provider key in the app binary. ' +
           'Use `apiProxyUrl` to route requests through your backend instead. ' +
           'See docs for details.'

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { useAI, type AIMessage } from '@mobileai/react-native';
+import { useAI, type AIMessage } from '@twomilia/react-native';
 
 import { getSupportContext, type OrderIssueType, type SupportEscalationContext } from '@/app/lib/delivery-demo';
 

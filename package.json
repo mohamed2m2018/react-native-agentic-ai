@@ -1,5 +1,5 @@
 {
-  "name": "@mobileai/react-native",
+  "name": "@twomilia/react-native",
   "version": "0.9.91",
   "description": "Add an in-app AI support agent to React Native apps that understands UI, navigates screens, fills forms, and escalates to humans.",
   "main": "./lib/module/index.js",
@@ -53,7 +53,7 @@
     "!mcp-server"
   ],
   "scripts": {
-    "example": "yarn workspace @mobileai/react-native-example",
+    "example": "yarn workspace @twomilia/react-native-example",
     "clean": "del-cli lib",
     "prepare": "bob build && rm -rf lib/module/cli lib/typescript/src/cli",
     "typecheck": "tsc -p tsconfig.build.json",

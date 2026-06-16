@@ -2,7 +2,7 @@
  * MobileAI — Public static API for consumer event tracking.
  *
  * Usage:
- *   import { MobileAI } from '@mobileai/react-native';
+ *   import { MobileAI } from '@twomilia/react-native';
  *   MobileAI.track('purchase_complete', { total: 29.99 });
  *
  * The TelemetryService instance is injected by the <AIAgent> component.
@@ -60,7 +60,7 @@ export const MobileAI = {
 
   /**
    * Helper function to securely consume a global WOW action limit (like a discount)
-   * natively on the MobileAI Server to prevent prompt injection bypasses.
+   * natively on the Twomilia Server to prevent prompt injection bypasses.
    * @param actionName - The exact registered name of the WOW action
    * @returns true if allowed, false if rejected or error
    */

@@ -1,7 +1,7 @@
 import { Link, useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from '@twomilia/react-native';
 
 import { useFoodDelivery } from '@/app/lib/delivery-demo';
 

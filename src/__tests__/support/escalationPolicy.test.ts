@@ -55,7 +55,7 @@ describe('human escalation policy', () => {
       getHistory: () => [],
     });
     const reportIssueTool = createReportIssueTool({
-      analyticsKey: 'mobileai_pub_test',
+      analyticsKey: 'twomilia_pub_test',
       getCurrentScreen: () => 'BillingHistory',
       getHistory: () => [],
     });

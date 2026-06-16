@@ -1,6 +1,6 @@
-import { createMobileAIKnowledgeRetriever } from '../../services/MobileAIKnowledgeRetriever';
+import { createTwomiliaKnowledgeRetriever } from '../../services/TwomiliaKnowledgeRetriever';
 
-describe('createMobileAIKnowledgeRetriever', () => {
+describe('createTwomiliaKnowledgeRetriever', () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -22,8 +22,8 @@ describe('createMobileAIKnowledgeRetriever', () => {
       }),
     } as any);
 
-    const retriever = createMobileAIKnowledgeRetriever({
-      analyticsKey: 'mobileai_pub_test',
+    const retriever = createTwomiliaKnowledgeRetriever({
+      analyticsKey: 'twomilia_pub_test',
       baseUrl: 'http://localhost:3001',
     });
 
@@ -35,7 +35,7 @@ describe('createMobileAIKnowledgeRetriever', () => {
         method: 'POST',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer mobileai_pub_test',
+          'Authorization': 'Bearer twomilia_pub_test',
         }),
       })
     );
@@ -48,20 +48,20 @@ describe('createMobileAIKnowledgeRetriever', () => {
     ]);
   });
 
-  it('defaults to MobileAI cloud when no base url is provided', async () => {
+  it('defaults to Twomilia cloud when no base url is provided', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ entries: [] }),
     } as any);
 
-    const retriever = createMobileAIKnowledgeRetriever({
-      analyticsKey: 'mobileai_pub_test',
+    const retriever = createTwomiliaKnowledgeRetriever({
+      analyticsKey: 'twomilia_pub_test',
     });
 
     await retriever.retrieve('refund policy', 'Checkout');
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://mobileai.cloud/api/v1/knowledge/query',
+      'https://twomilia.com/api/v1/knowledge/query',
       expect.any(Object)
     );
   });
@@ -72,15 +72,15 @@ describe('createMobileAIKnowledgeRetriever', () => {
       json: async () => ({ entries: [] }),
     } as any);
 
-    const retriever = createMobileAIKnowledgeRetriever({
-      analyticsKey: 'mobileai_pub_test',
-      baseUrl: 'https://app.mobileai.cloud/api/v1/analytics',
+    const retriever = createTwomiliaKnowledgeRetriever({
+      analyticsKey: 'twomilia_pub_test',
+      baseUrl: 'https://app.twomilia.com/api/v1/analytics',
     });
 
     await retriever.retrieve('shipping', 'Home');
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://app.mobileai.cloud/api/v1/knowledge/query',
+      'https://app.twomilia.com/api/v1/knowledge/query',
       expect.any(Object)
     );
   });

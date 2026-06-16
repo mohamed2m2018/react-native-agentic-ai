@@ -120,6 +120,7 @@ export class KnowledgeBaseService {
   /** Check if an entry should be included on the current screen. */
   private isScreenMatch(entry: KnowledgeEntry, screenName: string): boolean {
     if (!entry.screens || entry.screens.length === 0) return true;
+    if (typeof screenName !== 'string' || screenName.length === 0) return true;
     return entry.screens.some(
       (s) => s.toLowerCase() === screenName.toLowerCase()
     );
@@ -127,6 +128,7 @@ export class KnowledgeBaseService {
 
   /** Tokenize text into lowercase words for matching. */
   private tokenize(text: string): string[] {
+    if (typeof text !== 'string') return [];
     return text
       .toLowerCase()
       .replace(/[^a-z0-9\u0600-\u06FF\s]/g, ' ') // Keep alphanumeric + Arabic chars

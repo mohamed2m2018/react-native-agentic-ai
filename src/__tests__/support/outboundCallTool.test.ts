@@ -10,7 +10,7 @@ describe('start_ai_call tool', () => {
 
   it('requires fresh approval metadata for the runtime safety gate', () => {
     const tool = createOutboundCallTool({
-      analyticsKey: 'mobileai_pub_test',
+      analyticsKey: 'twomilia_pub_test',
     });
 
     expect(tool.name).toBe('start_ai_call');
@@ -25,7 +25,7 @@ describe('start_ai_call tool', () => {
     global.fetch = fetchMock as typeof fetch;
 
     const tool = createOutboundCallTool({
-      analyticsKey: 'mobileai_pub_test',
+      analyticsKey: 'twomilia_pub_test',
     });
 
     await expect(
@@ -41,7 +41,7 @@ describe('start_ai_call tool', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('starts an outbound call through the MobileAI backend', async () => {
+  it('starts an outbound call through the Twomilia backend', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -56,7 +56,7 @@ describe('start_ai_call tool', () => {
     global.fetch = fetchMock as typeof fetch;
 
     const tool = createOutboundCallTool({
-      analyticsKey: 'mobileai_pub_test',
+      analyticsKey: 'twomilia_pub_test',
       getCurrentScreen: () => 'OrderDetails',
       userContext: { userId: 'user_1' },
     });
@@ -73,11 +73,11 @@ describe('start_ai_call tool', () => {
     expect(result).toContain('AI_CALL_STARTED');
     expect(result).toContain('call_123');
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://mobileai.cloud/api/v1/outbound-calls',
+      'https://twomilia.com/api/v1/outbound-calls',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer mobileai_pub_test',
+          Authorization: 'Bearer twomilia_pub_test',
         }),
       })
     );

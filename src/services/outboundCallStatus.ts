@@ -10,7 +10,7 @@ export type OutboundCallTerminalPoll = {
   billedCostUsd?: number;
 };
 
-function resolveMobileAIBase(baseUrl?: string): string {
+function resolveTwomiliaBase(baseUrl?: string): string {
   return (baseUrl ?? ENDPOINTS.escalation)
     .replace(/\/$/, '')
     .replace(/\/api\/v1\/analytics$/, '');
@@ -21,7 +21,7 @@ export async function getOutboundCallStatus(params: {
   analyticsKey: string;
   proxyUrl?: string;
 }): Promise<OutboundCallTerminalPoll | null> {
-  const root = resolveMobileAIBase(params.proxyUrl);
+  const root = resolveTwomiliaBase(params.proxyUrl);
   try {
     const res = await fetch(
       `${root}/api/v1/outbound-calls/${encodeURIComponent(params.callId)}`,

@@ -2,7 +2,7 @@
  * Metro auto-generation hook for screen mapping.
  * 
  * Usage in metro.config.js:
- *   require('@mobileai/react-native/generate-map').autoGenerate(__dirname);
+ *   require('@twomilia/react-native/generate-map').autoGenerate(__dirname);
  * 
  * Runs synchronously when Metro config loads — screen map is always fresh on dev start.
  */

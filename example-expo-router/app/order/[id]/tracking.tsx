@@ -1,6 +1,6 @@
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from '@twomilia/react-native';
 
 import { useFoodDelivery, type OrderStatus } from '@/app/lib/delivery-demo';
 

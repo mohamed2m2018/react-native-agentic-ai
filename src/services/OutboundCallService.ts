@@ -49,7 +49,7 @@ export type StartOutboundCallResult = {
 export type OutboundCallConfig = {
   /** Default: true when analyticsKey is present. */
   enabled?: boolean;
-  /** Optional MobileAI-compatible backend root. Defaults to https://mobileai.cloud. */
+  /** Optional Twomilia-compatible backend root. Defaults to https://twomilia.com. */
   proxyUrl?: string;
   /** Optional extra headers sent to the outbound-call endpoint. */
   headers?: Record<string, string>;
@@ -82,7 +82,7 @@ export function watchOutboundCall(params: {
   return { promise: watcher.start(), close: () => watcher.close() };
 }
 
-function resolveMobileAIBase(baseUrl?: string): string {
+function resolveTwomiliaBase(baseUrl?: string): string {
   return (baseUrl ?? ENDPOINTS.escalation)
     .replace(/\/$/, '')
     .replace(/\/api\/v1\/analytics$/, '');
@@ -98,7 +98,7 @@ export async function startOutboundAiCall(params: {
   const { analyticsKey, request, config, currentScreen, userContext } = params;
 
   if (!analyticsKey) {
-    return { ok: false, error: 'MobileAI analyticsKey is required for outbound AI calls.' };
+    return { ok: false, error: 'Twomilia analyticsKey is required for outbound AI calls.' };
   }
 
   const allowedTargetTypes = config?.allowedTargetTypes;
@@ -110,7 +110,7 @@ export async function startOutboundAiCall(params: {
   }
 
   await initDeviceId();
-  const root = resolveMobileAIBase(config?.proxyUrl);
+  const root = resolveTwomiliaBase(config?.proxyUrl);
 
   try {
     const response = await fetch(`${root}/api/v1/outbound-calls`, {

@@ -1,15 +1,15 @@
-# MobileAI React Native
+# Twomilia React Native
 
 An in-app AI assistant for React Native that reads your app's UI automatically — no wrappers required. It can guide users, perform approved actions, answer questions using your knowledge base, and hand off to human support.
 
-[![npm version](https://img.shields.io/npm/v/@mobileai/react-native.svg)](https://www.npmjs.com/package/@mobileai/react-native)
+[![npm version](https://img.shields.io/npm/v/@twomilia/react-native.svg)](https://www.npmjs.com/package/@twomilia/react-native)
 [![React Native](https://img.shields.io/badge/react--native-≥0.73-blue.svg)](https://reactnative.dev/)
 [![License](https://img.shields.io/badge/license-EULA-lightgrey.svg)](./LICENSE)
 [![Security](https://img.shields.io/badge/security-policy-blue.svg)](./SECURITY.md)
 [![Roadmap](https://img.shields.io/badge/roadmap-public-orange.svg)](./ROADMAP.md)
 [![Changelog](https://img.shields.io/badge/changelog-keep--a--changelog-blueviolet.svg)](./CHANGELOG.md)
 
-![MobileAI demo](./assets/demo.gif)
+![Twomilia demo](./assets/demo.gif)
 
 ## Contents
 
@@ -36,7 +36,7 @@ An in-app AI assistant for React Native that reads your app's UI automatically �
 
 ## How It Works
 
-MobileAI uses **React Fiber tree traversal** to find every interactive element on the current screen at runtime — no component wrappers, no prop drilling, no code changes to your existing screens.
+Twomilia uses **React Fiber tree traversal** to find every interactive element on the current screen at runtime — no component wrappers, no prop drilling, no code changes to your existing screens.
 
 ```
 User message → Agent Runtime → Fiber tree snapshot → LLM → Tool call → UI action / answer
@@ -60,7 +60,7 @@ The assistant sees exactly what is mounted — nothing more, nothing less. Use `
 ### 1. Install
 
 ```bash
-npm install @mobileai/react-native
+npm install @twomilia/react-native
 ```
 
 ### 2. Wrap Your App
@@ -69,14 +69,14 @@ npm install @mobileai/react-native
 
 ```tsx
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@twomilia/react-native';
 
 export default function App() {
   const navRef = useNavigationContainerRef();
 
   return (
     <AIAgent
-      analyticsKey="mobileai_pub_xxxxxxxx"
+      analyticsKey="twomilia_pub_xxxxxxxx"
       navRef={navRef}
     >
       <NavigationContainer ref={navRef}>
@@ -91,14 +91,14 @@ export default function App() {
 
 ```tsx
 import { Slot, useNavigationContainerRef } from 'expo-router';
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@twomilia/react-native';
 
 export default function RootLayout() {
   const navRef = useNavigationContainerRef();
 
   return (
     <AIAgent
-      analyticsKey="mobileai_pub_xxxxxxxx"
+      analyticsKey="twomilia_pub_xxxxxxxx"
       navRef={navRef}
     >
       <Slot />
@@ -199,7 +199,7 @@ This creates `ai-screen-map.json` in your project root. Commit it to source cont
 // metro.config.js
 const { getDefaultConfig } = require('expo/metro-config');
 
-require('@mobileai/react-native/generate-map').autoGenerate(__dirname);
+require('@twomilia/react-native/generate-map').autoGenerate(__dirname);
 
 module.exports = getDefaultConfig(__dirname);
 ```
@@ -218,26 +218,26 @@ import screenMap from './ai-screen-map.json';
 
 ## Provider Options
 
-### MobileAI Cloud (recommended for production)
+### Twomilia Cloud (recommended for production)
 
-`analyticsKey` routes AI calls through the MobileAI hosted proxy. It also enables analytics, the knowledge base dashboard, support ticket inbox, and conversation history — without exposing an API key in your app bundle.
+`analyticsKey` routes AI calls through the Twomilia hosted proxy. It also enables analytics, the knowledge base dashboard, support ticket inbox, and conversation history — without exposing an API key in your app bundle.
 
 ```tsx
-<AIAgent analyticsKey="mobileai_pub_xxxxxxxx" navRef={navRef}>
+<AIAgent analyticsKey="twomilia_pub_xxxxxxxx" navRef={navRef}>
   {children}
 </AIAgent>
 ```
 
-Get your key at [mobileai.cloud](https://mobileai.cloud).
+Get your key at [twomilia.com](https://twomilia.com).
 
-### Your Own Backend Proxy (production without MobileAI Cloud)
+### Your Own Backend Proxy (production without Twomilia Cloud)
 
 Route requests through your server. Your server adds the real API key before forwarding to Gemini or OpenAI.
 
 ```tsx
 <AIAgent
   provider="openai"
-  proxyUrl="https://api.example.com/mobileai/chat"
+  proxyUrl="https://api.example.com/twomilia/chat"
   proxyHeaders={{ Authorization: `Bearer ${sessionToken}` }}
   navRef={navRef}
 >
@@ -249,8 +249,8 @@ For voice mode, you can use a separate WebSocket endpoint:
 
 ```tsx
 <AIAgent
-  proxyUrl="https://api.example.com/mobileai/chat"
-  voiceProxyUrl="wss://api.example.com/mobileai/voice"
+  proxyUrl="https://api.example.com/twomilia/chat"
+  voiceProxyUrl="wss://api.example.com/twomilia/voice"
   voiceProxyHeaders={{ Authorization: `Bearer ${sessionToken}` }}
   navRef={navRef}
 >
@@ -283,7 +283,7 @@ Control how much autonomy the AI has:
 | `autopilot` | Full autonomy. All actions execute without confirmation. Use only for trusted, low-risk automation flows. |
 
 ```tsx
-<AIAgent interactionMode="companion" analyticsKey="mobileai_pub_xxxxxxxx">
+<AIAgent interactionMode="companion" analyticsKey="twomilia_pub_xxxxxxxx">
   {children}
 </AIAgent>
 ```
@@ -295,7 +295,7 @@ Companion mode is the safest choice when trust matters more than automation. The
 Register async data sources the AI can query directly instead of guessing from what's visible on screen. Use this for order status, product catalogs, account data, recommendations, or any backend API.
 
 ```tsx
-import { useData } from '@mobileai/react-native';
+import { useData } from '@twomilia/react-native';
 
 function OrdersScreen() {
   useData(
@@ -318,7 +318,7 @@ function OrdersScreen() {
 Register safe app-owned operations the AI can call by name. Use this for actions that are better expressed in code than by tapping UI — applying coupons, filtering results, clearing a cart, toggling a setting.
 
 ```tsx
-import { useAction } from '@mobileai/react-native';
+import { useAction } from '@twomilia/react-native';
 
 function CartScreen() {
   useAction(
@@ -341,7 +341,7 @@ The handler is always kept fresh via an internal ref — no stale closure bugs, 
 Access the agent from any component inside the `<AIAgent>` tree:
 
 ```tsx
-import { useAI } from '@mobileai/react-native';
+import { useAI } from '@twomilia/react-native';
 
 function MyScreen() {
   const { send, isLoading, status, messages, clearMessages, cancel } = useAI();
@@ -384,14 +384,14 @@ Give the AI domain knowledge it can query during a conversation:
 </AIAgent>
 ```
 
-You can also pass a custom retriever function or configure project-level knowledge in the MobileAI dashboard (when using `analyticsKey`).
+You can also pass a custom retriever function or configure project-level knowledge in the Twomilia dashboard (when using `analyticsKey`).
 
 ### AI Zones
 
 `AIZone` is a declarative boundary that grants the AI permission to modify a specific subtree — highlighting elements, injecting hint cards, or simplifying a complex view for the user.
 
 ```tsx
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from '@twomilia/react-native';
 
 function CheckoutScreen() {
   return (
@@ -487,7 +487,7 @@ Support mode transforms the AI into a customer support assistant with a greeting
 
 ```tsx
 <AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
   userContext={{ userId: user.id, email: user.email, name: user.name }}
   supportMode={{
     enabled: true,
@@ -550,7 +550,7 @@ Support mode transforms the AI into a customer support assistant with a greeting
 </AIAgent>
 ```
 
-When `analyticsKey` is set and `escalation.provider` is `'mobileai'`, tickets appear in the MobileAI dashboard inbox and human replies are streamed back into the chat in real time via WebSocket.
+When `analyticsKey` is set and `escalation.provider` is `'mobileai'`, tickets appear in the Twomilia dashboard inbox and human replies are streamed back into the chat in real time via WebSocket.
 
 ### Offline Notifications
 
@@ -558,7 +558,7 @@ Pass a push token so users get notified when a human replies:
 
 ```tsx
 <AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
   pushToken={expoPushToken}
   pushTokenType="expo"  // 'fcm' | 'expo' | 'apns'
 >
@@ -575,7 +575,7 @@ Pass a push token so users get notified when a human replies:
 Hide the built-in chat bar and drive the assistant from your own UI.
 
 ```tsx
-import { AIAgent, useAI } from '@mobileai/react-native';
+import { AIAgent, useAI } from '@twomilia/react-native';
 
 function MyAssistantInput() {
   const { send, isLoading, status, messages, cancel } = useAI();
@@ -591,7 +591,7 @@ function MyAssistantInput() {
   );
 }
 
-<AIAgent showChatBar={false} analyticsKey="mobileai_pub_xxxxxxxx">
+<AIAgent showChatBar={false} analyticsKey="twomilia_pub_xxxxxxxx">
   <MyAssistantInput />
   {children}
 </AIAgent>
@@ -608,7 +608,7 @@ Trigger a help hint automatically when the SDK detects user hesitation:
     idleThresholdMs: 8000,       // Trigger after 8s of inactivity
     message: 'Need help? I can guide you through checkout.',
   }}
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
 >
   {children}
 </AIAgent>
@@ -628,7 +628,7 @@ Walk new users through structured setup steps proactively on first launch:
       { screen: 'Preferences', message: 'Now pick what matters to you.' },
     ],
   }}
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
 >
   {children}
 </AIAgent>
@@ -639,10 +639,10 @@ Walk new users through structured setup steps proactively on first launch:
 Build support instructions programmatically instead of the `supportMode` config:
 
 ```tsx
-import { AIAgent, buildSupportPrompt } from '@mobileai/react-native';
+import { AIAgent, buildSupportPrompt } from '@twomilia/react-native';
 
 <AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
   instructions={{
     system: buildSupportPrompt({
       enabled: true,
@@ -664,7 +664,7 @@ Connect local or remote Model Context Protocol tools:
 ```tsx
 <AIAgent
   mcpServerUrl="ws://localhost:3101"
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
 >
   {children}
 </AIAgent>
@@ -680,7 +680,7 @@ Prevent runaway token costs per user request:
 <AIAgent
   maxTokenBudget={8000}   // stop if prompt + completion exceeds 8k tokens
   maxCostUSD={0.05}       // stop if estimated cost exceeds $0.05
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  analyticsKey="twomilia_pub_xxxxxxxx"
 >
   {children}
 </AIAgent>
@@ -741,7 +741,7 @@ import type {
 
   // Provider
   AIProviderName,
-} from '@mobileai/react-native';
+} from '@twomilia/react-native';
 ```
 
 ---
@@ -794,13 +794,13 @@ Pass `consent={{ required: true, persist: true }}` to persist consent using `Asy
 Confirm microphone permissions are granted (`react-native-audio-api` or `expo-speech-recognition` require them). Install the voice dependencies and run a fresh native build. On iOS, add `NSMicrophoneUsageDescription` to `Info.plist`.
 
 **Analytics are not appearing in the dashboard.**
-Verify `analyticsKey` starts with `mobileai_pub_`. Check that the device has internet access. Enable `debug={true}` and look for `TelemetryService` log lines.
+Verify `analyticsKey` starts with `twomilia_pub_`. Check that the device has internet access. Enable `debug={true}` and look for `TelemetryService` log lines.
 
 **MCP bridge is not connecting.**
 Confirm the MCP server is running and the `mcpServerUrl` is reachable from the device (use your machine's local IP address on a physical device, not `localhost`).
 
 **Build fails with codegen errors (New Architecture).**
-Run `npx react-native build-android --mode debug` or `npx pod-install` to trigger codegen. Make sure `@mobileai/react-native` is listed in your app's `package.json`, not just a workspace dependency.
+Run `npx react-native build-android --mode debug` or `npx pod-install` to trigger codegen. Make sure `@twomilia/react-native` is listed in your app's `package.json`, not just a workspace dependency.
 
 ---
 

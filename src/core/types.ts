@@ -668,7 +668,7 @@ export interface AgentConfig {
    * The agent loop auto-stops when this budget is exceeded, returning partial results.
    * Cost is estimated based on the provider's pricing (see provider source for rates).
    * NOTE: This represents raw provider cost (Gemini's base pricing).
-   * It does NOT include the MobileAI dashboard tier-based markup multiplier.
+   * It does NOT include the Twomilia dashboard tier-based markup multiplier.
    */
   maxCostUSD?: number;
 

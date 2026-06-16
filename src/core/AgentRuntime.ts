@@ -1713,7 +1713,13 @@ export class AgentRuntime {
     if (!approval || this.appActionApprovalSource !== 'explicit_button') return false;
     if (Date.now() - approval.approvedAt > 2 * 60 * 1000) return false;
     if (approval.userGoal !== this.currentUserGoal) return false;
-    if (approval.screenName !== this.getNavigationSnapshot().currentScreenName) return false;
+    // Intentionally do NOT require the same screenName. A confirmed destructive
+    // action commonly opens a confirm modal or re-renders the list, shifting the
+    // screen between the user's "Allow" and the actual tap. Requiring an exact
+    // screen match here caused an infinite re-confirmation loop (Allow → screen
+    // drifts → approval no longer matches → agent re-asks → repeat). Safety is
+    // still bounded by the 2-min TTL, the matching userGoal, and the target-label
+    // relevance checks below.
 
     const target = this.getPolicyTargetElement(toolName, args);
     const approvalText = normalizeApprovalMatchText(approval.question);

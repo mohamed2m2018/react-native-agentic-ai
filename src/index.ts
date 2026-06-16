@@ -1,5 +1,5 @@
 /**
- * @mobileai/react-native
+ * @twomilia/react-native
  *
  * Zero-wrapper AI agent for React Native.
  * Auto-detects interactive elements via React Fiber tree traversal.
@@ -46,7 +46,7 @@ export { VoiceService } from './services/VoiceService';
 export { AudioInputService } from './services/AudioInputService';
 export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
-export { createMobileAIKnowledgeRetriever } from './services/MobileAIKnowledgeRetriever';
+export { createTwomiliaKnowledgeRetriever } from './services/TwomiliaKnowledgeRetriever';
 export { startOutboundAiCall } from './services/OutboundCallService';
 export type {
   OutboundCallConfig,
@@ -103,7 +103,7 @@ export type {
 } from './core/types';
 export type { RichUITheme, RichUIThemeOverride } from './theme/RichUITheme';
 
-export type { MobileAIKnowledgeRetrieverOptions } from './services/MobileAIKnowledgeRetriever';
+export type { TwomiliaKnowledgeRetrieverOptions } from './services/TwomiliaKnowledgeRetriever';
 
 export type { AIConsentConfig } from './components/AIConsentDialog';
 
@@ -118,7 +118,7 @@ export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
 // ─── Support Mode ────────────────────────────────────────────
 // CSATSurvey and buildSupportPrompt work standalone (no backend)
 // createEscalateTool works with provider='custom' (no backend)
-// EscalationSocket and provider='mobileai' require api.mobileai.cloud
+// EscalationSocket and provider='mobileai' require api.twomilia.com
 export {
   CSATSurvey,
   QuickActionsSheet,

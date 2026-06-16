@@ -1,5 +1,5 @@
 import { Link, useLocalSearchParams } from 'expo-router';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from '@twomilia/react-native';
 import React from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * @mobileai/mcp-server
+ * @twomilia/mcp-server
  * MCP bridge between AI editors (Antigravity, Claude Desktop) and your React Native app.
  *
  * Usage:
- *   npx @mobileai/mcp-server
- *   MCP_PORT=3100 WS_PORT=3101 npx @mobileai/mcp-server
+ *   npx @twomilia/mcp-server
+ *   MCP_PORT=3100 WS_PORT=3101 npx @twomilia/mcp-server
  */
 
 import './index.js';

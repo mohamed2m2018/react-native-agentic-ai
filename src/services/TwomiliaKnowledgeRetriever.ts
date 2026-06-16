@@ -1,7 +1,7 @@
 import type { KnowledgeRetriever } from '../core/types';
 import { logger } from '../utils/logger';
 
-export interface MobileAIKnowledgeRetrieverOptions {
+export interface TwomiliaKnowledgeRetrieverOptions {
   analyticsKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;
@@ -9,15 +9,15 @@ export interface MobileAIKnowledgeRetrieverOptions {
 }
 
 function normalizeBaseUrl(baseUrl?: string) {
-  if (!baseUrl) return 'https://mobileai.cloud';
+  if (!baseUrl) return 'https://twomilia.com';
   const trimmed = baseUrl.replace(/\/$/, '');
   return trimmed.endsWith('/api/v1/analytics')
     ? trimmed.replace(/\/api\/v1\/analytics$/, '')
     : trimmed;
 }
 
-export function createMobileAIKnowledgeRetriever(
-  options: MobileAIKnowledgeRetrieverOptions
+export function createTwomiliaKnowledgeRetriever(
+  options: TwomiliaKnowledgeRetrieverOptions
 ): KnowledgeRetriever {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const url = `${baseUrl}/api/v1/knowledge/query`;
@@ -41,7 +41,7 @@ export function createMobileAIKnowledgeRetriever(
 
         if (!response.ok) {
           logger.warn(
-            'MobileAIKnowledge',
+            'TwomiliaKnowledge',
             `Knowledge query failed: HTTP ${response.status}`
           );
           return [];
@@ -51,7 +51,7 @@ export function createMobileAIKnowledgeRetriever(
         return Array.isArray(payload?.entries) ? payload.entries : [];
       } catch (error: any) {
         logger.error(
-          'MobileAIKnowledge',
+          'TwomiliaKnowledge',
           `Knowledge query failed: ${error?.message ?? 'unknown error'}`
         );
         return [];

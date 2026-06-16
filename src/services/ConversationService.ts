@@ -1,7 +1,7 @@
 /**
  * ConversationService — backend-persisted AI conversation history.
  *
- * Saves and retrieves AI chat sessions from the MobileAI backend so users
+ * Saves and retrieves AI chat sessions from the Twomilia backend so users
  * can browse and continue previous conversations across app launches.
  *
  * All methods are no-ops when analyticsKey is absent (graceful degradation).

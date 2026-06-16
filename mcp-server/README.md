@@ -1,8 +1,8 @@
-# @mobileai/mcp-server
+# @twomilia/mcp-server
 
 > The Model Context Protocol (MCP) bridge for React Native. Connect any AI (like Claude Desktop or Google Antigravity) to your React Native app.
 
-This is the companion MCP server for the [`@mobileai/react-native`](https://www.npmjs.com/package/@mobileai/react-native) package. It lets AI tools inspect and control a running React Native app for UI testing, debugging, and automation.
+This is the companion MCP server for the [`@twomilia/react-native`](https://www.npmjs.com/package/@twomilia/react-native) package. It lets AI tools inspect and control a running React Native app for UI testing, debugging, and automation.
 
 It acts as a local proxy that translates standard MCP traffic (from AI editors/agents) into WebSockets that communicate directly with your running React Native app (iOS/Android emulator or physical device).
 
@@ -22,7 +22,7 @@ It acts as a local proxy that translates standard MCP traffic (from AI editors/a
 You don't even need to install it. Just run it via `npx`:
 
 ```bash
-npx @mobileai/mcp-server
+npx @twomilia/mcp-server
 ```
 
 *(By default, it listens on port `3100` for HTTP/SSE MCP traffic, and port `3101` for the React Native WebSocket).*
@@ -32,7 +32,7 @@ npx @mobileai/mcp-server
 In your app, pass the `mcpServerUrl` prop to your `<AIAgent>`:
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from '@twomilia/react-native';
 
 export default function App() {
   return (
@@ -58,7 +58,7 @@ Add to `~/.gemini/antigravity/mcp_config.json`:
   "mcpServers": {
     "mobile-app": {
       "command": "npx",
-      "args": ["@mobileai/mcp-server"]
+      "args": ["@twomilia/mcp-server"]
     }
   }
 }
@@ -91,7 +91,7 @@ You can customize the ports by setting environment variables before running the 
 
 **Example:**
 ```bash
-MCP_PORT=8080 WS_PORT=8081 npx @mobileai/mcp-server
+MCP_PORT=8080 WS_PORT=8081 npx @twomilia/mcp-server
 ```
 
 ---
@@ -99,5 +99,5 @@ MCP_PORT=8080 WS_PORT=8081 npx @mobileai/mcp-server
 ## 🔗 Links
 
 - **Main Repository:** [github.com/MobileAIAgent/react-native](https://github.com/MobileAIAgent/react-native)
-- **React Native SDK:** [@mobileai/react-native](https://www.npmjs.com/package/@mobileai/react-native)
+- **React Native SDK:** [@twomilia/react-native](https://www.npmjs.com/package/@twomilia/react-native)
 - **MCP Specification:** [Model Context Protocol](https://modelcontextprotocol.io)

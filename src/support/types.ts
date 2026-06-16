@@ -20,7 +20,7 @@ export interface SupportModeConfig {
   greeting?: {
     /** Main greeting text (e.g., "Hi! 👋 How can I help you today?") */
     message: string;
-    /** Agent name shown above the greeting (e.g., "MobileAI Support") */
+    /** Agent name shown above the greeting (e.g., "Twomilia Support") */
     agentName?: string;
     /** Avatar URL for the support agent */
     avatarUrl?: string;
@@ -155,7 +155,7 @@ export interface QuickActionsConfig {
 export interface EscalationConfig {
   /**
    * Where to route the escalation.
-   * - 'mobileai' (default when analyticsKey is set): ticket goes to MobileAI
+   * - 'mobileai' (default when analyticsKey is set): ticket goes to Twomilia
    *   dashboard inbox via POST /api/v1/escalations + WebSocket reply delivery.
    * - 'custom': fires the onEscalate callback — wire to Intercom, Zendesk, etc.
    */

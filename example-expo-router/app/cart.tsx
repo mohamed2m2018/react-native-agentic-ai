@@ -1,7 +1,7 @@
 import { Link, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from '@twomilia/react-native';
 
 import { useFoodDelivery, type CartLineItem } from '@/app/lib/delivery-demo';
 

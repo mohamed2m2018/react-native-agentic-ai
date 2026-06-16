@@ -60,7 +60,7 @@
     },
     "about": {
       "title": "About DashBite",
-      "description": "About DashBite, What this app demonstrates, Support behavior, Offline and local mode, Food delivery support demo powered by @mobileai/react-native."
+      "description": "About DashBite, What this app demonstrates, Support behavior, Offline and local mode, Food delivery support demo powered by @twomilia/react-native."
     },
     "addresses": {
       "title": "Saved Addresses",

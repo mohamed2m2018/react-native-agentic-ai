@@ -2,7 +2,7 @@ import { getDeviceId, initDeviceId } from './telemetry/device';
 import { logger } from '../utils/logger';
 import { ENDPOINTS } from '../config/endpoints';
 
-const LOG_TAG = 'MobileAIActionService';
+const LOG_TAG = 'TwomiliaActionService';
 
 export type RemoteActionExecutionType = 'webhook' | 'app_code';
 
@@ -24,7 +24,7 @@ export interface ExecuteConfiguredActionResult {
   error?: string;
 }
 
-function resolveMobileAIBase(baseUrl?: string): string {
+function resolveTwomiliaBase(baseUrl?: string): string {
   return (baseUrl ?? ENDPOINTS.escalation)
     .replace(/\/$/, '')
     .replace(/\/api\/v1\/analytics$/, '');
@@ -37,7 +37,7 @@ export async function fetchConfiguredActions(params: {
 }): Promise<RemoteConfiguredAction[]> {
   const { analyticsKey, baseUrl, headers } = params;
   try {
-    const root = resolveMobileAIBase(baseUrl);
+    const root = resolveTwomiliaBase(baseUrl);
     const url = `${root}/api/v1/actions/sync?key=${encodeURIComponent(analyticsKey)}`;
     const response = await fetch(url, {
       headers: headers ?? {},
@@ -78,7 +78,7 @@ export async function executeConfiguredAction(params: {
 
   await initDeviceId();
   const deviceId = getDeviceId() ?? 'unknown';
-  const root = resolveMobileAIBase(baseUrl);
+  const root = resolveTwomiliaBase(baseUrl);
 
   try {
     const response = await fetch(`${root}/api/v1/actions/execute`, {

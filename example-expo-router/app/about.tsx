@@ -5,7 +5,7 @@ export default function AboutScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>About DashBite</Text>
-      <Text style={styles.subtitle}>Food delivery support demo powered by @mobileai/react-native.</Text>
+      <Text style={styles.subtitle}>Food delivery support demo powered by @twomilia/react-native.</Text>
 
       <Text style={styles.heading}>What this app demonstrates</Text>
       <Text style={styles.body}>

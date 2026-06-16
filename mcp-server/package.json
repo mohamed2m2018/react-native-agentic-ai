@@ -1,10 +1,10 @@
 {
-  "name": "@mobileai/mcp-server",
+  "name": "@twomilia/mcp-server",
   "version": "1.0.1",
-  "description": "MCP bridge server for @mobileai/react-native — connect AI editors to your React Native app",
+  "description": "MCP bridge server for @twomilia/react-native — connect AI editors to your React Native app",
   "main": "dist/index.js",
   "bin": {
-    "mobileai-mcp-server": "dist/cli.js"
+    "twomilia-mcp-server": "dist/cli.js"
   },
   "scripts": {
     "start": "tsx src/cli.ts",
@@ -16,7 +16,7 @@
     "mcp",
     "react-native",
     "ai-agent",
-    "mobileai",
+    "twomilia",
     "model-context-protocol"
   ],
   "author": "Mohamed Salah",

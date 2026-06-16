@@ -95,7 +95,7 @@ export class OpenAIProvider implements AIProvider {
       };
     } else {
       throw new Error(
-        '[mobileai] You must provide either "apiKey" or "proxyUrl" to use OpenAI provider.',
+        '[twomilia] You must provide either "apiKey" or "proxyUrl" to use OpenAI provider.',
       );
     }
 
@@ -103,7 +103,7 @@ export class OpenAIProvider implements AIProvider {
 
     // Compute config digest for analytics quality metrics
     this._cfgDigest = proxyUrl
-      ? (proxyUrl.includes('mobileai.cloud') ? 'h' : 'c') + _h(proxyUrl)
+      ? (proxyUrl.includes('twomilia.com') ? 'h' : 'c') + _h(proxyUrl)
       : 'k' + (apiKey ? _h(apiKey.slice(0, 8)) : '0');
   }
 

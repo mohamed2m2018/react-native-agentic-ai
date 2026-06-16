@@ -1,5 +1,5 @@
 /**
- * TelemetryService — Batches and sends analytics events to MobileAI Cloud.
+ * TelemetryService — Batches and sends analytics events to Twomilia Cloud.
  *
  * Features:
  * - Event batching (flush every N seconds or N events)

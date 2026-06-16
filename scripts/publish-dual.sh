@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ─── Dual Publish Script ────────────────────────────────────────
 # Bumps version, builds, and publishes under two npm package names:
-#   1. @mobileai/react-native        (scoped)
+#   1. @twomilia/react-native        (scoped)
 #   2. react-native-agentic-ai        (unscoped)
 #
 # Usage:
@@ -24,7 +24,7 @@ if [[ "${2:-}" == "--dry-run" ]] || [[ "${1:-}" == "--dry-run" ]]; then
   fi
 fi
 
-NAME_A="@mobileai/react-native"
+NAME_A="@twomilia/react-native"
 NAME_B="react-native-agentic-ai"
 
 # Ensure we're in the repo root
