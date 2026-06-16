@@ -1068,6 +1068,24 @@ export class ReactNativePlatformAdapter implements PlatformAdapter {
     const label = element.label || `[${element.type}]`;
     const fiberNode = element.fiberNode;
 
+    // Code-enforced credential guard: never let the agent fill a password /
+    // secret field — the value would pass through the AI. Mirrors web
+    // (isSecretField). The prompt rule alone doesn't stop the model once a
+    // user volunteers a secret in chat. secureTextEntry is the RN signal;
+    // textContentType / autoComplete "password" are additional hints.
+    const isSecureProps = (p: any): boolean =>
+      !!p && (
+        p.secureTextEntry === true ||
+        String(p.textContentType || '').toLowerCase().includes('password') ||
+        String(p.autoComplete || '').toLowerCase().includes('password')
+      );
+    const innerSecureFiber = fiberNode
+      ? findFiberNode(fiberNode, (node) => isSecureProps(getProps(node)), 15)
+      : null;
+    if (isSecureProps(props) || innerSecureFiber) {
+      return `🔒 Refused to type into [${index}] "${label}" — it is a password or other secret field. For the user's security a credential must NEVER pass through the AI or be filled by it. Do not attempt to fill it and do not ask for it in chat. Instead, ask the user to type it directly into this field themselves, and continue once they confirm it is filled.`;
+    }
+
     // Briefly highlight the field so the user sees what we are typing into.
     await this.showActionHighlight(element, 'type');
 
