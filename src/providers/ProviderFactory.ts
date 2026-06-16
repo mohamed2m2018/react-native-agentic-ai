@@ -30,7 +30,7 @@ export function createProvider(
     default:
       return new GeminiProvider(
         apiKey,
-        model || 'gemini-2.5-flash',
+        model || 'gemini-3.1-flash-lite',
         proxyUrl,
         proxyHeaders,
         enableWebSearch,

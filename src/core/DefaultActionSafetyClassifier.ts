@@ -30,7 +30,7 @@ const HIGH_IMPACT_CAPABILITIES = new Set<ActionSafetyCapability>([
 ]);
 
 export const DEFAULT_GUARD_MODELS: Record<AIProviderName, string> = {
-  gemini: 'gemini-2.5-flash-lite',
+  gemini: 'gemini-3.1-flash-lite',
   openai: 'gpt-5.4-nano',
 };
 

@@ -141,7 +141,7 @@ export interface LiveTestConfig {
  */
 export function createLiveRuntime(opts: LiveTestConfig) {
   const apiKey = getApiKey();
-  const provider = new GeminiProvider(apiKey, 'gemini-2.5-flash');
+  const provider = new GeminiProvider(apiKey, 'gemini-3.1-flash-lite');
   const navRef = createMockNavRef(opts.nav);
   const platformAdapter = new ReactNativePlatformAdapter({
     getRootRef: () => opts.fiber,

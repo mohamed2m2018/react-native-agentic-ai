@@ -40,7 +40,7 @@ describe('GuideTool E2E (Real LLM)', () => {
   it.skip('LLM triggers highlight_element and overlay renders', async () => {
     // 1. We construct the React app tree with AIAgent
     const appEl = (
-      <AIAgent apiKey={process.env.GEMINI_API_KEY} model="gemini-2.5-flash" showChatBar={false}>
+      <AIAgent apiKey={process.env.GEMINI_API_KEY} model="gemini-3.1-flash-lite" showChatBar={false}>
         <View style={{ flex: 1, padding: 20 }}>
           <Text testID="title-text">Settings Profile</Text>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>

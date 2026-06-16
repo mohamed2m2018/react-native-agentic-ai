@@ -57,7 +57,7 @@ const mockSuccessResponse = (actionName: string, args: Record<string, any> = {},
   }],
 });
 
-const createProvider = (model = 'gemini-2.5-flash') =>
+const createProvider = (model = 'gemini-3.1-flash-lite') =>
   new GeminiProvider('test-api-key', model);
 
 const sampleTools: ToolDefinition[] = [
@@ -114,7 +114,7 @@ describe('GeminiProvider', () => {
       const callArgs = mockGenerateContent.mock.calls[0][0];
 
       // Verify model
-      expect(callArgs.model).toBe('gemini-2.5-flash');
+      expect(callArgs.model).toBe('gemini-3.1-flash-lite');
 
       // Should have text-only parts (no inlineData)
       expect(callArgs.contents[0].parts).toHaveLength(1);
@@ -347,7 +347,7 @@ describe('GeminiProvider', () => {
       expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-2.0-flash');
     });
 
-    it('defaults to gemini-2.5-flash', async () => {
+    it('defaults to gemini-3.1-flash-lite', async () => {
       mockGenerateContent.mockResolvedValueOnce(
         mockSuccessResponse('done', { text: 'ok', success: true })
       );
@@ -355,7 +355,7 @@ describe('GeminiProvider', () => {
       const provider = new GeminiProvider('key');
       await provider.generateContent('sys', 'msg', sampleTools, []);
 
-      expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-2.5-flash');
+      expect(mockGenerateContent.mock.calls[0][0].model).toBe('gemini-3.1-flash-lite');
     });
   });
 });

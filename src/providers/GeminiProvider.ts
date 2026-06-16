@@ -108,7 +108,7 @@ export class GeminiProvider implements AIProvider {
 
   constructor(
     apiKey?: string,
-    model: string = 'gemini-2.5-flash',
+    model: string = 'gemini-3.1-flash-lite',
     proxyUrl?: string,
     proxyHeaders?: Record<string, string>,
     enableWebSearch?: boolean,

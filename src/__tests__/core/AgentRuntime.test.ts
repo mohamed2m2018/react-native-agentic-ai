@@ -1419,7 +1419,7 @@ describe('AgentRuntime', () => {
     });
 
     it('selects default guard models by provider and respects guardModel override', () => {
-      expect(resolveDefaultGuardModel({ provider: 'gemini' })).toBe('gemini-2.5-flash-lite');
+      expect(resolveDefaultGuardModel({ provider: 'gemini' })).toBe('gemini-3.1-flash-lite');
       expect(resolveDefaultGuardModel({ provider: 'openai' })).toBe('gpt-5.4-nano');
       expect(resolveDefaultGuardModel({
         provider: 'openai',
