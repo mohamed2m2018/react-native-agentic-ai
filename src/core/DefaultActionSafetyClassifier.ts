@@ -149,7 +149,7 @@ function decisionForCapability(
       capability,
       risk: 'medium',
       reason: 'Default guard could not classify this generic UI action confidently.',
-      userMessage: 'I am not fully sure what this action will do. Do you want me to continue?',
+      userMessage: 'Go ahead with this action?',
     };
   }
   if (capability === 'destructive') {
@@ -160,7 +160,7 @@ function decisionForCapability(
       capability,
       risk,
       reason: 'Destructive actions require fresh, action-specific confirmation.',
-      userMessage: 'This action is destructive and may be irreversible. Do you want me to continue?',
+      userMessage: 'Delete this permanently? This can\'t be undone.',
       requiresFreshApproval: true,
     };
   }
@@ -172,7 +172,7 @@ function decisionForCapability(
       capability,
       risk,
       reason: `Capability "${capability}" is high impact and requires fresh confirmation.`,
-      userMessage: 'This action may make an important change. Do you want me to continue?',
+      userMessage: 'This makes an important change to your account. Approve?',
       requiresFreshApproval: true,
     };
   }
@@ -187,7 +187,7 @@ function decisionForCapability(
       reason: shoppingPrep
         ? 'Routine shopping preparation state change within the approved task scope.'
         : 'This action may modify app state.',
-      userMessage: 'This may update something in the app. Do you want me to continue?',
+      userMessage: 'Make this change?',
     };
   }
   if (capability === 'content.send' || capability === 'external.open') {
@@ -198,7 +198,7 @@ function decisionForCapability(
       capability,
       risk,
       reason: `Capability "${capability}" can affect something outside the current screen.`,
-      userMessage: 'This may send or open something outside this screen. Do you want me to continue?',
+      userMessage: 'Send or open this? It leaves this screen.',
       requiresFreshApproval: true,
     };
   }

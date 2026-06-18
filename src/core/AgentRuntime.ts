@@ -144,6 +144,7 @@ async function withTimeout<T>(
 const APPROVAL_GRANTED_TOKEN = '__APPROVAL_GRANTED__';
 const APPROVAL_REJECTED_TOKEN = '__APPROVAL_REJECTED__';
 const APPROVAL_ALREADY_DONE_TOKEN = '__APPROVAL_ALREADY_DONE__';
+const ASK_USER_CANCELLED_TOKEN = '__ASK_USER_CANCELLED__';
 const USER_ALREADY_COMPLETED_MESSAGE = '✅ It looks like you already completed that step yourself. Great — let me know if you want help with anything else.';
 
 const ACTION_NOT_APPROVED_MESSAGE = "Okay — I won't do that. If you'd like, I can help with something else instead.";
@@ -219,6 +220,7 @@ export class AgentRuntime {
   // and aiConfirm-based confirmation checks.
   private appActionApprovalScope: AppActionApprovalScope = 'none';
   private appActionApprovalSource: AppActionApprovalSource = 'none';
+  private _hasExplicitApprovalThisSession = false;
   // Tools that physically alter the app — must be gated by workflow approval
   private static readonly APP_ACTION_TOOLS = new Set([
     'tap', 'type', 'scroll', 'navigate', 'long_press', 'adjust_slider', 'select_picker', 'set_date', 'dismiss_keyboard',
@@ -304,6 +306,9 @@ export class AgentRuntime {
   private grantWorkflowApproval(source: AppActionApprovalSource, reason: string): void {
     this.appActionApprovalScope = 'workflow';
     this.appActionApprovalSource = source;
+    if (source === 'explicit_button') {
+      this._hasExplicitApprovalThisSession = true;
+    }
     logger.info('AgentRuntime', `✅ Workflow approval granted via ${source} (${reason})`);
   }
 
@@ -560,8 +565,8 @@ export class AgentRuntime {
       if (result.failureKind === 'controllable' && result.missingFields && result.missingFields.length > 0) {
         const fieldLabel = result.missingFields.join(', ');
         const bundleInstruction = result.missingFields.length > 1
-          ? `Visible missing required fields: ${fieldLabel}. Before retrying the submit/save/confirm action, collect ALL of them in ONE ask_user(grants_workflow_approval=true) call. Do not ask one field at a time or retry between partial answers unless a new validation error appears after filling these fields.`
-          : `Visible missing required field: ${fieldLabel}. Ask for it with ask_user(grants_workflow_approval=true) before retrying the submit/save/confirm action.`;
+          ? `Visible missing required fields: ${fieldLabel}. Before retrying the submit/save/confirm action, collect ALL of them in ONE ask_user(collect_input=true) call. Do not ask one field at a time or retry between partial answers unless a new validation error appears after filling these fields.`
+          : `Visible missing required field: ${fieldLabel}. Ask for it with ask_user(collect_input=true) before retrying the submit/save/confirm action.`;
         this.observations.push(
           `Outcome verifier: The previous action "${this.pendingCriticalVerification.action.label}" did NOT complete successfully. ${result.evidence}${validationDetails} Treat this as a controllable failure. ${bundleInstruction}`
         );
@@ -854,13 +859,17 @@ export class AgentRuntime {
     // ask_user — ask for clarification
     this.tools.set('ask_user', {
       name: 'ask_user',
-      description: 'Communicate with the user. Use this to ask questions, request explicit permission for app actions, answer a direct user question, or collect missing low-risk workflow data that can authorize routine in-flow steps.',
+      description: 'Communicate with the user. Use this to ask questions, collect information, request explicit permission for app actions, or answer a direct user question.',
       parameters: {
         question: { type: 'string', description: 'The message or question to say to the user', required: true },
-        request_app_action: { type: 'boolean', description: 'Set to true when requesting permission to take an action in the app (navigate, tap, investigate). Shows explicit approval buttons to the user.', required: true },
+        collect_input: {
+          type: 'boolean',
+          description: 'Are you collecting information or input from the user? Set to true when asking a question, collecting preferences, requesting data, or answering the user (shows text input). Set to false ONLY when requesting yes/no permission to perform a specific app action you described in your question (shows approval buttons).',
+          required: true,
+        },
         grants_workflow_approval: {
           type: 'boolean',
-          description: 'Optional. Set to true only when asking for missing low-risk input or a low-risk selection that you will directly apply in the current action workflow. If the user answers, their answer authorizes routine in-flow actions like typing/selecting/toggling, but NOT irreversible final commits or support investigations.',
+          description: 'Internal use only. Do not set this parameter.',
           required: false,
         },
       },
@@ -870,12 +879,18 @@ export class AgentRuntime {
         if (typeof cleanQuestion === 'string') {
           cleanQuestion = cleanQuestion.replace(/\[\d+\]/g, '').replace(/  +/g, ' ').trim();
         }
-        const wantsExplicitAppApproval = parseBooleanToolArg(args.request_app_action);
-        const grantsWorkflowApproval = parseBooleanToolArg(args.grants_workflow_approval);
-        const kind = wantsExplicitAppApproval ? 'approval' : 'freeform';
+        // collect_input=true (or unset) → freeform text input
+        // collect_input=false → approval buttons (only for app-action permission)
+        // Legacy support: accept old request_app_action param too
+        const collectInput = args.collect_input !== undefined
+          ? parseBooleanToolArg(args.collect_input) !== false
+          : !parseBooleanToolArg(args.request_app_action);
+        const needsApproval = !collectInput;
+        const grantsWorkflowApproval = parseBooleanToolArg(args.grants_workflow_approval) || needsApproval;
+        const kind = needsApproval ? 'approval' : 'freeform';
 
         // Mark that an explicit approval checkpoint is now pending.
-        if (wantsExplicitAppApproval) {
+        if (needsApproval) {
           this.resetAppActionApproval('explicit approval requested');
           logger.info('AgentRuntime', '🔒 App action gate: explicit approval requested, UI tools now BLOCKED until granted');
         } else if (grantsWorkflowApproval) {
@@ -899,14 +914,17 @@ export class AgentRuntime {
             this.resetAppActionApproval('explicit approval rejected');
             logger.info('AgentRuntime', '🚫 App action gate: REJECTED — UI tools remain blocked');
             return USER_DECLINED_APP_ACTION_MESSAGE;
+          } else if (answer === ASK_USER_CANCELLED_TOKEN) {
+            logger.info('AgentRuntime', '🛑 ask_user cancelled by user before answering');
+            return 'User cancelled the follow-up question instead of answering. Do not assume an answer; acknowledge the cancellation and only ask again if the task still requires it.';
           } else if (
             grantsWorkflowApproval &&
+            this._hasExplicitApprovalThisSession &&
             typeof answer === 'string' &&
             answer.trim().length > 0
           ) {
             this.grantWorkflowApproval('user_input', 'user supplied requested workflow data');
           }
-          // Any other text answer leaves workflow approval unchanged.
 
           return `User answered: ${answer}`;
         }
@@ -1354,7 +1372,7 @@ export class AgentRuntime {
           `Safety confidence ${confidence.toFixed(2)} is below the allow threshold.`,
         userMessage:
           normalized.userMessage ||
-          'I am not fully sure this action is safe to do automatically. Do you want me to continue?',
+          'Continue with this action?',
       };
     }
 
@@ -1515,7 +1533,7 @@ export class AgentRuntime {
         {
           decision: 'ask',
           reason: `Tool effect "${toolEffect}" requires explicit approval.`,
-          userMessage: 'This action may make a real change. Do you want me to continue?',
+          userMessage: 'This makes a real change. Approve?',
         },
         'deterministic',
         toolName,
@@ -1617,7 +1635,7 @@ export class AgentRuntime {
 	      return agentMessage;
 	    }
 
-    const question = decision.userMessage || 'Do you want me to continue with this action?';
+    const question = decision.userMessage || 'Go ahead with this action?';
     this.emitTrace('action_safety_approval_required', {
       tool: toolName,
       args,
@@ -2257,7 +2275,7 @@ ${snapshot.elementsText}
         AgentRuntime.APP_ACTION_TOOLS.has(toolName) &&
         !this.hasWorkflowApproval()
       ) {
-        const blockedMsg = `🚫 APP ACTION BLOCKED: You are attempting to use "${toolName}" without workflow approval. Before routine UI actions, either (1) call ask_user(request_app_action=true) and wait for the user to tap 'Allow', or (2) if you are collecting missing low-risk input/selection for the current action workflow, call ask_user(grants_workflow_approval=true) so the user's answer authorizes routine in-flow actions. Never use option (2) for support investigations or irreversible final commits.`;
+        const blockedMsg = `🚫 APP ACTION BLOCKED: You are attempting to use "${toolName}" without workflow approval. You MUST call ask_user(collect_input=false) and wait for the user to tap 'Allow' before performing any app action.`;
         logger.warn('AgentRuntime', blockedMsg);
         this.emitTrace('app_action_gate_blocked', { tool: toolName, args }, stepIndex);
         return blockedMsg;
@@ -3241,7 +3259,9 @@ ${snapshot.elementsText}
           return result;
         }
 
-        // Record step with structured reasoning
+        // Record step with structured reasoning. userTurnText/modelArgs/
+        // thoughtSignature let the provider replay this step as a real
+        // multi-turn function call (Gemini 3.x thought_signature continuity).
         const agentStep: AgentStep = {
           stepIndex: step,
           reflection: reasoning,
@@ -3250,6 +3270,9 @@ ${snapshot.elementsText}
             input: toolCall.args,
             output,
           },
+          userTurnText: contextMessage,
+          modelArgs: response.modelArgs,
+          thoughtSignature: response.thoughtSignature,
         };
         this.history.push(agentStep);
 
