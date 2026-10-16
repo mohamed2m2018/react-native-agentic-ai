@@ -5,7 +5,7 @@
 ## Architecture
 
 ```
-AI Editor  ──── SSE (port 3100) ────►  MCP Server  ──── WebSocket (3101) ────►  Emulator
+AI Editor  ──── stdio ────►  MCP Server  ──── WebSocket (3101) ────►  Emulator
 (Antigravity,                          (mcp-server/)                            (<AIAgent> +
  Cursor, Claude)                                                                 your app)
 ```
@@ -35,7 +35,7 @@ Add `mcpServerUrl` in your layout:
 #### Option A: Direct (Just Talk)
 Tell your AI editor:
 
-> "Connect to the MCP server at localhost:3100. Check if the emulator is connected. Then tap on Wireless Headphones and verify the price matches what was shown in the product list."
+> "Check if the emulator is connected. Then tap on Wireless Headphones and verify the price matches what was shown in the product list."
 
 The AI editor calls `get_app_status()` → `execute_task(...)` → reports the result. No files, no scripts.
 
@@ -80,19 +80,18 @@ Use the included workflow:
 /test-emulator
 ```
 Or give direct commands:
-> "Connect to the MCP server at localhost:3100 and check if the Laptop Stand price is consistent across the home screen and the product detail page."
+> "Check if the Laptop Stand price is consistent across the home screen and the product detail page."
 
-### Cursor
-**Settings → MCP → Add Server** → Type: SSE, URL: `http://localhost:3100/mcp/sse`
-
-### Claude Desktop
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{ "mcpServers": { "mobile-app": { "url": "http://localhost:3100/mcp/sse" } } }
+### Claude Code
+```bash
+claude mcp add mobile-app -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @twomilia/mcp-server
 ```
 
-### Windsurf / Cline
-Add SSE endpoint `http://localhost:3100/mcp/sse` in their MCP settings.
+### Cursor, Claude Desktop, Windsurf, Cline
+Add to the client's `mcpServers` config:
+```json
+{ "mcpServers": { "mobile-app": { "command": "npx", "args": ["-y", "@twomilia/mcp-server"], "env": { "AI_PROVIDER": "gemini", "AI_API_KEY": "your-key" } } } }
+```
 
 ---
 
@@ -100,8 +99,11 @@ Add SSE endpoint `http://localhost:3100/mcp/sse` in their MCP settings.
 
 | Tool | Description |
 |------|-------------|
-| `execute_task(command)` | Send any natural language command to the app on the emulator |
-| `get_app_status()` | Check if the app is connected to the MCP bridge |
+| `execute_task(command)` | Run a plain-language task in the app on the emulator |
+| `get_app_status()` | Check if the app is connected and which AI provider tasks use |
+| `get_screen()` | Read the current screen with element indexes |
+| `list_app_tools()` | List the actions the app exposes |
+| `call_app_tool(name, arguments)` | Run one action directly, for example `tap` |
 
 ---
 

@@ -1,14 +1,7 @@
 #!/usr/bin/env node
+import { main } from './index.js';
 
-/**
- * @twomilia/mcp-server
- * MCP bridge between AI editors (Antigravity, Claude Desktop) and your React Native app.
- *
- * Usage:
- *   npx @twomilia/mcp-server
- *   MCP_PORT=3100 WS_PORT=3101 npx @twomilia/mcp-server
- */
-
-import './index.js';
-
-// Banner is printed inside index.ts at startup
+main().catch((err) => {
+  process.stderr.write(`[twomilia-mcp] Fatal: ${err instanceof Error ? err.stack : String(err)}\n`);
+  process.exit(1);
+});

@@ -659,13 +659,14 @@ import { AIAgent, buildSupportPrompt } from '@twomilia/react-native';
 
 ### MCP Bridge
 
-Connect local or remote Model Context Protocol tools:
+Let Claude Code, Cursor or any MCP client drive your running app, with your own AI key:
+
+```bash
+claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @twomilia/mcp-server
+```
 
 ```tsx
-<AIAgent
-  mcpServerUrl="ws://localhost:3101"
-  analyticsKey="twomilia_pub_xxxxxxxx"
->
+<AIAgent mcpServerUrl="ws://localhost:3101">
   {children}
 </AIAgent>
 ```
@@ -753,7 +754,7 @@ import type {
 - [Rich UI](./docs/rich-ui.md): Structured blocks, `RichContentRenderer`, `AIZone`, themes, and block handlers.
 - [Production](./docs/production.md): Proxy setup, support tickets, analytics, consent, and security notes.
 - [Wireframe Capture](./docs/wireframe-capture.md): Visual telemetry snapshots.
-- [MCP Bridge](./mcp-server/README.md): Connect local or remote Model Context Protocol tools.
+- [MCP Bridge](./mcp-server/README.md): Let MCP clients like Claude Code drive your running app.
 - [AI Emulator Testing](./example-ai-testing/README.md): Test app flows through an AI-driven emulator harness.
 
 ---

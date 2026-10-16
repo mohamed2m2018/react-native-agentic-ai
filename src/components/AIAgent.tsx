@@ -39,6 +39,7 @@ import type { FloatingOverlayWrapperHandle } from './FloatingOverlayWrapper';
 import { logger } from '../utils/logger';
 import { buildVoiceSystemPrompt } from '../core/systemPrompt';
 import { MCPBridge } from '../core/MCPBridge';
+import { buildMCPRuntimeConfig } from '../core/mcpRuntimeConfig';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
@@ -3061,12 +3062,41 @@ export function AIAgent({
     if (!mcpServerUrl) return;
 
     logger.info('AIAgent', `Setting up MCP bridge at ${mcpServerUrl}`);
-    const bridge = new MCPBridge(mcpServerUrl, runtime);
+    const bridge = new MCPBridge(mcpServerUrl, runtime, {
+      // MCP tasks run with the key given to the MCP server, without dashboard or support features.
+      createTaskRuntime: (ai) =>
+        new AgentRuntime(
+          createProvider(
+            ai.provider,
+            ai.apiKey,
+            ai.model,
+            undefined,
+            undefined,
+            enableWebSearch
+          ),
+          buildMCPRuntimeConfig(config, ai, {
+            customTools,
+            instructions,
+            knowledgeBase,
+          }),
+          rootViewRef.current,
+          navRef
+        ),
+    });
 
     return () => {
       bridge.destroy();
     };
-  }, [mcpServerUrl, runtime]);
+  }, [
+    mcpServerUrl,
+    runtime,
+    config,
+    customTools,
+    instructions,
+    knowledgeBase,
+    enableWebSearch,
+    navRef,
+  ]);
 
   // ─── Proactive Idle Agent ────────────────────────────────────
 

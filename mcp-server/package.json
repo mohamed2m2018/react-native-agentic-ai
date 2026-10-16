@@ -1,7 +1,7 @@
 {
   "name": "@twomilia/mcp-server",
-  "version": "1.0.1",
-  "description": "MCP bridge server for @twomilia/react-native — connect AI editors to your React Native app",
+  "version": "2.0.0",
+  "description": "MCP server for @twomilia/react-native: let Claude Code, Cursor or any MCP client drive your running React Native app. Bring your own AI key.",
   "main": "dist/index.js",
   "bin": {
     "twomilia-mcp-server": "dist/cli.js"
@@ -14,10 +14,11 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "react-native",
     "ai-agent",
-    "twomilia",
-    "model-context-protocol"
+    "ui-automation",
+    "testing"
   ],
   "author": "Mohamed Salah",
   "license": "SEE LICENSE IN LICENSE",
@@ -28,17 +29,19 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
     "ws": "^8.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
     "@types/node": "^25.5.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
   }
 }
