@@ -1,9 +1,9 @@
-# @twomilia/mcp-server
+# @mobileai/mcp-server
 
 Let Claude Code, Cursor, Claude Desktop or any MCP client drive your running React Native app. Bring your own AI key.
 
 ```
-MCP client  ── stdio ──►  @twomilia/mcp-server  ── WebSocket :3101 ──►  your app (<AIAgent />)
+MCP client  ── stdio ──►  @mobileai/mcp-server  ── WebSocket :3101 ──►  your app (<AIAgent />)
 ```
 
 ## What you can do
@@ -21,7 +21,7 @@ You need two values: the AI provider (`gemini` or `openai`) and its API key.
 **Claude Code**
 
 ```bash
-claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @twomilia/mcp-server
+claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @mobileai/mcp-server
 ```
 
 **Claude Desktop, Cursor, Windsurf, Antigravity** (any client with an `mcpServers` JSON config)
@@ -31,7 +31,7 @@ claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx 
   "mcpServers": {
     "react-native": {
       "command": "npx",
-      "args": ["-y", "@twomilia/mcp-server"],
+      "args": ["-y", "@mobileai/mcp-server"],
       "env": {
         "AI_PROVIDER": "gemini",
         "AI_API_KEY": "your-key"
@@ -44,7 +44,7 @@ claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx 
 ### 2. Point your app at it
 
 ```tsx
-import { AIAgent } from '@twomilia/react-native';
+import { AIAgent } from '@mobileai/react-native';
 
 export default function App() {
   return (
@@ -59,6 +59,8 @@ On a physical device, use your computer's local IP instead of `localhost` (for e
 On the Android emulator, `ws://10.0.2.2:3101` reaches your computer.
 
 Run the app in a development build. When it connects, the server sends it the provider and key, and every `execute_task` uses them.
+
+> Passing the key to the app needs an `@mobileai/react-native` release with MCP key support (newer than 0.9.92). With older SDK versions every tool still works, and `execute_task` uses the provider set in the app.
 
 ## Configuration
 
@@ -105,5 +107,5 @@ Actions that need approval (payments, sending, deleting) still ask on the device
 
 ## Links
 
-- React Native SDK: [@twomilia/react-native](https://www.npmjs.com/package/@twomilia/react-native)
+- React Native SDK: [@mobileai/react-native](https://www.npmjs.com/package/@mobileai/react-native)
 - [Model Context Protocol](https://modelcontextprotocol.io)

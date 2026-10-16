@@ -2,7 +2,7 @@
  * MobileAI — Public static API for consumer event tracking.
  *
  * Usage:
- *   import { MobileAI } from '@twomilia/react-native';
+ *   import { MobileAI } from '@mobileai/react-native';
  *   MobileAI.track('purchase_complete', { total: 29.99 });
  *
  * The TelemetryService instance is injected by the <AIAgent> component.

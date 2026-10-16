@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@gorhom/bottom-sheet": "^5.2.9",
-    "@twomilia/react-native": "file:..",
+    "@mobileai/react-native": "file:..",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/slider": "5.1.2",

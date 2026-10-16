@@ -2,7 +2,7 @@
 
 An in-app AI assistant for React Native that reads your app's UI automatically — no wrappers required. It can guide users, perform approved actions, answer questions using your knowledge base, and hand off to human support.
 
-[![npm version](https://img.shields.io/npm/v/@twomilia/react-native.svg)](https://www.npmjs.com/package/@twomilia/react-native)
+[![npm version](https://img.shields.io/npm/v/@mobileai/react-native.svg)](https://www.npmjs.com/package/@mobileai/react-native)
 [![React Native](https://img.shields.io/badge/react--native-≥0.73-blue.svg)](https://reactnative.dev/)
 [![License](https://img.shields.io/badge/license-EULA-lightgrey.svg)](./LICENSE)
 [![Security](https://img.shields.io/badge/security-policy-blue.svg)](./SECURITY.md)
@@ -60,7 +60,7 @@ The assistant sees exactly what is mounted — nothing more, nothing less. Use `
 ### 1. Install
 
 ```bash
-npm install @twomilia/react-native
+npm install @mobileai/react-native
 ```
 
 ### 2. Wrap Your App
@@ -69,7 +69,7 @@ npm install @twomilia/react-native
 
 ```tsx
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
-import { AIAgent } from '@twomilia/react-native';
+import { AIAgent } from '@mobileai/react-native';
 
 export default function App() {
   const navRef = useNavigationContainerRef();
@@ -91,7 +91,7 @@ export default function App() {
 
 ```tsx
 import { Slot, useNavigationContainerRef } from 'expo-router';
-import { AIAgent } from '@twomilia/react-native';
+import { AIAgent } from '@mobileai/react-native';
 
 export default function RootLayout() {
   const navRef = useNavigationContainerRef();
@@ -199,7 +199,7 @@ This creates `ai-screen-map.json` in your project root. Commit it to source cont
 // metro.config.js
 const { getDefaultConfig } = require('expo/metro-config');
 
-require('@twomilia/react-native/generate-map').autoGenerate(__dirname);
+require('@mobileai/react-native/generate-map').autoGenerate(__dirname);
 
 module.exports = getDefaultConfig(__dirname);
 ```
@@ -295,7 +295,7 @@ Companion mode is the safest choice when trust matters more than automation. The
 Register async data sources the AI can query directly instead of guessing from what's visible on screen. Use this for order status, product catalogs, account data, recommendations, or any backend API.
 
 ```tsx
-import { useData } from '@twomilia/react-native';
+import { useData } from '@mobileai/react-native';
 
 function OrdersScreen() {
   useData(
@@ -318,7 +318,7 @@ function OrdersScreen() {
 Register safe app-owned operations the AI can call by name. Use this for actions that are better expressed in code than by tapping UI — applying coupons, filtering results, clearing a cart, toggling a setting.
 
 ```tsx
-import { useAction } from '@twomilia/react-native';
+import { useAction } from '@mobileai/react-native';
 
 function CartScreen() {
   useAction(
@@ -341,7 +341,7 @@ The handler is always kept fresh via an internal ref — no stale closure bugs, 
 Access the agent from any component inside the `<AIAgent>` tree:
 
 ```tsx
-import { useAI } from '@twomilia/react-native';
+import { useAI } from '@mobileai/react-native';
 
 function MyScreen() {
   const { send, isLoading, status, messages, clearMessages, cancel } = useAI();
@@ -391,7 +391,7 @@ You can also pass a custom retriever function or configure project-level knowled
 `AIZone` is a declarative boundary that grants the AI permission to modify a specific subtree — highlighting elements, injecting hint cards, or simplifying a complex view for the user.
 
 ```tsx
-import { AIZone } from '@twomilia/react-native';
+import { AIZone } from '@mobileai/react-native';
 
 function CheckoutScreen() {
   return (
@@ -575,7 +575,7 @@ Pass a push token so users get notified when a human replies:
 Hide the built-in chat bar and drive the assistant from your own UI.
 
 ```tsx
-import { AIAgent, useAI } from '@twomilia/react-native';
+import { AIAgent, useAI } from '@mobileai/react-native';
 
 function MyAssistantInput() {
   const { send, isLoading, status, messages, cancel } = useAI();
@@ -639,7 +639,7 @@ Walk new users through structured setup steps proactively on first launch:
 Build support instructions programmatically instead of the `supportMode` config:
 
 ```tsx
-import { AIAgent, buildSupportPrompt } from '@twomilia/react-native';
+import { AIAgent, buildSupportPrompt } from '@mobileai/react-native';
 
 <AIAgent
   analyticsKey="twomilia_pub_xxxxxxxx"
@@ -662,7 +662,7 @@ import { AIAgent, buildSupportPrompt } from '@twomilia/react-native';
 Let Claude Code, Cursor or any MCP client drive your running app, with your own AI key:
 
 ```bash
-claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @twomilia/mcp-server
+claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @mobileai/mcp-server
 ```
 
 ```tsx
@@ -742,7 +742,7 @@ import type {
 
   // Provider
   AIProviderName,
-} from '@twomilia/react-native';
+} from '@mobileai/react-native';
 ```
 
 ---
@@ -801,7 +801,7 @@ Verify `analyticsKey` starts with `twomilia_pub_`. Check that the device has int
 Confirm the MCP server is running and the `mcpServerUrl` is reachable from the device (use your machine's local IP address on a physical device, not `localhost`).
 
 **Build fails with codegen errors (New Architecture).**
-Run `npx react-native build-android --mode debug` or `npx pod-install` to trigger codegen. Make sure `@twomilia/react-native` is listed in your app's `package.json`, not just a workspace dependency.
+Run `npx react-native build-android --mode debug` or `npx pod-install` to trigger codegen. Make sure `@mobileai/react-native` is listed in your app's `package.json`, not just a workspace dependency.
 
 ---
 

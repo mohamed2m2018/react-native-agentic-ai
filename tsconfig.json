@@ -3,7 +3,7 @@
     "rootDir": ".",
     "types": ["jest", "react", "react-native"],
     "paths": {
-      "@twomilia/react-native": [
+      "@mobileai/react-native": [
         "./src/index"
       ]
     },

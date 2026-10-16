@@ -84,13 +84,13 @@ Or give direct commands:
 
 ### Claude Code
 ```bash
-claude mcp add mobile-app -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @twomilia/mcp-server
+claude mcp add mobile-app -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @mobileai/mcp-server
 ```
 
 ### Cursor, Claude Desktop, Windsurf, Cline
 Add to the client's `mcpServers` config:
 ```json
-{ "mcpServers": { "mobile-app": { "command": "npx", "args": ["-y", "@twomilia/mcp-server"], "env": { "AI_PROVIDER": "gemini", "AI_API_KEY": "your-key" } } } }
+{ "mcpServers": { "mobile-app": { "command": "npx", "args": ["-y", "@mobileai/mcp-server"], "env": { "AI_PROVIDER": "gemini", "AI_API_KEY": "your-key" } } } }
 ```
 
 ---

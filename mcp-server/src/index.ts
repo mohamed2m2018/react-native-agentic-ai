@@ -1,5 +1,5 @@
 /**
- * @twomilia/mcp-server — connects MCP clients (Claude Code, Claude Desktop, Cursor, …)
+ * @mobileai/mcp-server — connects MCP clients (Claude Code, Claude Desktop, Cursor, …)
  * to a running React Native app that uses <AIAgent mcpServerUrl=… />.
  */
 
@@ -12,7 +12,7 @@ import { ConfigError, loadConfig, type ServerConfig } from './config.js';
 import { log } from './log.js';
 import { registerTools } from './tools.js';
 
-const SERVER_INFO = { name: 'twomilia-react-native', version: '2.0.0' };
+const SERVER_INFO = { name: 'mobileai-react-native', version: '2.0.0' };
 
 function createMcp(bridge: AppBridge): McpServer {
   const mcp = new McpServer(SERVER_INFO);

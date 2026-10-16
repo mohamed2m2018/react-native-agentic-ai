@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@twomilia/react-native": ["../src/index"]
+      "@mobileai/react-native": ["../src/index"]
     }
   }
 }
