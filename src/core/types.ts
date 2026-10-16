@@ -252,6 +252,21 @@ export interface AgentStep {
     input: Record<string, any>;
     output: string;
   };
+  /**
+   * Multi-turn replay fields (Gemini 3.x). Captured so the provider can rebuild
+   * this step as a real function-call turn (model functionCall → user
+   * functionResponse) instead of a flattened text history.
+   */
+  /** The exact user-turn text sent to the model for this step. */
+  userTurnText?: string;
+  /** Raw agent_step args the model emitted (reasoning + action_name + action_input). */
+  modelArgs?: Record<string, any>;
+  /**
+   * thought_signature from the model's functionCall. Gemini 3.x requires it
+   * echoed back verbatim on later turns or agentic tool use degrades (model
+   * "describes" actions instead of emitting them). 2.5 ignores it.
+   */
+  thoughtSignature?: string;
 }
 
 export interface AgentTraceEvent {
@@ -594,6 +609,15 @@ export interface AgentConfig {
    * Use this to show dynamic loading text (e.g., "Tapping 'Add'...").
    */
   onStatusUpdate?: (status: string) => void;
+
+  /**
+   * Called mid-loop when the agent states a user-facing finding/conclusion
+   * (a guide_user highlight with action="verify" and a message). Unlike
+   * onStatusUpdate — which renders a transient overlay pill — this is meant
+   * to be appended to the chat thread so on-screen conclusions ALSO appear
+   * in the conversation, not only as an ephemeral overlay.
+   */
+  onInlineMessage?: (message: { text: string }) => void;
 
   /**
    * Called after each step with token usage data.
@@ -959,6 +983,13 @@ export interface ProviderResult {
   tokenUsage?: TokenUsage;
   /** Grounding metadata from Google Search (Gemini only) */
   groundingMetadata?: unknown;
+  /**
+   * thought_signature from this turn's functionCall (Gemini 3.x). The runtime
+   * stores it on the AgentStep so the next call can echo it back verbatim.
+   */
+  thoughtSignature?: string;
+  /** Raw agent_step args the model emitted, for multi-turn history replay. */
+  modelArgs?: Record<string, any>;
 }
 
 export interface AIProvider {

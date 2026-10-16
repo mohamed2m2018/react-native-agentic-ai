@@ -76,10 +76,10 @@ describe('copilot approval guidance', () => {
     const prompt = buildSystemPrompt('en');
 
     expect(prompt).toContain(
-      'If multiple visible required fields are missing, ask for all of them in ONE ask_user(grants_workflow_approval=true) call.',
+      'If multiple visible required fields are missing, ask for all of them in ONE ask_user(collect_input=true) call.',
     );
     expect(prompt).toContain(
-      'When visible validation feedback reveals missing low-risk form fields, include any other visible empty required form fields from the same screen and bundle them into a single ask_user(grants_workflow_approval=true) question instead of asking one field at a time.',
+      'When visible validation feedback reveals missing form fields, include any other visible empty required fields from the same screen and bundle them into a single ask_user(collect_input=true) question instead of asking one field at a time.',
     );
   });
 
@@ -88,7 +88,7 @@ describe('copilot approval guidance', () => {
 
     expect(prompt).toContain('SUPPORT FLOW — APP ACTION GATE (HARD RULE, NO EXCEPTIONS):');
     expect(prompt).toContain(
-      'Use ask_user with request_app_action=true to request permission.',
+      'Use ask_user with collect_input=false to request permission.',
     );
     expect(prompt).toContain(
       'The user MUST tap the button. If the user types a text reply instead of tapping:',

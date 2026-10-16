@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.9.93] - 2026-10-16
+
+### Added
+- MCP bridge accepts a provider and API key from `@mobileai/mcp-server` (development builds only). MCP tasks run on their own runtime with that key, without the hosted proxy, support tools or dashboard-managed actions.
+- Gemini: prior agent steps are replayed as real function-call turns carrying the model's `thoughtSignature` (Gemini 3.x tool-call continuity).
+- Agent findings stated with `guide_user` `action="verify"` are mirrored into the chat thread (`onInlineMessage`).
+- Webhook actions expose the parameter schema declared in the dashboard to the model.
+
+### Changed
+- Scroll-loop convergence: the agent finishes with its last stated finding instead of scrolling until `maxSteps`.
+- Approval prompts use `ask_user(collect_input=false)`; a typed answer to `collect_input=true` is never permission to act.
+- Conversation messages carry `kind` (`chat` or `approval`) so approval taps are kept out of chat analytics.
+
+### Notes
+- Restores changes first shipped in `react-native-agentic-ai@0.9.92`, whose source was not in git.
+
 ## [0.9.67] - 2026-05-07
 
 ### Added

@@ -1,6 +1,7 @@
 import { getDeviceId, initDeviceId } from './telemetry/device';
 import { logger } from '../utils/logger';
 import { ENDPOINTS } from '../config/endpoints';
+import type { ActionParameterDef } from '../core/types';
 
 const LOG_TAG = 'TwomiliaActionService';
 
@@ -13,6 +14,9 @@ export interface RemoteConfiguredAction {
   limitPerUser: number;
   globalLimit: number;
   executionType: RemoteActionExecutionType;
+  /** Parameter schema declared in the dashboard so the LLM knows which args to send.
+   *  Present for webhook actions that declared one; otherwise empty/undefined. */
+  parameters?: Record<string, ActionParameterDef>;
 }
 
 export interface ExecuteConfiguredActionResult {

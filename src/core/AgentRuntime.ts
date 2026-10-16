@@ -196,6 +196,11 @@ export class AgentRuntime {
   private staleMapWarned = false;
   private currentScreenContent = '';
   private currentScreenSignature = '';
+  // Convergence guard: count consecutive scrolls (only reset by a real,
+  // non-scroll/non-highlight action) and remember the last finding the agent
+  // told the user, so a scroll-loop past its own answer can self-terminate.
+  private consecutiveScrolls = 0;
+  private lastInlineMessage: string | null = null;
   private actionSafetyCache = new Map<string, ActionSafetyDecision>();
   private screenSafetyPromises = new Map<string, Promise<void>>();
   private defaultActionSafetyClassifier: ActionSafetyClassifier | null = null;
@@ -2789,6 +2794,8 @@ ${snapshot.elementsText}
     this.actionSafetyApprovedBoundaries.clear();
     this.currentScreenContent = '';
     this.currentScreenSignature = '';
+    this.consecutiveScrolls = 0;
+    this.lastInlineMessage = null;
     this.currentUserGoal = userMessage;
     // Reset workflow approval for each new task
     this.resetAppActionApproval('new task');
@@ -3248,6 +3255,29 @@ ${snapshot.elementsText}
           this.pendingCriticalVerification = null;
         }
 
+        // Mirror user-facing findings into chat. A guide_user "verify" highlight
+        // with a message is the agent stating a conclusion about what it found —
+        // surface it in the conversation, not only as a transient on-screen
+        // overlay. action="read" stays silent (passive inspection).
+        if (
+          toolCall.name === 'guide_user' &&
+          output.startsWith('✅') &&
+          String(toolCall.args.action ?? '').toLowerCase() === 'verify'
+        ) {
+          const finding =
+            typeof toolCall.args.message === 'string'
+              ? toolCall.args.message
+                  .replace(/\[\d+\]/g, '')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+              : '';
+          if (finding && finding !== this.lastInlineMessage) {
+            this.lastInlineMessage = finding;
+            this.config.onInlineMessage?.({ text: finding });
+            this.emitTrace('inline_message_emitted', { text: finding }, step);
+          }
+        }
+
         if (output === APPROVAL_ALREADY_DONE_TOKEN) {
           const result: ExecutionResult = {
             success: true,
@@ -3278,6 +3308,51 @@ ${snapshot.elementsText}
 
         // Lifecycle: onAfterStep
         await this.config.onAfterStep?.(this.history);
+
+        // ─── Scroll-loop convergence guard ───────────────────────────
+        // Repeated scrolling (passive guide_user highlights don't count as
+        // progress) means the agent is hunting but not converging. If it has
+        // already told the user a finding and keeps scrolling past it, or it
+        // scroll-loops outright, force the task to conclude so processing ends
+        // and the answer reaches chat instead of spinning until maxSteps.
+        if (toolCall.name === 'scroll') {
+          this.consecutiveScrolls++;
+        } else if (toolCall.name !== 'guide_user') {
+          this.consecutiveScrolls = 0;
+        }
+        const scrolledPastConclusion =
+          !!this.lastInlineMessage && this.consecutiveScrolls >= 3;
+        const scrollLoopHardCap = this.consecutiveScrolls >= 8;
+        if (scrolledPastConclusion || scrollLoopHardCap) {
+          const convergeText =
+            this.lastInlineMessage || reasoning.plan || 'Here is what I found.';
+          const reply = normalizeRichContent(convergeText, convergeText);
+          const previewText = richContentToPlainText(reply, convergeText);
+          const result: ExecutionResult = {
+            success: true,
+            message: previewText || convergeText,
+            previewText,
+            reply,
+            steps: this.history,
+            tokenUsage: sessionUsage,
+          };
+          this.emitTrace(
+            'task_converged_scroll_loop',
+            {
+              consecutiveScrolls: this.consecutiveScrolls,
+              hadConclusion: !!this.lastInlineMessage,
+              message: result.message,
+            },
+            step
+          );
+          await this.config.onAfterTask?.(result);
+          return result;
+        }
+        if (this.consecutiveScrolls === 4) {
+          this.observations.push(
+            'You have scrolled several times in a row. If you already have the information needed to answer the user, call done() now with your answer instead of scrolling further.'
+          );
+        }
 
         if (
           output === ACTION_NOT_APPROVED_MESSAGE ||

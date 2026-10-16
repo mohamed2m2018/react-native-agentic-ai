@@ -13,7 +13,7 @@ function normalizeAction(value: unknown): HighlightAction | undefined {
 export function createGuideTool(context: ToolContext): ToolDefinition {
   return {
     name: 'guide_user',
-    description: 'Show a blue ring + tooltip overlay on a specific element so the user can see what you are looking at or about to do. CALL THIS EAGERLY whenever you read data from the screen — every order detail, total, fee, status, or field you inspect should be highlighted with action="read" or action="verify" BEFORE you mention it in your reply. Use action="tap" when guiding the user to tap. Use action="type" when typing. Auto-dismisses after ~5s.',
+    description: 'Show a blue ring + tooltip overlay on a specific element so the user can see what you are looking at or about to do. CALL THIS EAGERLY whenever you read data from the screen — every order detail, total, fee, status, or field you inspect should be highlighted with action="read" BEFORE you mention it in your reply. action="read" is silent inspection (overlay only). Use action="verify" + a message ONLY when you are stating a conclusion/finding the user should hear (e.g. "This is the cheapest item") — verify messages are ALSO posted into the chat thread, so keep them to real findings, not every value you glance at. Use action="tap" when guiding the user to tap, action="type" when typing. Auto-dismisses after ~5s.',
     parameters: {
       index: {
         type: 'number',

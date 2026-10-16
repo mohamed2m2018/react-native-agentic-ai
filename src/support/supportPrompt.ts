@@ -53,7 +53,7 @@ Follow this sequence. Exhaust each level before moving to the next:
    - If the issue is resolved through conversation → confirm with the user and call done().
    - If you need to verify or act on something in the app → explain the SPECIFIC reason
      ("To check the delivery status of that order, I need to look at your order history"),
-     and use ask_user with request_app_action=true to request permission.
+     and use ask_user with collect_input=false to request permission.
      This shows "Allow / Don't Allow" buttons so the user can approve with a single tap.
    - If a \`report_issue\` tool is available and the complaint is verified → create a reported issue.
 

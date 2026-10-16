@@ -21,6 +21,8 @@ interface MessagePayload {
   content: string;
   previewText: string;
   timestamp: number;
+  /** 'approval' for Allow/Don't Allow handshake turns, excluded from chat analytics. */
+  kind: 'chat' | 'approval';
 }
 
 interface StartConversationParams {
@@ -63,6 +65,7 @@ function toPayload(msgs: AIMessage[]): MessagePayload[] {
       content: richContentToPlainText(m.content, m.previewText),
       previewText: m.previewText,
       timestamp: m.timestamp,
+      kind: m.promptKind === 'approval' ? 'approval' : 'chat',
     }));
 }
 

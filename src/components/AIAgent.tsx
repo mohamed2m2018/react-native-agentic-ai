@@ -50,6 +50,7 @@ import {
 } from '../services/telemetry/TouchAutoCapture';
 import { initDeviceId, getDeviceId } from '../services/telemetry/device';
 import type {
+  ActionParameterDef,
   AgentConfig,
   AgentMode,
   ExecutionResult,
@@ -2281,14 +2282,12 @@ export function AIAgent({
       return {};
     }
 
-    const buildParameters = (actionName: string) => {
-      const registeredAction = actionRegistry.get(actionName);
-      if (!registeredAction) {
-        return {};
-      }
-
+    const toToolParameters = (
+      schema: Record<string, string | ActionParameterDef> | undefined
+    ) => {
       const params: ToolDefinition["parameters"] = {};
-      for (const [key, value] of Object.entries(registeredAction.parameters)) {
+      if (!schema) return params;
+      for (const [key, value] of Object.entries(schema)) {
         if (typeof value === "string") {
           params[key] = {
             type: "string",
@@ -2309,6 +2308,9 @@ export function AIAgent({
       return params;
     };
 
+    const buildParameters = (actionName: string) =>
+      toToolParameters(actionRegistry.get(actionName)?.parameters);
+
     return Object.fromEntries(
       remoteConfiguredActions.map((action) => {
         const description =
@@ -2322,7 +2324,9 @@ export function AIAgent({
           parameters:
             action.executionType === "app_code"
               ? buildParameters(action.name)
-              : {},
+              : // Webhook actions declare their schema in the dashboard (synced via
+                // /actions/sync). Surface it so the LLM knows which args to send.
+                toToolParameters(action.parameters),
           execute: async (args) => {
             const execution = await executeConfiguredAction({
               analyticsKey,
@@ -2648,6 +2652,31 @@ export function AIAgent({
       pathname,
       interceptNativeAlerts,
       onStatusUpdate: setStatusText,
+      onInlineMessage: ({ text }) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last &&
+            last.role === 'assistant' &&
+            (last.previewText || '').trim() === trimmed
+          ) {
+            return prev;
+          }
+          return [
+            ...prev,
+            createAIMessage({
+              id: `assistant-inline-${Date.now()}-${Math.random()}`,
+              role: 'assistant',
+              content: trimmed,
+              previewText: trimmed,
+              timestamp: Date.now(),
+            }),
+          ];
+        });
+        setAutoExpandTrigger((prev) => prev + 1);
+      },
       onTokenUsage,
       knowledgeBase: resolvedKnowledgeBase,
       knowledgeMaxTokens,
@@ -4094,7 +4123,21 @@ export function AIAgent({
           result: normalizedResult,
         });
 
-        setMessages((prev) => [...prev, assistantMsg]);
+        // Skip if this exact text was already mirrored mid-loop (e.g. the
+        // scroll-loop convergence reuses the last guide_user finding as its
+        // reply) — avoids a duplicate bubble.
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last &&
+            last.role === 'assistant' &&
+            (last.previewText || '').trim() ===
+              (assistantMsg.previewText || '').trim()
+          ) {
+            return prev;
+          }
+          return [...prev, assistantMsg];
+        });
 
         if (options?.onResult) {
           options.onResult(normalizedResult);
@@ -4307,6 +4350,7 @@ export function AIAgent({
             content: approvalLabel,
             previewText: approvalLabel,
             timestamp: Date.now(),
+            promptKind: 'approval',
           }),
         ]);
       }
