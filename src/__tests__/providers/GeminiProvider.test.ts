@@ -314,15 +314,12 @@ describe('GeminiProvider', () => {
       ).rejects.toThrow('Too many requests. Please wait a moment and try again.');
     });
 
-    it('maps hosted proxy budget exhaustion to a dashboard credit message', async () => {
-      const apiError = new Error('429: {"error":"Hosted proxy budget has been exhausted for this project.","code":"budget_exhausted"}');
-      (apiError as any).status = 429;
-      mockGenerateContent.mockRejectedValueOnce(apiError);
-
-      const provider = createProvider();
+    it('constructs without apiKey or proxyUrl and reports it on the first call', async () => {
+      const provider = new GeminiProvider();
       await expect(
         provider.generateContent('sys', 'msg', sampleTools, [])
-      ).rejects.toThrow('This project has run out of AI credits. Add more credits in the Twomilia dashboard to continue.');
+      ).rejects.toThrow('No model access configured');
+      expect(mockGenerateContent).not.toHaveBeenCalled();
     });
 
     it('throws on network failure', async () => {

@@ -220,8 +220,12 @@ describe('OpenAIProvider', () => {
       expect((provider as any).headers['X-Auth']).toBe('token');
     });
 
-    it('throws when neither apiKey nor proxyUrl provided', () => {
-      expect(() => new OpenAIProvider()).toThrow('apiKey');
+    it('constructs without apiKey or proxyUrl and reports it on the first call', async () => {
+      const provider = new OpenAIProvider();
+      await expect(provider.generateContent('sys', 'msg', [], [])).rejects.toThrow(
+        'No model access configured'
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('extracts token usage from response', async () => {

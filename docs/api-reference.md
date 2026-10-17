@@ -97,7 +97,7 @@ Interaction mode behavior:
 
 | Prop | Type | Notes |
 | --- | --- | --- |
-| `supportStyle` | `'warm-concise' \| 'wow-service' \| 'neutral-professional'` | Default: `'warm-concise'`. |
+| `supportStyle` | `'warm-concise' \| 'wow-service' \| 'neutral-professional'` | Used only when `supportMode.enabled` is true. Default: `'warm-concise'`. |
 | `userContext` | `{ userId?; name?; email?; phone?; plan?; custom? }` | User profile passed to `onEscalate` and `conversationStore`. |
 | `onEvent` | `(event: TelemetryEvent) => void` | Receives every SDK event. Nothing is tracked without it. |
 | `conversationStore` | `ConversationStore` | Persists chat history in your storage (`save`, `list`, `load`, optional `end`). |

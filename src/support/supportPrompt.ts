@@ -55,7 +55,6 @@ Follow this sequence. Exhaust each level before moving to the next:
      ("To check the delivery status of that order, I need to look at your order history"),
      and use ask_user with collect_input=false to request permission.
      This shows "Allow / Don't Allow" buttons so the user can approve with a single tap.
-   - If a \`report_issue\` tool is available and the complaint is verified → create a reported issue.
 
 5. DIAGNOSE: After resolution, briefly identify the root cause if visible
    (e.g. "It looks like the delivery partner marked it as delivered prematurely").
@@ -72,21 +71,11 @@ Follow this sequence. Exhaust each level before moving to the next:
 - If explicit final consent is missing, stop and ask before taking the action.`);
 
   parts.push(`
-### Reported Issue Policy
-- If app evidence clearly supports the complaint, create a reported issue with the \`report_issue\` tool before you finish.
-- Use \`report_issue\` for verified product/account/order/billing problems that ops may need to review, even if no live human reply is needed yet.
+### Escalation Policy
 - Anger alone is NOT enough to report or escalate.
 - Do not use \`escalate_to_human\` just because the user mentions billing, payment, charges, refunds, or order problems.
 - First inspect available app data, navigate relevant screens, query knowledge, and attempt a clear explanation or available action.
 - Use \`escalate_to_human\` only when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required.`);
-
-  parts.push(`
-### Outbound AI Call Policy
-- If \`start_ai_call\` is available, use it only when a phone call to a trusted merchant, vendor, driver, carrier, technician, booking partner, billing team, fraud team, or other configured contact is the next real action needed.
-- Investigate first and include the precise reason, goal, and context.
-- Never send a phone number. Use only the semantic targetType and targetId from app data.
-- Do not claim the call happened unless the tool returns AI_CALL_STARTED.`);
-
   // Progress Communication
   parts.push(`
 ### Progress Communication

@@ -11,6 +11,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { MISSING_PROVIDER_CONFIG_MESSAGE } from './missingConfig';
 
 import type {
   AIProvider,
@@ -62,7 +63,8 @@ export class OpenAIProvider implements AIProvider {
 
   private enableWebSearch: boolean;
 
-  /** Internal config digest for analytics quality metrics */
+  /** Set when neither apiKey nor proxyUrl was given; reported on first call. */
+  private configError: string | null = null;
 
   constructor(
     apiKey?: string,
@@ -87,14 +89,13 @@ export class OpenAIProvider implements AIProvider {
         Authorization: `Bearer ${apiKey}`,
       };
     } else {
-      throw new Error(
-        '[react-native-agentic-ai] You must provide either "apiKey" or "proxyUrl" to use OpenAI provider.',
-      );
+      this.baseUrl = OPENAI_API_URL;
+      this.headers = { 'Content-Type': 'application/json' };
+      this.configError = MISSING_PROVIDER_CONFIG_MESSAGE;
+      logger.warn('OpenAIProvider', MISSING_PROVIDER_CONFIG_MESSAGE);
     }
 
     this.model = model;
-
-    // Compute config digest for analytics quality metrics
   }
 
   /**
@@ -102,7 +103,7 @@ export class OpenAIProvider implements AIProvider {
    * call with web_search_preview. Falls back gracefully on errors.
    */
   createWebSearchTool(): ToolDefinition | null {
-    if (!this.enableWebSearch) return null;
+    if (!this.enableWebSearch || this.configError) return null;
 
     // Derive Responses API URL from the chat completions base URL
     const searchUrl = this.baseUrl.includes('/v1/chat/completions')
@@ -181,6 +182,7 @@ export class OpenAIProvider implements AIProvider {
     signal?: AbortSignal,
     userImages?: Array<{ base64: string; mimeType: string }>,
   ): Promise<ProviderResult> {
+    if (this.configError) throw new Error(this.configError);
     logger.info(
       'OpenAIProvider',
       `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}${userImages?.length ? `, with ${userImages.length} user image(s)` : ''}`,

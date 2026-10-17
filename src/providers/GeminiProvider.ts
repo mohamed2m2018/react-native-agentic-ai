@@ -11,6 +11,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { MISSING_PROVIDER_CONFIG_MESSAGE } from './missingConfig';
 
 
 /**
@@ -97,7 +98,8 @@ export class GeminiProvider implements AIProvider {
   private _cachedDeclaration: Record<string, any> | null = null;
   private _cachedToolCount: number = -1;
 
-  /** Internal config digest for analytics quality metrics */
+  /** Set when neither apiKey nor proxyUrl was given; reported on first call. */
+  private configError: string | null = null;
 
   constructor(
     apiKey?: string,
@@ -118,16 +120,15 @@ export class GeminiProvider implements AIProvider {
     } else if (apiKey) {
       config.apiKey = apiKey;
     } else {
-      throw new Error(
-        '[react-native-agentic-ai] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
-      );
+      this.configError = MISSING_PROVIDER_CONFIG_MESSAGE;
+      logger.warn('GeminiProvider', MISSING_PROVIDER_CONFIG_MESSAGE);
     }
 
-    const { GoogleGenAI } = loadGenAI();
-    this.ai = new GoogleGenAI(config);
     this.model = model;
-
-    // Compute config digest for analytics quality metrics
+    if (!this.configError) {
+      const { GoogleGenAI } = loadGenAI();
+      this.ai = new GoogleGenAI(config);
+    }
   }
 
   /**
@@ -136,7 +137,7 @@ export class GeminiProvider implements AIProvider {
    * tools (googleSearch) cannot be combined with function calling.
    */
   createWebSearchTool(): ToolDefinition | null {
-    if (!this.enableWebSearch) return null;
+    if (!this.enableWebSearch || this.configError) return null;
 
     const ai = this.ai;
     const model = this.model;
@@ -204,6 +205,7 @@ export class GeminiProvider implements AIProvider {
     signal?: AbortSignal,
     userImages?: Array<{ base64: string; mimeType: string }>,
   ): Promise<ProviderResult> {
+    if (this.configError) throw new Error(this.configError);
     logger.info(
       'GeminiProvider',
       `Sending request. Model: ${this.model}, Tools: ${tools.length}${screenshot ? ', with screenshot' : ''}${userImages?.length ? `, with ${userImages.length} user image(s)` : ''}`

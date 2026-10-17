@@ -474,6 +474,7 @@ export default function App() {
         <AIAgent
           provider="gemini"
           apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY} // development only
+          mcpServerUrl={process.env.EXPO_PUBLIC_MCP_URL}
           navRef={navRef}
           screenMap={screenMap}
           maxSteps={40}

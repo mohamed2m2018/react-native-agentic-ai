@@ -246,7 +246,6 @@ export class AgentRuntime {
     'query_knowledge',
     'query_data',
     'escalate_to_human',
-    'report_issue',
     'guide',
     'simplify',
     'restore',
@@ -1309,7 +1308,6 @@ export class AgentRuntime {
       case 'capture_screenshot':
         return 'read';
       case 'escalate_to_human':
-      case 'report_issue':
         return 'support';
       case 'navigate':
       case 'scroll':

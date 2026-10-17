@@ -297,7 +297,7 @@ interface AIAgentProps {
   voiceProxyHeaders?: Record<string, string>;
   /** LLM model name (provider-specific) */
   model?: string;
-  /** Support personality preset. Default: 'warm-concise'. */
+  /** Support personality preset, used only when supportMode.enabled is true. Default: 'warm-concise'. */
   supportStyle?: SupportStyle;
   /** Optional outcome verifier configuration for critical actions. */
   verifier?: VerifierConfig;
@@ -518,7 +518,7 @@ export function AIAgent({
   voiceProxyHeaders,
   provider: providerName = 'gemini',
   model,
-  supportStyle = 'warm-concise',
+  supportStyle,
   verifier,
   actionSafety,
   toolStabilization,
@@ -1276,6 +1276,12 @@ export function AIAgent({
     setVoiceAISpeaking(false);
   }, [clearVoicePlaybackDrainTimer, setVoiceAISpeaking]);
 
+  // The support persona and style apply only in support mode; otherwise the
+  // agent uses the general app-assistant prompt.
+  const effectiveSupportStyle: SupportStyle | undefined = supportMode?.enabled
+    ? supportStyle ?? 'warm-concise'
+    : undefined;
+
   // Model traffic goes to the provider with apiKey, or through the app's own proxy.
   const resolvedVoiceProxyUrl = voiceProxyUrl ?? proxyUrl;
 
@@ -1289,7 +1295,7 @@ export function AIAgent({
       voiceProxyUrl: resolvedVoiceProxyUrl,
       voiceProxyHeaders,
       model,
-      supportStyle,
+      supportStyle: effectiveSupportStyle,
       enableWebSearch,
       verifier,
       actionSafety,
@@ -1506,7 +1512,7 @@ export function AIAgent({
       interactionMode,
       platformAdapter,
       verifier,
-      supportStyle,
+      effectiveSupportStyle,
     ]
   );
 
@@ -1866,7 +1872,7 @@ export function AIAgent({
         'en',
         instructions?.system,
         !!knowledgeBase,
-        supportStyle
+        effectiveSupportStyle
       );
       logger.info(
         'AIAgent',
@@ -2371,7 +2377,7 @@ export function AIAgent({
     proxyHeaders,
     runtime,
     resolvedInstructions,
-    supportStyle,
+    effectiveSupportStyle,
     knowledgeBase,
     appendVoiceTranscript,
   ]);
