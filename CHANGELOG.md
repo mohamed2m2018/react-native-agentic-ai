@@ -31,6 +31,8 @@ The SDK no longer depends on a hosted dashboard. Everything that used to call it
 - Approval prompts use `ask_user(collect_input=false)`; a typed answer to `collect_input=true` is never permission to act.
 - Conversation messages carry `kind` (`chat` or `approval`).
 - Screen wireframe snapshots are captured only when `onEvent` is set.
+- The system prompt is a general in-app assistant by default, with no brand. The customer-support persona and `supportStyle` apply only when `supportMode.enabled` is true.
+- Without `apiKey` or `proxyUrl` the app no longer crashes at startup; the agent reports a clear setup error on the first request instead.
 
 ### Notes
 - Restores agent changes first shipped in `react-native-agentic-ai@0.9.92`, whose source was not in git.

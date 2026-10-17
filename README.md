@@ -489,7 +489,7 @@ Read the full safety model in [docs/guardrails.md](./docs/guardrails.md).
 
 ## Support Mode
 
-Support mode transforms the AI into a customer support assistant with a greeting, quick replies, self-service help, escalation to humans, and CSAT collection.
+By default the agent is a general assistant for your app: it answers from the screen and operates the app for the user. Support mode turns it into a customer support assistant with a greeting, quick replies, self-service help, escalation to humans, and CSAT collection. The support persona and `supportStyle` (`'warm-concise'` by default) apply only while `supportMode.enabled` is true.
 
 ```tsx
 <AIAgent
