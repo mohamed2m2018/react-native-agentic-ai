@@ -12,14 +12,14 @@ export function AboutScreen() {
         tap buttons, and interact with your React Native app&apos;s live UI.
       </Text>
       <Text style={styles.description}>
-        Built with @mobileai/react-native — the drop-in AI agent for React Native apps.
+        Built with react-native-agentic-ai — the drop-in AI agent for React Native apps.
       </Text>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Technologies</Text>
         <Text style={styles.item}>Expo Router (File-based routing)</Text>
         <Text style={styles.item}>React Native</Text>
-        <Text style={styles.item}>@mobileai/react-native (AI Agent)</Text>
+        <Text style={styles.item}>react-native-agentic-ai (AI Agent)</Text>
         <Text style={styles.item}>Google Gemini API</Text>
       </View>
     </ScrollView>

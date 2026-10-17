@@ -25,8 +25,8 @@ config.resolver.extraNodeModules = {
   [pkg.name]: monorepoRoot,
 };
 
-// Resolve @mobileai/react-native directly from src/ — no rebuild needed on change
-const SDK_NAMES = [pkg.name, '@mobileai/react-native'];
+// Resolve react-native-agentic-ai directly from src/ — no rebuild needed on change
+const SDK_NAMES = [pkg.name, 'react-native-agentic-ai'];
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const matched = SDK_NAMES.find(n => moduleName === n || moduleName.startsWith(n + '/'));
   if (matched) {

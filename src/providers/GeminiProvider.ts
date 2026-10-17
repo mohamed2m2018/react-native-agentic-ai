@@ -12,12 +12,6 @@
 
 import { logger } from '../utils/logger';
 
-/** Simple non-crypto hash for config fingerprinting */
-function _h(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
 
 /**
  * Lazy-loads @google/genai on first call.
@@ -41,7 +35,7 @@ function loadGenAI() {
     };
   } catch (e: any) {
     throw new Error(
-      '[twomilia] @google/genai is required for the Gemini provider. ' +
+      '[react-native-agentic-ai] @google/genai is required for the Gemini provider. ' +
       'Install it: npm install @google/genai'
     );
   }
@@ -104,7 +98,6 @@ export class GeminiProvider implements AIProvider {
   private _cachedToolCount: number = -1;
 
   /** Internal config digest for analytics quality metrics */
-  public _cfgDigest: string = '';
 
   constructor(
     apiKey?: string,
@@ -126,7 +119,7 @@ export class GeminiProvider implements AIProvider {
       config.apiKey = apiKey;
     } else {
       throw new Error(
-        '[twomilia] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
+        '[react-native-agentic-ai] You must provide either "apiKey" or "proxyUrl" to AIAgent.'
       );
     }
 
@@ -135,9 +128,6 @@ export class GeminiProvider implements AIProvider {
     this.model = model;
 
     // Compute config digest for analytics quality metrics
-    this._cfgDigest = proxyUrl
-      ? (proxyUrl.includes('twomilia.com') ? 'h' : 'c') + _h(proxyUrl)
-      : 'k' + (apiKey ? _h(apiKey.slice(0, 8)) : '0');
   }
 
   /**
@@ -631,27 +621,11 @@ export class GeminiProvider implements AIProvider {
       }
     }
 
-    if (errorCode === 'budget_exhausted' || errorCode === 'proxy_blocked') {
-      logger.error(
-        'GeminiProvider',
-        'Proxy blocked: project has run out of hosted proxy credits.'
-      );
-      return 'This project has run out of AI credits. Add more credits in the Twomilia dashboard to continue.';
-    }
-    if (errorCode === 'session_token_budget_exhausted') {
-      return 'Session token limit reached. Please start a new conversation.';
-    }
     if (errorCode === 'token_rate_limited' || errorCode === 'device_rate_limited') {
       return 'You\'re sending messages too quickly. Please wait a moment and try again.';
     }
     if (errorCode === 'provider_rate_limited') {
       return 'The AI service is busy. Please wait a moment and try again.';
-    }
-    if (errorCode === 'hosted_proxy_disabled') {
-      return 'The Twomilia hosted proxy is not enabled for this project yet.';
-    }
-    if (errorCode === 'invalid_auth_key') {
-      return 'This Twomilia key is invalid. Use the publishable key from your dashboard project settings.';
     }
 
     // Map status codes to friendly descriptions

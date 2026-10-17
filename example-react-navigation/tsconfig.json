@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@mobileai/react-native": ["../src/index"]
+      "react-native-agentic-ai": ["../src/index"]
     }
   }
 }

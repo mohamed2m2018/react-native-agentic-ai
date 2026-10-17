@@ -419,7 +419,8 @@ export class AgentRuntime {
     if (config.knowledgeBase) {
       this.knowledgeService = new KnowledgeBaseService(
         config.knowledgeBase,
-        config.knowledgeMaxTokens
+        config.knowledgeMaxTokens,
+        config.trackEvent
       );
     }
 

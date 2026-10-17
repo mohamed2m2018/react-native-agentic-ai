@@ -6,7 +6,7 @@ import {
   Modal, RefreshControl, StatusBar, Platform, StyleSheet,
   TouchableNativeFeedback, InputAccessoryView, SafeAreaView, Animated
 } from 'react-native';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from 'react-native-agentic-ai';
 
 // Lean Core / Community
 import Checkbox from 'expo-checkbox';

@@ -29,7 +29,7 @@ config.resolver.extraNodeModules = {
   'react-native-agentic-ai': monorepoRoot,
 };
 
-const SDK_NAMES = ['react-native-agentic-ai', '@mobileai/react-native'];
+const SDK_NAMES = ['react-native-agentic-ai', 'react-native-agentic-ai'];
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const matched = SDK_NAMES.find((name) => moduleName === name || moduleName.startsWith(name + '/'));
   if (matched) {

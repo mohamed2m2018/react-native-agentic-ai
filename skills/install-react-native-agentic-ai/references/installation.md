@@ -1,9 +1,9 @@
-# @mobileai/react-native Installation Reference
+# react-native-agentic-ai Installation Reference
 
 ## Base Install
 
 ```bash
-npm install @mobileai/react-native
+npm install react-native-agentic-ai
 ```
 
 Use the host project’s package manager if it is not npm.
@@ -34,13 +34,13 @@ npx react-native run-android
 Add this to `metro.config.js`:
 
 ```js
-require('@mobileai/react-native/generate-map').autoGenerate(__dirname);
+require('react-native-agentic-ai/generate-map').autoGenerate(__dirname);
 ```
 
 Or generate manually:
 
 ```bash
-npx @mobileai/react-native generate-map
+npx react-native-agentic-ai generate-map
 ```
 
 Then import `ai-screen-map.json` and pass it to `<AIAgent screenMap={screenMap} />`.
@@ -48,7 +48,7 @@ Then import `ai-screen-map.json` and pass it to `<AIAgent screenMap={screenMap} 
 ## React Navigation Wrapper
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
 import {
   NavigationContainer,
   useNavigationContainerRef,
@@ -60,7 +60,8 @@ export default function App() {
 
   return (
     <AIAgent
-      analyticsKey="mobileai_pub_xxxxxxxx"
+      provider="gemini"
+      proxyUrl="https://api.example.com/ai/chat"
       navRef={navRef}
       screenMap={screenMap}
     >
@@ -75,7 +76,7 @@ export default function App() {
 ## Expo Router Wrapper
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
 import { Slot, useNavigationContainerRef } from 'expo-router';
 import screenMap from './ai-screen-map.json';
 
@@ -84,7 +85,8 @@ export default function RootLayout() {
 
   return (
     <AIAgent
-      analyticsKey="mobileai_pub_xxxxxxxx"
+      provider="gemini"
+      proxyUrl="https://api.example.com/ai/chat"
       navRef={navRef}
       screenMap={screenMap}
     >
@@ -126,7 +128,7 @@ Expo permissions:
 Enable UI:
 
 ```tsx
-<AIAgent analyticsKey="mobileai_pub_xxxxxxxx" navRef={navRef} enableVoice>
+<AIAgent proxyUrl="https://api.example.com/ai/chat" voiceProxyUrl="wss://api.example.com/ai/voice" navRef={navRef} enableVoice>
   {/* app */}
 </AIAgent>
 ```
@@ -137,7 +139,7 @@ Optional consent persistence:
 npx expo install @react-native-async-storage/async-storage
 ```
 
-Use this only when the app sets `consent={{ persist: true }}` and needs the AI consent decision remembered across app restarts. Do not install it for hosted support tickets, discovery tooltip state, telemetry, or conversation history.
+Use this only when the app sets `consent={{ persist: true }}` and needs the AI consent decision remembered across app restarts. Do not install it for discovery tooltip state or telemetry.
 
 ## Troubleshooting
 

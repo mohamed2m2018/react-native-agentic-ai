@@ -3,11 +3,10 @@
  */
 
 export { TelemetryService } from './TelemetryService';
-export { MobileAI, bindTelemetryService } from './MobileAI';
 export type {
   TelemetryEvent,
-  TelemetryBatch,
   TelemetryConfig,
+  TrackEvent,
   AutoEventType,
   EventType,
 } from './types';

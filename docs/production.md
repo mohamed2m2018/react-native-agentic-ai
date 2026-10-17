@@ -6,15 +6,12 @@ This page covers production setup for networking, analytics, support, consent, a
 
 Do not ship provider API keys in your mobile app bundle.
 
-Recommended options:
-
-- Use `analyticsKey` with MobileAI Cloud. The SDK sends provider traffic through the hosted project proxy.
-- Use `proxyUrl` and route provider calls through your own backend.
+Use `proxyUrl` and route provider calls through your own backend, which adds the real key.
 
 ```tsx
 <AIAgent
   provider="openai"
-  proxyUrl="https://api.example.com/mobileai/chat"
+  proxyUrl="https://api.example.com/ai/chat"
   proxyHeaders={{ Authorization: `Bearer ${sessionToken}` }}
 >
   {children}
@@ -80,11 +77,11 @@ Also use `aiIgnore` for controls the assistant should not target.
 
 ## Analytics
 
-Pass `analyticsKey` to enable MobileAI analytics, support context, and project knowledge.
+Every SDK event goes to `onEvent`. Send it to your analytics provider or your own API. The SDK sends nothing anywhere by itself.
 
 ```tsx
 <AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  onEvent={(event) => analytics.track(`ai_${event.type}`, event.data)}
   userContext={{
     userId: user.id,
     email: user.email,
@@ -95,45 +92,35 @@ Pass `analyticsKey` to enable MobileAI analytics, support context, and project k
 </AIAgent>
 ```
 
-Enterprise deployments can route analytics through a backend proxy:
+## Chat History
 
-```tsx
-<AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
-  analyticsProxyUrl="https://api.example.com/mobileai/events"
-  analyticsProxyHeaders={{ Authorization: `Bearer ${sessionToken}` }}
->
-  {children}
-</AIAgent>
-```
+Pass a `conversationStore` to keep conversations across launches in your own storage. See the README section "Events and Chat History" for the full interface.
 
 ## Human Support
 
-With `analyticsKey`, the SDK can create support tickets in MobileAI Cloud and stream human replies into the assistant UI.
+Hand off to your own support tool with `supportMode.escalation.onEscalate`. The context includes the conversation, screens visited, actions taken, `userContext` and device.
 
 ```tsx
 <AIAgent
-  analyticsKey="mobileai_pub_xxxxxxxx"
-  userContext={{
-    userId: user.id,
-    name: user.name,
-    email: user.email,
+  userContext={{ userId: user.id, name: user.name, email: user.email }}
+  supportMode={{
+    enabled: true,
+    escalation: {
+      onEscalate: (context) => createTicket(context),
+    },
   }}
-  pushToken={expoPushToken}
-  pushTokenType="expo"
 >
   {children}
 </AIAgent>
 ```
 
-For a custom support backend, register your own escalation tool.
+To control the tool yourself, register your own escalation tool.
 
 ```tsx
-import { createEscalateTool } from '@mobileai/react-native';
+import { createEscalateTool } from 'react-native-agentic-ai';
 
 const escalateTool = createEscalateTool({
   config: {
-    provider: 'custom',
     onEscalate: (context) => createTicket(context),
   },
   getContext: () => ({
@@ -184,7 +171,7 @@ Use companion mode for deployments where the assistant should help without opera
 ```tsx
 <AIAgent
   interactionMode="companion"
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  proxyUrl="https://api.example.com/ai/chat"
 >
   {children}
 </AIAgent>
@@ -201,7 +188,7 @@ npm install react-native-audio-api expo-speech-recognition
 ```tsx
 <AIAgent
   enableVoice
-  voiceProxyUrl="wss://api.example.com/mobileai/voice"
+  voiceProxyUrl="wss://api.example.com/ai/voice"
   voiceProxyHeaders={{ Authorization: `Bearer ${sessionToken}` }}
 >
   {children}
@@ -218,12 +205,12 @@ For production, prefer narrow app-owned `useAction` tools or server-side custom 
 
 ## Release Checklist
 
-- Provider traffic goes through MobileAI Cloud or your backend proxy.
+- Provider traffic goes through your backend proxy (`proxyUrl`).
 - Consent behavior matches your app policy.
 - Sensitive fields are masked or ignored.
 - Guardrail traces have been reviewed on critical flows.
 - `navRef` and `screenMap` are configured.
 - Human escalation has been tested end to end.
-- Push tokens are optional and handled according to your notification policy.
+- `onEvent` and `conversationStore`, if used, have been tested with your backend.
 - Voice permissions are configured if voice mode is enabled.
 - `npm run typecheck` passes.

@@ -5,7 +5,7 @@ import type React from 'react';
 
 // ─── Agent Modes ──────────────────────────────────────────────
 
-export type AgentMode = 'text' | 'voice' | 'human';
+export type AgentMode = 'text' | 'voice';
 
 /**
  * Controls how the agent handles app actions.
@@ -452,17 +452,6 @@ export interface AgentConfig {
    */
   voiceProxyHeaders?: Record<string, string>;
 
-  /**
-   * Outbound AI call tool configuration.
-   * When analyticsKey is set, the SDK can expose start_ai_call unless disabled.
-   */
-  outboundCalls?: {
-    enabled?: boolean;
-    proxyUrl?: string;
-    headers?: Record<string, string>;
-    allowedTargetTypes?: string[];
-  };
-
   model?: string;
 
   /**
@@ -649,6 +638,9 @@ export interface AgentConfig {
    */
   onTrace?: (event: AgentTraceEvent) => void;
 
+  /** Emits SDK events (e.g. knowledge_miss) to the app's onEvent callback. */
+  trackEvent?: (type: string, data?: Record<string, unknown>) => void;
+
   // ─── Expo Router Support ─────────────────────────────────────────────────
 
   /**
@@ -691,8 +683,7 @@ export interface AgentConfig {
    * Maximum estimated cost (USD) allowed per task.
    * The agent loop auto-stops when this budget is exceeded, returning partial results.
    * Cost is estimated based on the provider's pricing (see provider source for rates).
-   * NOTE: This represents raw provider cost (Gemini's base pricing).
-   * It does NOT include the Twomilia dashboard tier-based markup multiplier.
+   * NOTE: This represents raw provider cost (the provider's base pricing).
    */
   maxCostUSD?: number;
 
@@ -910,7 +901,7 @@ export interface AIMessage {
  * Used to populate the history panel in AgentChatBar.
  */
 export interface ConversationSummary {
-  /** Unique conversation ID (backend cuid) */
+  /** Unique conversation ID (from your ConversationStore) */
   id: string;
   /** Auto-generated title from the first user message */
   title: string;
@@ -924,6 +915,51 @@ export interface ConversationSummary {
   createdAt: number;
   /** Unix ms — when it was last updated */
   updatedAt: number;
+}
+
+/** A chat message as handed to a ConversationStore. */
+export interface ConversationMessage {
+  /** Stable message id (pass it back from load to keep ids) */
+  id?: string;
+  role: 'user' | 'assistant';
+  /** Plain-text content */
+  content: string;
+  /** Short text shown in previews */
+  previewText: string;
+  /** Unix ms */
+  timestamp: number;
+  /** 'approval' for Allow / Don't Allow taps; 'chat' otherwise */
+  kind: 'chat' | 'approval';
+}
+
+/**
+ * Adapter for persisting chat history in your own storage (AsyncStorage,
+ * SQLite, your backend, …). Pass it as `conversationStore` on <AIAgent>.
+ * Without a store, history lives in memory for the session only.
+ * Errors thrown here are caught and logged; they never break the chat.
+ */
+export interface ConversationStore {
+  /**
+   * Save messages added since the last save. `conversationId` is undefined
+   * for a new conversation: create one and return its id. For an existing
+   * conversation, append and return the same id.
+   */
+  save(params: {
+    conversationId?: string;
+    messages: ConversationMessage[];
+    userId?: string;
+    deviceId: string;
+  }): Promise<string>;
+  /** Most recent conversations for this user/device, newest first. */
+  list(params: {
+    userId?: string;
+    deviceId: string;
+    limit: number;
+  }): Promise<ConversationSummary[]>;
+  /** All messages of one conversation, oldest first. */
+  load(conversationId: string): Promise<ConversationMessage[]>;
+  /** Optional: called when the user ends or leaves a conversation. */
+  end?(conversationId: string): Promise<void>;
 }
 
 // ─── Chat Bar Theme ──────────────────────────────────────────

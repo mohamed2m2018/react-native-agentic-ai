@@ -36,14 +36,15 @@ const FLIGHT_KNOWLEDGE: KnowledgeEntry[] = [
 export default function RootLayout() {
   const navRef = useNavigationContainerRef();
   const pathname = usePathname();
-  const analyticsKey = process.env.EXPO_PUBLIC_MOBILEAI_KEY || '';
+  // Development only: production apps should use proxyUrl to their own backend.
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <FlightDemoProvider>
         <AIAgent
           provider="gemini"
-          analyticsKey={analyticsKey}
+          apiKey={apiKey}
           navRef={navRef}
           pathname={pathname}
           screenMap={screenMap as any}

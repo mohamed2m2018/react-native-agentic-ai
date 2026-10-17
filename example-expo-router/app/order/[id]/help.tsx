@@ -1,6 +1,6 @@
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AIZone } from '@mobileai/react-native';
+import { AIZone } from 'react-native-agentic-ai';
 
 import { OrderIssueType, useFoodDelivery } from '@/app/lib/delivery-demo';
 

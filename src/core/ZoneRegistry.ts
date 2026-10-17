@@ -6,7 +6,7 @@ export class ZoneRegistry {
 
   register(config: AIZoneConfig, ref: React.RefObject<any>): void {
     if (this.zones.has(config.id)) {
-      console.warn(`[Twomilia] Zone ID "${config.id}" is already registered on this screen. Overwriting.`);
+      console.warn(`[react-native-agentic-ai] Zone ID "${config.id}" is already registered on this screen. Overwriting.`);
     }
     this.zones.set(config.id, { ...config, ref });
   }

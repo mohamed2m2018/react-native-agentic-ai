@@ -55,7 +55,6 @@ export function buildMCPRuntimeConfig(
     proxyHeaders: undefined,
     voiceProxyUrl: undefined,
     voiceProxyHeaders: undefined,
-    outboundCalls: undefined,
     supportStyle: undefined,
     allowedActionNames: undefined,
     customTools: developer.customTools,

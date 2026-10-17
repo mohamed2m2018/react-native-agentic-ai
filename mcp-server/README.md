@@ -1,9 +1,9 @@
-# @mobileai/mcp-server
+# MCP server for react-native-agentic-ai
 
 Let Claude Code, Cursor, Claude Desktop or any MCP client drive your running React Native app. Bring your own AI key.
 
 ```
-MCP client  ── stdio ──►  @mobileai/mcp-server  ── WebSocket :3101 ──►  your app (<AIAgent />)
+MCP client  ── stdio ──►  react-native-agentic-ai  ── WebSocket :3101 ──►  your app (<AIAgent />)
 ```
 
 ## What you can do
@@ -21,7 +21,7 @@ You need two values: the AI provider (`gemini` or `openai`) and its API key.
 **Claude Code**
 
 ```bash
-claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y @mobileai/mcp-server
+claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx -y react-native-agentic-ai
 ```
 
 **Claude Desktop, Cursor, Windsurf, Antigravity** (any client with an `mcpServers` JSON config)
@@ -31,7 +31,7 @@ claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx 
   "mcpServers": {
     "react-native": {
       "command": "npx",
-      "args": ["-y", "@mobileai/mcp-server"],
+      "args": ["-y", "react-native-agentic-ai"],
       "env": {
         "AI_PROVIDER": "gemini",
         "AI_API_KEY": "your-key"
@@ -44,7 +44,7 @@ claude mcp add react-native -e AI_PROVIDER=gemini -e AI_API_KEY=your-key -- npx 
 ### 2. Point your app at it
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
 
 export default function App() {
   return (
@@ -60,7 +60,7 @@ On the Android emulator, `ws://10.0.2.2:3101` reaches your computer.
 
 Run the app in a development build. When it connects, the server sends it the provider and key, and every `execute_task` uses them.
 
-> Passing the key to the app needs an `@mobileai/react-native` release with MCP key support (newer than 0.9.92). With older SDK versions every tool still works, and `execute_task` uses the provider set in the app.
+> Passing the key to the app needs `react-native-agentic-ai` 0.10.0 or newer. With older versions every tool still works, and `execute_task` uses the provider set in the app.
 
 ## Configuration
 
@@ -89,7 +89,7 @@ The server stops with a clear message when the config is wrong (for example a ke
 
 ## How MCP tasks run
 
-MCP tasks run on their own agent inside the app, built from the key you gave the server. The hosted proxy, the support tools (escalate to human, report issue, AI calls) and dashboard-managed actions and knowledge are left out. Your own `customTools`, `instructions` and `knowledgeBase` props still apply. The in-app chat keeps using the app's own settings.
+MCP tasks run on their own agent inside the app, built from the key you gave the server. Your proxy settings and the escalate-to-human tool are left out, since nobody is on the other side of the chat. Your own `customTools`, `instructions` and `knowledgeBase` props still apply. The in-app chat keeps using the app's own settings.
 
 Actions that need approval (payments, sending, deleting) still ask on the device.
 
@@ -107,5 +107,5 @@ Actions that need approval (payments, sending, deleting) still ask on the device
 
 ## Links
 
-- React Native SDK: [@mobileai/react-native](https://www.npmjs.com/package/@mobileai/react-native)
+- React Native SDK: [react-native-agentic-ai](https://www.npmjs.com/package/react-native-agentic-ai)
 - [Model Context Protocol](https://modelcontextprotocol.io)

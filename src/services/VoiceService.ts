@@ -28,7 +28,7 @@ function loadVoiceGenAI() {
     };
   } catch (e: any) {
     throw new Error(
-      '[twomilia] @google/genai is required for Voice Mode. ' +
+      '[react-native-agentic-ai] @google/genai is required for Voice Mode. ' +
       'Install it: npm install @google/genai'
     );
   }
@@ -143,7 +143,9 @@ export class VoiceService {
       } else if (this.config.apiKey) {
         genAiConfig.apiKey = this.config.apiKey;
       } else {
-        throw new Error('[twomilia] Must provide apiKey or proxyUrl');
+        throw new Error(
+          '[react-native-agentic-ai] Must provide apiKey or proxyUrl'
+        );
       }
 
       const { GoogleGenAI, Modality, ThinkingLevel } = loadVoiceGenAI();

@@ -1,47 +1,5 @@
 {
-  "name": "@mobileai/mcp-server",
-  "version": "2.0.0",
-  "description": "MCP server for @mobileai/react-native: let Claude Code, Cursor or any MCP client drive your running React Native app. Bring your own AI key.",
-  "main": "dist/index.js",
-  "bin": {
-    "mobileai-mcp-server": "dist/cli.js"
-  },
-  "scripts": {
-    "start": "tsx src/cli.ts",
-    "build": "tsc",
-    "dev": "tsx watch src/cli.ts",
-    "prepublishOnly": "npm run build"
-  },
-  "keywords": [
-    "mcp",
-    "model-context-protocol",
-    "react-native",
-    "ai-agent",
-    "ui-automation",
-    "testing"
-  ],
-  "author": "Mohamed Salah",
-  "license": "SEE LICENSE IN LICENSE",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/MobileAIAgent/react-native"
-  },
+  "private": true,
   "type": "module",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "ws": "^8.19.0",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/node": "^25.5.0",
-    "@types/ws": "^8.18.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
-  },
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=18"
-  }
+  "description": "Marks mcp-server/dist as ES modules. The server ships inside react-native-agentic-ai."
 }

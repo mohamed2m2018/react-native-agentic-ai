@@ -20,7 +20,7 @@ export interface SupportModeConfig {
   greeting?: {
     /** Main greeting text (e.g., "Hi! 👋 How can I help you today?") */
     message: string;
-    /** Agent name shown above the greeting (e.g., "Twomilia Support") */
+    /** Agent name shown above the greeting (e.g., "Acme Support") */
     agentName?: string;
     /** Avatar URL for the support agent */
     avatarUrl?: string;
@@ -154,28 +154,30 @@ export interface QuickActionsConfig {
 
 export interface EscalationConfig {
   /**
-   * Where to route the escalation.
-   * - 'mobileai' (default when analyticsKey is set): ticket goes to Twomilia
-   *   dashboard inbox via POST /api/v1/escalations + WebSocket reply delivery.
-   * - 'custom': fires the onEscalate callback — wire to Intercom, Zendesk, etc.
+   * Called when the AI hands the conversation to a human. Required for
+   * escalation: open your live chat widget (Intercom, Zendesk, …), send an
+   * email, or create a ticket in your own backend.
    */
-  provider?: 'mobileai' | 'custom';
-
-  /**
-   * Callback when user requests human support (required when provider='custom').
-   * Use this to open a live chat widget, send email, etc.
-   */
-  onEscalate?: (context: EscalationContext) => void;
+  onEscalate?: (context: EscalationContext) => void | Promise<void>;
 
   /** Label for the escalate button. Default: "Talk to a human" */
   buttonLabel?: string;
 
-  /** Message shown to user when escalated. Default: "Connecting you to a human agent..." */
+  /** Message shown to user when escalated. */
   escalationMessage?: string;
 }
 
+export interface EscalationUserContext {
+  userId?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  plan?: string;
+  custom?: Record<string, string | number | boolean>;
+}
+
 export interface EscalationContext {
-  /** Summary of the conversation so far */
+  /** The AI's summary of why it is escalating and what it tried */
   conversationSummary: string;
   /** Current screen the user is on */
   currentScreen: string;
@@ -183,6 +185,22 @@ export interface EscalationContext {
   originalQuery: string;
   /** Number of AI steps taken before escalation */
   stepsBeforeEscalation: number;
+  /** What triggered the handoff (tool_call, user_request, auto) */
+  handoffTriggerType: string;
+  /** Last messages of the conversation (up to 20) */
+  history: Array<{ role: string; content: string }>;
+  /** Screens the user visited this session, in order */
+  screenFlow: string[];
+  /** Tools the agent ran before escalating */
+  toolCalls: Array<{
+    name: string;
+    input: Record<string, unknown>;
+    output: string;
+  }>;
+  /** The userContext prop passed to <AIAgent> */
+  userContext?: EscalationUserContext;
+  /** Platform and OS version */
+  device: { platform: string; osVersion: string };
 }
 
 // ─── CSAT (Customer Satisfaction) ─────────────────────────
@@ -231,53 +249,4 @@ export interface BusinessHoursConfig {
   schedule: Record<number, { start: string; end: string } | null>;
   /** Message shown outside business hours */
   offlineMessage?: string;
-}
-
-// ─── Support Ticket ───────────────────────────────────────
-
-export interface SupportTicket {
-  id: string;
-  reason: string;
-  screen: string;
-  status: string;
-  history: Array<{ role: string; content: string; timestamp?: string }>;
-  createdAt: string;
-  wsUrl: string;
-  /** Number of unread messages (computed by backend = history.length - readMessageCount) */
-  unreadCount?: number;
-}
-
-export type ReportedIssueCustomerStatus =
-  | 'acknowledged'
-  | 'investigating'
-  | 'answered'
-  | 'resolved'
-  | 'escalated';
-
-export interface ReportedIssueStatusUpdate {
-  id: string;
-  status: ReportedIssueCustomerStatus;
-  message: string;
-  source: 'ai' | 'operator' | 'system';
-  timestamp: string;
-}
-
-export interface ReportedIssue {
-  id: string;
-  issueType: string;
-  complaintSummary: string;
-  verificationStatus: string;
-  severity: string;
-  confidence?: number | null;
-  screen: string;
-  evidenceSummary?: string | null;
-  aiSummary?: string | null;
-  recommendedAction?: string | null;
-  sourceScreens?: string[] | null;
-  screenFlow?: string[] | null;
-  customerStatus: ReportedIssueCustomerStatus;
-  statusHistory: ReportedIssueStatusUpdate[];
-  createdAt: string;
-  updatedAt: string;
-  linkedEscalationTicketId?: string | null;
 }

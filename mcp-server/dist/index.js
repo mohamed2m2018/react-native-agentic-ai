@@ -1,8 +1,9 @@
 /**
- * @mobileai/mcp-server — connects MCP clients (Claude Code, Claude Desktop, Cursor, …)
+ * react-native-agentic-ai — connects MCP clients (Claude Code, Claude Desktop, Cursor, …)
  * to a running React Native app that uses <AIAgent mcpServerUrl=… />.
  */
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -10,7 +11,9 @@ import { AppBridge } from './bridge.js';
 import { ConfigError, loadConfig } from './config.js';
 import { log } from './log.js';
 import { registerTools } from './tools.js';
-const SERVER_INFO = { name: 'mobileai-react-native', version: '2.0.0' };
+// dist/ sits two levels below the package root.
+const { version } = createRequire(import.meta.url)('../../package.json');
+const SERVER_INFO = { name: 'react-native-agentic-ai', version };
 function createMcp(bridge) {
     const mcp = new McpServer(SERVER_INFO);
     registerTools(mcp, bridge);

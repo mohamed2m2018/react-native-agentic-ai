@@ -17,7 +17,7 @@ import {
   AIAgent,
   ProductCard,
   ActionCard,
-} from '@mobileai/react-native';
+} from 'react-native-agentic-ai';
 
 <AIAgent blocks={[ProductCard, ActionCard]}>
   {children}
@@ -29,7 +29,7 @@ import {
 Define a block with a React component and a schema. The assistant only receives the block name, placement, and prop schema.
 
 ```tsx
-import type { BlockDefinition } from '@mobileai/react-native';
+import type { BlockDefinition } from 'react-native-agentic-ai';
 
 function RefundStatusCard(props: { status: string; eta?: string }) {
   return null;
@@ -80,7 +80,7 @@ Keep action handlers narrow and app-owned. For sensitive operations, route them 
 Use `RichContentRenderer` when you build a custom chat UI and want to render assistant messages yourself.
 
 ```tsx
-import { RichContentRenderer, useAI } from '@mobileai/react-native';
+import { RichContentRenderer, useAI } from 'react-native-agentic-ai';
 
 function Messages() {
   const { messages } = useAI();
@@ -100,7 +100,7 @@ function Messages() {
 `AIZone` is a declarative boundary that gives the assistant permission to modify a subtree in controlled ways.
 
 ```tsx
-import { AIZone, ProductCard } from '@mobileai/react-native';
+import { AIZone, ProductCard } from 'react-native-agentic-ai';
 
 <AIZone
   id="product-recommendations"

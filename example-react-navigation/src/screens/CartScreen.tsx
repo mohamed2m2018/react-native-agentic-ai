@@ -1,5 +1,5 @@
 import { View, Text, Pressable, StyleSheet, FlatList, Alert } from 'react-native';
-import { useAction } from '@mobileai/react-native';
+import { useAction } from 'react-native-agentic-ai';
 import { useCart } from '../CartContext';
 
 export default function CartScreen() {

@@ -12,12 +12,6 @@
 
 import { logger } from '../utils/logger';
 
-/** Simple non-crypto hash for config fingerprinting */
-function _h(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
 import type {
   AIProvider,
   ToolDefinition,
@@ -69,7 +63,6 @@ export class OpenAIProvider implements AIProvider {
   private enableWebSearch: boolean;
 
   /** Internal config digest for analytics quality metrics */
-  public _cfgDigest: string = '';
 
   constructor(
     apiKey?: string,
@@ -95,16 +88,13 @@ export class OpenAIProvider implements AIProvider {
       };
     } else {
       throw new Error(
-        '[twomilia] You must provide either "apiKey" or "proxyUrl" to use OpenAI provider.',
+        '[react-native-agentic-ai] You must provide either "apiKey" or "proxyUrl" to use OpenAI provider.',
       );
     }
 
     this.model = model;
 
     // Compute config digest for analytics quality metrics
-    this._cfgDigest = proxyUrl
-      ? (proxyUrl.includes('twomilia.com') ? 'h' : 'c') + _h(proxyUrl)
-      : 'k' + (apiKey ? _h(apiKey.slice(0, 8)) : '0');
   }
 
   /**

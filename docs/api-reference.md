@@ -1,6 +1,6 @@
 # API Reference
 
-This page summarizes the main public APIs exported by `@mobileai/react-native`.
+This page summarizes the main public APIs exported by `react-native-agentic-ai`.
 
 ## Components
 
@@ -9,16 +9,15 @@ This page summarizes the main public APIs exported by `@mobileai/react-native`.
 `AIAgent` wraps your app and provides the assistant runtime, chat UI, screen inspection, navigation access, guardrails, registered actions, and support features.
 
 ```tsx
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
 
-<AIAgent analyticsKey="mobileai_pub_xxxxxxxx">{children}</AIAgent>;
+<AIAgent proxyUrl="https://api.example.com/ai/chat">{children}</AIAgent>;
 ```
 
 #### Provider And Networking
 
 | Prop | Type | Notes |
 | --- | --- | --- |
-| `analyticsKey` | `string` | Publishable MobileAI project key. Enables hosted proxy, analytics, knowledge, and support features. |
 | `provider` | `'gemini' \| 'openai'` | Text provider. Default: `'gemini'`. |
 | `apiKey` | `string` | Local prototyping only. Do not ship provider keys in production apps. |
 | `proxyUrl` | `string` | Backend proxy URL for production provider calls. |
@@ -94,16 +93,14 @@ Interaction mode behavior:
 | `showDiscoveryTooltip` | `boolean` | Default: `true`. |
 | `discoveryTooltipMessage` | `string` | Custom discovery tooltip text. |
 
-#### Support And Analytics
+#### Support, Events And History
 
 | Prop | Type | Notes |
 | --- | --- | --- |
 | `supportStyle` | `'warm-concise' \| 'wow-service' \| 'neutral-professional'` | Default: `'warm-concise'`. |
-| `userContext` | `{ userId?; name?; email?; phone?; plan?; custom? }` | User profile for support and analytics. |
-| `pushToken` | `string` | Device push token for offline support replies. |
-| `pushTokenType` | `'fcm' \| 'expo' \| 'apns'` | Push token type. |
-| `analyticsProxyUrl` | `string` | Enterprise analytics proxy. |
-| `analyticsProxyHeaders` | `Record<string, string>` | Headers for analytics proxy. |
+| `userContext` | `{ userId?; name?; email?; phone?; plan?; custom? }` | User profile passed to `onEscalate` and `conversationStore`. |
+| `onEvent` | `(event: TelemetryEvent) => void` | Receives every SDK event. Nothing is tracked without it. |
+| `conversationStore` | `ConversationStore` | Persists chat history in your storage (`save`, `list`, `load`, optional `end`). |
 | `proactiveHelp` | `ProactiveHelpConfig` | Proactive help configuration. |
 | `customerSuccess` | `CustomerSuccessConfig` | Health score and adoption tracking. |
 | `onboarding` | `OnboardingConfig` | Guided onboarding journey configuration. |
@@ -279,7 +276,7 @@ interface ChatBarTheme {
 Builds support-focused system instructions.
 
 ```tsx
-import { buildSupportPrompt } from '@mobileai/react-native';
+import { buildSupportPrompt } from 'react-native-agentic-ai';
 
 const system = buildSupportPrompt({
   enabled: true,
@@ -290,14 +287,13 @@ const system = buildSupportPrompt({
 
 ### `createEscalateTool`
 
-Creates a custom escalation tool if you are not using MobileAI Cloud escalation.
+Creates an escalation tool yourself. `supportMode.escalation.onEscalate` creates one automatically.
 
 ```tsx
-import { createEscalateTool } from '@mobileai/react-native';
+import { createEscalateTool } from 'react-native-agentic-ai';
 
 const escalateTool = createEscalateTool({
   config: {
-    provider: 'custom',
     onEscalate: (context) => sendToHelpdesk(context),
   },
   getContext: () => ({
@@ -315,7 +311,7 @@ The package also exports:
 
 - Providers: `GeminiProvider`, `OpenAIProvider`, `createProvider`, `ReactNativePlatformAdapter`
 - Voice services: `VoiceService`, `AudioInputService`, `AudioOutputService`
-- Knowledge services: `KnowledgeBaseService`, `createMobileAIKnowledgeRetriever`
-- Analytics: `MobileAI`
-- Support UI and transport: `CSATSurvey`, `EscalationSocket`
+- Knowledge services: `KnowledgeBaseService`
+- Support UI: `CSATSurvey`, `QuickActionsSheet`, `HelpArticleView`
+- Types: `TelemetryEvent`, `ConversationStore`, `ConversationMessage`, `EscalationContext`
 - Rich UI: `RichContentRenderer`, `RichUIProvider`, built-in blocks, and primitives

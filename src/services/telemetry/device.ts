@@ -1,6 +1,6 @@
 /**
  * Session device ID — a UUID generated once per app process.
- * Stable for the current JS runtime and sent with Twomilia telemetry.
+ * Stable for the current JS runtime; included in escalation and history calls.
  */
 
 let _cachedId: string | null = null;

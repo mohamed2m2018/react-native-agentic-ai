@@ -1,6 +1,6 @@
 # Wireframe Capture — SDK Architecture
 
-Privacy-safe structural UI capture for heatmap context. No screenshots, no PII.
+Structural UI capture for heatmap context, emitted as a `wireframe_snapshot` event. It runs only when the app passes `onEvent`. When `react-native-view-shot` is installed, the event also carries a screenshot of the screen, so treat it as sensitive data.
 
 ## Data Flow
 
@@ -22,10 +22,10 @@ captureWireframe()
      ▼
 TelemetryService.trackWireframe()
  ├── Dedup: skip if screen already captured this session
- └── Queue as 'wireframe_snapshot' event in telemetry batch
+ └── Emit a 'wireframe_snapshot' event
      │
      ▼
-POST /api/v1/events → Dashboard ingests into wireframe_snapshots table
+onEvent(event) → your app decides where it goes (e.g. a heatmap service)
 ```
 
 ## Performance Contract

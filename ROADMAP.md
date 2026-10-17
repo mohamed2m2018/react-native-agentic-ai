@@ -1,8 +1,6 @@
 # Roadmap
 
-The public roadmap lives at [`https://mobileai.cloud/roadmap`](https://mobileai.cloud/roadmap). It links to public GitHub issues where applicable.
-
-This file is a snapshot of the SDK-facing items so it stays useful when reading the package on npm or GitHub.
+This file is the public roadmap for the SDK. Items link to GitHub issues where applicable.
 
 ## Shipped
 
@@ -11,12 +9,11 @@ This file is a snapshot of the SDK-facing items so it stays useful when reading 
 - Generated screen map (`ai-screen-map.json`) via the `generate-map` CLI.
 - Route awareness via `navRef` (React Navigation, Expo Router).
 - Runtime guardrail pipeline: consent, masking, semantic action safety, approval, outcome verification.
-- Hosted control plane (`mobileai.cloud`) for KB retrieval, audit, escalation, billing.
 - Provider factory with Gemini and OpenAI transports; custom transport supported.
-- MCP bridge for external tool surface.
+- MCP server inside the package (`npx -y react-native-agentic-ai`), bring-your-own model key.
+- Callback-based integrations: `onEvent`, `conversationStore`, `onEscalate` (0.10).
 - Public security disclosure policy (`SECURITY.md`).
-- Public threat model and 1-day evaluation guide (on `mobileai.cloud`).
-- Public roadmap (this file mirrors the canonical version).
+- Public roadmap (this file).
 
 ## In progress
 
@@ -25,14 +22,10 @@ This file is a snapshot of the SDK-facing items so it stays useful when reading 
 ## Planned
 
 - On-device inference (preview) — small-model fast path with cloud fallback.
-- SOC 2 Type I observation period for the hosted control plane.
-- SOC 2 Type II audit (sequenced after Type I).
-- EU control-plane region (`eu-central-1`).
 
 Targets on the public roadmap are listed when committed. The page is updated as work lands.
 
 ## How to influence the roadmap
 
 - Open an issue on the GitHub repository with the use case.
-- For paid tiers, raise priority requests via your account contact.
 - Security-affecting items: see [`SECURITY.md`](./SECURITY.md).

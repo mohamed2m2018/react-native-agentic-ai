@@ -17,7 +17,7 @@ const withAppIntents: ConfigPlugin<PluginOptions | void> = (config, options) => 
     ({ withXcodeProject } = require('expo/config-plugins'));
   } catch {
     console.warn(
-      '[Twomilia] `withAppIntents` requires `expo/config-plugins`. ' +
+      '[react-native-agentic-ai] `withAppIntents` requires `expo/config-plugins`. ' +
       'Skipping App Intents generation because Expo config plugins are not available.'
     );
     return config;
@@ -40,10 +40,14 @@ const withAppIntents: ConfigPlugin<PluginOptions | void> = (config, options) => 
     try {
       // 1. Scan and Extract
       const scanPath = path.resolve(projectRoot, scanDir);
-      console.log(`\n🤖 [Twomilia] Scanning ${scanPath} for AI Actions...`);
+      console.log(
+        `\n🤖 [react-native-agentic-ai] Scanning ${scanPath} for AI Actions...`
+      );
       const intents = extractIntentsFromAST(scanPath);
       
-      console.log(`🤖 [Twomilia] Found ${intents.length} actions.`);
+      console.log(
+        `🤖 [react-native-agentic-ai] Found ${intents.length} actions.`
+      );
 
       // 2. Generate Swift Code
       // We write a temporary manifest to disk to use the CLI function,
@@ -69,12 +73,14 @@ const withAppIntents: ConfigPlugin<PluginOptions | void> = (config, options) => 
       }
 
       fs.writeFileSync(targetFilePath, swiftCode);
-      console.log(`🤖 [Twomilia] Generated ${targetFilePath}`);
+      console.log(`🤖 [react-native-agentic-ai] Generated ${targetFilePath}`);
 
       // 4. Link in Xcode
       const groupKey = project.findPBXGroupKey({ name: projectName });
       if (!groupKey) {
-        console.warn(`🤖 [Twomilia] Warning: Could not find main PBXGroup for ${projectName}. You may need to manually add MobileAIAppIntents.swift to Xcode.`);
+        console.warn(
+          `🤖 [react-native-agentic-ai] Warning: Could not find main PBXGroup for ${projectName}. You may need to manually add MobileAIAppIntents.swift to Xcode.`
+        );
         return config;
       }
 
@@ -84,11 +90,16 @@ const withAppIntents: ConfigPlugin<PluginOptions | void> = (config, options) => 
       
       if (!fileAdded) {
         project.addSourceFile(relativeFilePath, null, groupKey);
-        console.log(`🤖 [Twomilia] Linked MobileAIAppIntents.swift to Xcode project.`);
+        console.log(
+          `🤖 [react-native-agentic-ai] Linked MobileAIAppIntents.swift to Xcode project.`
+        );
       }
 
     } catch (error) {
-      console.error('🤖 [Twomilia] AppIntents generation failed:', error);
+      console.error(
+        '🤖 [react-native-agentic-ai] AppIntents generation failed:',
+        error
+      );
     }
 
     return config;

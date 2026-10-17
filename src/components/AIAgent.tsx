@@ -24,7 +24,6 @@ import {
 } from 'react-native';
 import { AgentRuntime } from '../core/AgentRuntime';
 import { ReactNativePlatformAdapter } from '../core/ReactNativePlatformAdapter';
-import { actionRegistry } from '../core/ActionRegistry';
 import { dataRegistry } from '../core/DataRegistry';
 import { captureWireframe } from '../core/FiberTreeWalker';
 import { humanizeScreenName } from '../utils/humanizeScreenName';
@@ -43,14 +42,14 @@ import { buildMCPRuntimeConfig } from '../core/mcpRuntimeConfig';
 import { VoiceService } from '../services/VoiceService';
 import { AudioInputService } from '../services/AudioInputService';
 import { AudioOutputService } from '../services/AudioOutputService';
-import { TelemetryService, bindTelemetryService } from '../services/telemetry';
+import { TelemetryService } from '../services/telemetry';
+import type { TelemetryEvent } from '../services/telemetry';
 import {
   extractTouchTargetMetadata,
   checkRageClick,
 } from '../services/telemetry/TouchAutoCapture';
-import { initDeviceId, getDeviceId } from '../services/telemetry/device';
+import { initDeviceId } from '../services/telemetry/device';
 import type {
-  ActionParameterDef,
   AgentConfig,
   AgentMode,
   ExecutionResult,
@@ -67,6 +66,7 @@ import type {
   CustomerSuccessConfig,
   OnboardingConfig,
   ConversationSummary,
+  ConversationStore,
   AgentTraceEvent,
   VerifierConfig,
   SupportStyle,
@@ -78,26 +78,10 @@ import { HighlightOverlay } from './HighlightOverlay';
 import { IdleDetector } from '../core/IdleDetector';
 import { ProactiveHint } from './ProactiveHint';
 import { createEscalateTool } from '../support/escalateTool';
-import { createReportIssueTool } from '../support/reportIssueTool';
-import { createOutboundCallTool } from '../support/outboundCallTool';
-import { EscalationSocket } from '../support/EscalationSocket';
-import { EscalationEventSource } from '../support/EscalationEventSource';
-import { ReportedIssueEventSource } from '../support/ReportedIssueEventSource';
-import { SupportChatModal } from '../support/SupportChatModal';
 import { QuickActionsSheet } from '../support/QuickActionsSheet';
-import { ENDPOINTS } from '../config/endpoints';
-import type { ReportedIssue, SupportModeConfig, CSATRating } from '../support/types';
+import type { SupportModeConfig, CSATRating, EscalationUserContext } from '../support/types';
 import { CSATSurvey } from '../support/CSATSurvey';
 import * as ConversationService from '../services/ConversationService';
-import { createTwomiliaKnowledgeRetriever } from '../services/TwomiliaKnowledgeRetriever';
-import { getSessionToken, clearSession as clearProxySession } from '../services/ProxySessionService';
-import {
-  executeConfiguredAction,
-  fetchConfiguredActions,
-  type RemoteConfiguredAction,
-} from '../services/TwomiliaActionService';
-import type { OutboundCallConfig } from '../services/OutboundCallService';
-import { formatActionToolResult } from '../utils/actionResult';
 import {
   createAIMessage,
   createImageNode,
@@ -124,9 +108,6 @@ type AndroidWindowMetrics = {
   width: number;
   height: number;
 };
-
-type SupportHistoryEntry =
-  import('../support/types').SupportTicket['history'][number];
 
 const UI_ACTION_TOOL_NAMES = new Set([
   'tap',
@@ -260,60 +241,6 @@ function resolveRouteKeyFromPath(path: string | null | undefined): string {
   return segments[segments.length - 1] || 'index';
 }
 
-function mergeSupportHistory(
-  serverHistory: SupportHistoryEntry[] = [],
-  localHistory: SupportHistoryEntry[] = []
-): SupportHistoryEntry[] {
-  const combined = [...serverHistory, ...localHistory];
-  const deduped: Array<SupportHistoryEntry & { __index: number }> = [];
-  const seen = new Set<string>();
-
-  combined.forEach((entry, index) => {
-    const key = `${entry.role}|${entry.content}|${entry.timestamp ?? `missing-${index}`}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    deduped.push({ ...entry, __index: index });
-  });
-
-  deduped.sort((a, b) => {
-    const aTime = a.timestamp ? new Date(a.timestamp).getTime() : NaN;
-    const bTime = b.timestamp ? new Date(b.timestamp).getTime() : NaN;
-
-    if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
-      return aTime - bTime;
-    }
-
-    return a.__index - b.__index;
-  });
-
-  const sorted = deduped.map(({ __index, ...entry }) => entry);
-  const collapsed: SupportHistoryEntry[] = [];
-
-  for (const entry of sorted) {
-    const previous = collapsed[collapsed.length - 1];
-    const previousTime = previous?.timestamp
-      ? new Date(previous.timestamp).getTime()
-      : NaN;
-    const currentTime = entry.timestamp
-      ? new Date(entry.timestamp).getTime()
-      : NaN;
-
-    const isNearDuplicate =
-      previous &&
-      previous.role === entry.role &&
-      previous.content === entry.content &&
-      ((Number.isNaN(previousTime) && Number.isNaN(currentTime)) ||
-        (!Number.isNaN(previousTime) &&
-          !Number.isNaN(currentTime) &&
-          Math.abs(currentTime - previousTime) < 3_000));
-
-    if (isNearDuplicate) continue;
-    collapsed.push(entry);
-  }
-
-  return collapsed;
-}
-
 async function captureHeatmapScreenshot(
   rootView: unknown,
 ): Promise<string | null> {
@@ -368,11 +295,6 @@ interface AIAgentProps {
    * Optional specific headers for voiceProxyUrl.
    */
   voiceProxyHeaders?: Record<string, string>;
-  /**
-   * Outbound AI phone calls through Twomilia.
-   * Enabled by default when analyticsKey is configured; set enabled:false to hide the tool.
-   */
-  outboundCalls?: OutboundCallConfig;
   /** LLM model name (provider-specific) */
   model?: string;
   /** Support personality preset. Default: 'warm-concise'. */
@@ -443,9 +365,8 @@ interface AIAgentProps {
   debug?: boolean;
   /**
    * Domain knowledge the AI can query via the query_knowledge tool.
-   * Pass a static KnowledgeEntry[] or a { retrieve(query, screen) } function.
-   * If omitted and analyticsKey is configured, the SDK will query the project
-   * knowledge configured in the Twomilia dashboard automatically.
+   * Pass a static KnowledgeEntry[] or a { retrieve(query, screen) } function
+   * (for example one that calls your own search API).
    */
   knowledgeBase?: KnowledgeBaseConfig;
   /** Max token budget for knowledge retrieval (default: 2000) */
@@ -500,20 +421,19 @@ interface AIAgentProps {
   /** Whether to surface native alert buttons as interactive elements to the AI. */
   interceptNativeAlerts?: boolean;
 
-  // ── Analytics (opt-in) ──
+  // ── Events & history (your backend) ──
 
   /**
-   * Publishable analytics key (twomilia_pub_xxx).
+   * Receives every SDK event (screen views, agent steps, taps, escalations,
+   * ratings, …). Forward them to Segment, Amplitude or your own API.
+   * Event tracking is off when this is not set.
    */
-  analyticsKey?: string;
+  onEvent?: (event: TelemetryEvent) => void;
   /**
-   * Proxy URL for enterprise customers — routes events through your backend.
+   * Persists chat history in your own storage so users can browse and resume
+   * past conversations. Without it, history lives in memory for the session.
    */
-  analyticsProxyUrl?: string;
-  /**
-   * Custom headers for analyticsProxyUrl (e.g., auth tokens).
-   */
-  analyticsProxyHeaders?: Record<string, string>;
+  conversationStore?: ConversationStore;
 
   /**
    * Proactive agent configuration (detects user hesitation)
@@ -530,30 +450,10 @@ interface AIAgentProps {
   supportMode?: SupportModeConfig;
 
   /**
-   * Identity of the logged-in user.
-   * If provided, this enforces "one ticket per user" and shows the user profile
-   * in the Dashboard (name, email, plan, etc.).
+   * Identity of the logged-in user. Passed to supportMode.escalation.onEscalate
+   * and to conversationStore so you can link conversations to your users.
    */
-  userContext?: {
-    userId?: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    plan?: string;
-    custom?: Record<string, string | number | boolean>;
-  };
-
-  /**
-   * Device push token for offline support replies.
-   * Use '@react-native-firebase/messaging' or 'expo-notifications' to get this.
-   */
-  pushToken?: string;
-
-  /**
-   * The type of push token provided.
-   * "fcm" is recommended for universal bare/Expo support.
-   */
-  pushTokenType?: 'fcm' | 'expo' | 'apns';
+  userContext?: EscalationUserContext;
 
   /**
    * Controls how the agent handles app actions.
@@ -587,8 +487,8 @@ interface AIAgentProps {
   // ── Customer Success ────────────────────────────────────────
 
   /**
-   * Health score configuration. Enable to automatically track screen
-   * flow, feature adoption, and success milestones for the Twomilia Dashboard.
+   * Health score configuration. Enable to track feature adoption and success
+   * milestones as health_signal events (delivered through onEvent).
    */
   customerSuccess?: CustomerSuccessConfig;
 
@@ -616,7 +516,6 @@ export function AIAgent({
   proxyHeaders,
   voiceProxyUrl,
   voiceProxyHeaders,
-  outboundCalls,
   provider: providerName = 'gemini',
   model,
   supportStyle = 'warm-concise',
@@ -661,14 +560,11 @@ export function AIAgent({
   useScreenMap = true,
   maxTokenBudget,
   maxCostUSD,
-  analyticsKey,
-  analyticsProxyUrl,
-  analyticsProxyHeaders,
+  onEvent,
+  conversationStore,
   proactiveHelp,
   supportMode,
   userContext,
-  pushToken,
-  pushTokenType,
   interactionMode,
   showDiscoveryTooltip: showDiscoveryTooltipProp = true,
   discoveryTooltipMessage,
@@ -709,22 +605,12 @@ export function AIAgent({
       logger.info('AIAgent', '🔧 Debug logging enabled');
       logger.info(
         'AIAgent',
-        `⚙️ Initial config: interactionMode=${interactionMode || 'copilot(default)'} enableVoice=${enableVoice} useScreenMap=${useScreenMap} analytics=${!!analyticsKey}`
+        `⚙️ Initial config: interactionMode=${interactionMode || 'copilot(default)'} enableVoice=${enableVoice} useScreenMap=${useScreenMap} events=${!!onEvent} history=${!!conversationStore}`
       );
     }
   }, [debug]);
 
   const rootViewRef = useRef<any>(null);
-  const [proxySessionToken, setProxySessionToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!analyticsKey) return;
-    let cancelled = false;
-    getSessionToken(analyticsKey)
-      .then((token) => { if (!cancelled) setProxySessionToken(token); })
-      .catch((err) => logger.warn('AIAgent', `Proxy session exchange failed: ${err.message}`));
-    return () => { cancelled = true; clearProxySession(); };
-  }, [analyticsKey]);
 
   const [isThinking, setIsThinking] = useState(false);
   const [isActing, setIsActing] = useState(false);
@@ -732,14 +618,8 @@ export function AIAgent({
   const [lastResult, setLastResult] = useState<ExecutionResult | null>(null);
   const [lastUserMessage, setLastUserMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
-  const [supportMessages, setSupportMessages] = useState<AIMessage[]>([]);
   const [showQuickActions, setShowQuickActions] = useState(false);
-  const [remoteConfiguredActions, setRemoteConfiguredActions] = useState<
-    RemoteConfiguredAction[]
-  >([]);
-  const [registeredActionRevision, setRegisteredActionRevision] = useState(0);
   const [registeredDataRevision, setRegisteredDataRevision] = useState(0);
-  const [chatScrollTrigger, setChatScrollTrigger] = useState(0);
   const [showCSAT, setShowCSAT] = useState(false);
   const conversationStartRef = useRef<number>(Date.now());
   // Mirror of messages for safe reading inside async callbacks (avoids setMessages abuse)
@@ -769,7 +649,7 @@ export function AIAgent({
   }, []);
 
   const persistConversationMessages = useCallback(async () => {
-    if (!analyticsKey) return;
+    if (!conversationStore) return;
 
     if (isPersistingConversationRef.current) {
       pendingConversationPersistRef.current = true;
@@ -781,9 +661,8 @@ export function AIAgent({
     try {
       do {
         pendingConversationPersistRef.current = false;
-        await initDeviceId();
+        const deviceId = await initDeviceId();
         if (persistGeneration !== conversationGenerationRef.current) return;
-        const deviceId = getDeviceId();
         const currentMsgs = messagesRef.current;
         const newMsgs = currentMsgs.slice(lastSavedMessageCountRef.current);
 
@@ -794,10 +673,10 @@ export function AIAgent({
         const previewRole = lastMessage?.role || 'assistant';
 
         if (!activeConversationIdRef.current) {
-          const id = await ConversationService.startConversation({
-            analyticsKey,
+          const id = await ConversationService.saveMessages({
+            store: conversationStore,
             userId: userContext?.userId,
-            deviceId: deviceId || undefined,
+            deviceId,
             messages: newMsgs,
           });
           if (persistGeneration !== conversationGenerationRef.current) return;
@@ -822,11 +701,11 @@ export function AIAgent({
           continue;
         }
 
-        const saved = await ConversationService.appendMessages({
+        const saved = await ConversationService.saveMessages({
+          store: conversationStore,
           conversationId: activeConversationIdRef.current,
-          analyticsKey,
           userId: userContext?.userId,
-          deviceId: deviceId || undefined,
+          deviceId,
           messages: newMsgs,
         });
         if (persistGeneration !== conversationGenerationRef.current) return;
@@ -856,10 +735,10 @@ export function AIAgent({
     } finally {
       isPersistingConversationRef.current = false;
     }
-  }, [analyticsKey, userContext?.userId]);
+  }, [conversationStore, userContext?.userId]);
 
   useEffect(() => {
-    if (!analyticsKey || messages.length <= lastSavedMessageCountRef.current) {
+    if (!conversationStore || messages.length <= lastSavedMessageCountRef.current) {
       return;
     }
 
@@ -870,13 +749,7 @@ export function AIAgent({
       appendDebounceRef.current = null;
       void persistConversationMessages();
     }, 150);
-  }, [analyticsKey, messages.length, persistConversationMessages]);
-
-  useEffect(() => {
-    return actionRegistry.onChange(() => {
-      setRegisteredActionRevision((prev) => prev + 1);
-    });
-  }, []);
+  }, [conversationStore, messages.length, persistConversationMessages]);
 
   useEffect(() => {
     return dataRegistry.onChange(() => {
@@ -884,162 +757,9 @@ export function AIAgent({
     });
   }, []);
 
-  // Increment scroll trigger when messages change to auto-scroll chat modal
-  useEffect(() => {
-    if (messages.length > 0) {
-      setChatScrollTrigger((prev) => prev + 1);
-    }
-  }, [messages.length]);
 
-  // ── Support Modal State ──
-  const [tickets, setTickets] = useState<
-    import('../support/types').SupportTicket[]
-  >([]);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const [supportSocket, setSupportSocket] = useState<EscalationSocket | null>(
-    null
-  );
-  const [isLiveAgentTyping, setIsLiveAgentTyping] = useState(false);
   const [autoExpandTrigger, setAutoExpandTrigger] = useState(0);
-  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-  const seenReportedIssueUpdatesRef = useRef<Set<string>>(new Set());
-  // Ref mirrors selectedTicketId — lets socket callbacks access current value
-  // without stale closures (sockets are long-lived, closures capture old state).
-  const selectedTicketIdRef = useRef<string | null>(null);
-  const openSupportTicketModalRef = useRef<
-    | ((
-        ticketId: string,
-        options?: {
-          history?: Array<{
-            role: string;
-            content: string;
-            timestamp?: string;
-          }>;
-          wsUrl?: string;
-        }
-      ) => void)
-    | null
-  >(null);
-  const supportSocketRef = useRef<EscalationSocket | null>(null);
-  useEffect(() => {
-    selectedTicketIdRef.current = selectedTicketId;
-  }, [selectedTicketId]);
-  useEffect(() => {
-    supportSocketRef.current = supportSocket;
-  }, [supportSocket]);
-  // Cache of live sockets by ticketId — keeps sockets alive even when user
-  // navigates back to the ticket list, so new messages still trigger badge updates.
-  const pendingSocketsRef = useRef<Map<string, EscalationSocket>>(new Map());
-  const recentSupportReplyRef = useRef<
-    Map<string, { content: string; at: number }>
-  >(new Map());
-  // SSE connections per ticket — reliable fallback for ticket_closed events
-  // when the WebSocket is disconnected. EventSource auto-reconnects.
-  const sseRef = useRef<Map<string, EscalationEventSource>>(new Map());
-  const reportedIssuesSSERef = useRef<ReportedIssueEventSource | null>(null);
   const agentFrtFiredRef = useRef<boolean>(false);
-  const humanFrtFiredRef = useRef<Record<string, boolean>>({});
-
-  const appendIncomingSupportReply = useCallback(
-    (ticketId: string, reply: string) => {
-      const normalizedReply = reply.trim();
-      if (!normalizedReply) return;
-
-      const now = Date.now();
-      const recent = recentSupportReplyRef.current.get(ticketId);
-      if (
-        recent &&
-        recent.content === normalizedReply &&
-        now - recent.at < 2_500
-      ) {
-        logger.info(
-          'AIAgent',
-          '★ Ignoring duplicate support reply for ticket:',
-          ticketId
-        );
-        return;
-      }
-      recentSupportReplyRef.current.set(ticketId, {
-        content: normalizedReply,
-        at: now,
-      });
-
-      const incomingEntry = {
-        role: 'live_agent',
-        content: normalizedReply,
-        timestamp: new Date(now).toISOString(),
-      } as const;
-      let updatedHistory: Array<{
-        role: string;
-        content: string;
-        timestamp?: string;
-      }> | null = null;
-      let ticketWsUrl: string | undefined;
-
-      setTickets((prev) =>
-        prev.map((t) => {
-          if (t.id !== ticketId) return t;
-          ticketWsUrl = t.wsUrl;
-          const lastEntry = t.history?.[t.history.length - 1];
-          if (
-            lastEntry?.role === 'live_agent' &&
-            lastEntry.content === normalizedReply
-          ) {
-            updatedHistory = t.history || [];
-            return t;
-          }
-          updatedHistory = [...(t.history || []), incomingEntry];
-          return {
-            ...t,
-            history: updatedHistory,
-          };
-        })
-      );
-
-      if (selectedTicketIdRef.current === ticketId) {
-        setSupportMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-          if (
-            lastMessage?.previewText === normalizedReply &&
-            (lastMessage.role === 'assistant' ||
-              lastMessage.role === ('live_agent' as any))
-          ) {
-            return prev;
-          }
-          return [
-            ...prev,
-            createAIMessage({
-              id: `human-${ticketId}-${now}`,
-              role: 'assistant',
-              content: normalizedReply,
-              previewText: normalizedReply,
-              timestamp: now,
-            }),
-          ];
-        });
-        setLastResult({
-          success: true,
-          message: `👤 ${normalizedReply}`,
-          previewText: `👤 ${normalizedReply}`,
-          reply: normalizeRichContent(normalizedReply),
-          steps: [],
-        });
-      } else if (!selectedTicketIdRef.current) {
-        openSupportTicketModalRef.current?.(ticketId, {
-          history: updatedHistory ?? undefined,
-          wsUrl: ticketWsUrl,
-        });
-        setAutoExpandTrigger((prev) => prev + 1);
-      } else {
-        setUnreadCounts((prev) => ({
-          ...prev,
-          [ticketId]: (prev[ticketId] || 0) + 1,
-        }));
-      }
-    },
-    []
-  );
-
   // ── Onboarding Journey State ────────────────────────────────
   const [isOnboardingActive, setIsOnboardingActive] = useState(false);
   const [currentOnboardingIndex, setCurrentOnboardingIndex] = useState(0);
@@ -1067,11 +787,6 @@ export function AIAgent({
       setCurrentOnboardingIndex((prev) => prev + 1);
     }
   }, [onboarding, currentOnboardingIndex]);
-
-  const totalUnread = Object.values(unreadCounts).reduce(
-    (sum, count) => sum + count,
-    0
-  );
 
   // ── Discovery Tooltip (one-time) ──────────────────────────
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -1161,96 +876,9 @@ export function AIAgent({
   // This function is captured by long-lived callbacks (escalation sockets, restored
   // sockets) that may hold stale references. Using refs guarantees the current
   // selectedTicketId and supportSocket are always read, not snapshot values.
-  const clearSupport = useCallback((ticketId?: string) => {
-    if (ticketId) {
-      // Remove specific ticket + its cached socket and SSE
-      const cached = pendingSocketsRef.current.get(ticketId);
-      if (cached) {
-        cached.disconnect();
-        pendingSocketsRef.current.delete(ticketId);
-      }
-      const sse = sseRef.current.get(ticketId);
-      if (sse) {
-        sse.disconnect();
-        sseRef.current.delete(ticketId);
-      }
-      setTickets((prev) => prev.filter((t) => t.id !== ticketId));
-      setUnreadCounts((prev) => {
-        const n = { ...prev };
-        delete n[ticketId];
-        return n;
-      });
-
-      // If user was viewing this ticket, close the support modal + switch to ticket list
-      if (selectedTicketIdRef.current === ticketId) {
-        setSupportSocket((prev) => {
-          prev?.disconnect();
-          return null;
-        });
-        setSelectedTicketId(null);
-        setIsLiveAgentTyping(false);
-        setMessages([]);
-      }
-
-      // If no tickets remain, switch back to text mode
-      setTickets((prev) => {
-        if (prev.length === 0) {
-          setMode('text');
-        }
-        return prev;
-      });
-    } else {
-      // Clear all — disconnect every cached socket and SSE
-      pendingSocketsRef.current.forEach((s) => s.disconnect());
-      pendingSocketsRef.current.clear();
-      sseRef.current.forEach((s) => s.disconnect());
-      sseRef.current.clear();
-      setSupportSocket((prev) => {
-        prev?.disconnect();
-        return null;
-      });
-      setSelectedTicketId(null);
-      setTickets([]);
-      setUnreadCounts({});
-      setIsLiveAgentTyping(false);
-      setMode('text');
-    }
-  }, []);
-
-  const openSSE = useCallback(
-    (ticketId: string) => {
-      if (sseRef.current.has(ticketId)) return;
-      if (!analyticsKey) return;
-
-      const sseUrl = `${ENDPOINTS.escalation}/api/v1/escalations/events?analyticsKey=${encodeURIComponent(analyticsKey)}&ticketId=${encodeURIComponent(ticketId)}`;
-      const sse = new EscalationEventSource({
-        url: sseUrl,
-        onTicketClosed: (tid) => {
-          logger.info('AIAgent', 'SSE: ticket_closed received for', tid);
-          setUnreadCounts((prev) => {
-            const next = { ...prev };
-            delete next[tid];
-            return next;
-          });
-          clearSupport(tid);
-        },
-        onConnected: (tid) => {
-          logger.info('AIAgent', 'SSE: connected for ticket', tid);
-        },
-      });
-      sse.connect();
-      sseRef.current.set(ticketId, sse);
-      logger.info('AIAgent', 'SSE opened for ticket:', ticketId);
-    },
-    [analyticsKey, clearSupport]
-  );
-
   const clearMessages = useCallback(() => {
-    if (activeConversationIdRef.current && analyticsKey) {
-      ConversationService.endConversation({
-        conversationId: activeConversationIdRef.current,
-        analyticsKey,
-      });
+    if (activeConversationIdRef.current) {
+      ConversationService.endConversation(conversationStore, activeConversationIdRef.current);
     }
     clearPendingConversationSave();
     conversationGenerationRef.current += 1;
@@ -1258,212 +886,7 @@ export function AIAgent({
     lastSavedMessageCountRef.current = 0;
     setMessages([]);
     setLastResult(null);
-  }, [clearPendingConversationSave, analyticsKey]);
-
-  const openSupportTicketModal = useCallback(
-    (
-      ticketId: string,
-      options?: {
-        history?: Array<{ role: string; content: string; timestamp?: string }>;
-        wsUrl?: string;
-      }
-    ) => {
-      setMode('human');
-      setSelectedTicketId(ticketId);
-      setUnreadCounts((prev) => {
-        if (!prev[ticketId]) return prev;
-        const next = { ...prev };
-        delete next[ticketId];
-        return next;
-      });
-
-      if (options?.history) {
-        const restored: AIMessage[] = options.history.map((entry, i) =>
-          createAIMessage({
-            id: `restored-${ticketId}-${i}`,
-            role: (entry.role === 'live_agent' ? 'assistant' : entry.role) as any,
-            content: entry.content,
-            previewText: entry.content,
-            timestamp: entry.timestamp
-              ? new Date(entry.timestamp).getTime()
-              : Date.now(),
-          })
-        );
-        setSupportMessages(restored);
-      }
-
-      const cachedSocket = pendingSocketsRef.current.get(ticketId);
-      if (cachedSocket) {
-        pendingSocketsRef.current.delete(ticketId);
-        setSupportSocket(cachedSocket);
-      } else if (options?.wsUrl) {
-        const socket = new EscalationSocket({
-          onReply: (reply: string) => {
-            appendIncomingSupportReply(ticketId, reply);
-          },
-          onTypingChange: (isTyping) => {
-            if (selectedTicketIdRef.current === ticketId) {
-              setIsLiveAgentTyping(isTyping);
-            }
-          },
-          onTicketClosed: (closedTicketId?: string) => {
-            if (closedTicketId) {
-              setUnreadCounts((prev) => {
-                const next = { ...prev };
-                delete next[closedTicketId];
-                return next;
-              });
-            }
-            clearSupport(ticketId);
-          },
-          onError: (err) =>
-            logger.warn('AIAgent', '★ Socket error while auto-opening:', err),
-        });
-        socket.connect(options.wsUrl);
-        setSupportSocket(socket);
-      }
-
-      setChatScrollTrigger((prev) => prev + 1);
-
-      (async () => {
-        try {
-          await fetch(
-            `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}/read?analyticsKey=${analyticsKey}`,
-            { method: 'POST' }
-          );
-          logger.info(
-            'AIAgent',
-            '★ Marked auto-opened ticket as read:',
-            ticketId
-          );
-        } catch (err) {
-          logger.warn(
-            'AIAgent',
-            '★ Failed to mark auto-opened ticket as read:',
-            err
-          );
-        }
-      })();
-    },
-    [analyticsKey, appendIncomingSupportReply, clearSupport]
-  );
-
-  const ensureBackgroundTicketSocket = useCallback(
-    (ticket: import('../support/types').SupportTicket) => {
-      if (!ticket.wsUrl) {
-        logger.warn(
-          'AIAgent',
-          '★ Restored ticket has no wsUrl — skipping background socket:',
-          ticket.id
-        );
-        return;
-      }
-
-      if (
-        selectedTicketIdRef.current === ticket.id &&
-        supportSocketRef.current
-      ) {
-        return;
-      }
-
-      if (pendingSocketsRef.current.has(ticket.id)) {
-        return;
-      }
-
-      const socket = new EscalationSocket({
-        onReply: (reply: string) => {
-          appendIncomingSupportReply(ticket.id, reply);
-        },
-        onTypingChange: (isTyping) => {
-          if (selectedTicketIdRef.current === ticket.id) {
-            setIsLiveAgentTyping(isTyping);
-          }
-        },
-        onTicketClosed: (closedTicketId?: string) => {
-          if (closedTicketId) {
-            setUnreadCounts((prev) => {
-              const next = { ...prev };
-              delete next[closedTicketId];
-              return next;
-            });
-          }
-          clearSupport(ticket.id);
-        },
-        onError: (err) =>
-          logger.warn('AIAgent', '★ Background socket error:', err),
-      });
-      socket.connect(ticket.wsUrl);
-      pendingSocketsRef.current.set(ticket.id, socket);
-      logger.info(
-        'AIAgent',
-        '★ Background socket opened for ticket:',
-        ticket.id
-      );
-    },
-    [appendIncomingSupportReply, clearSupport]
-  );
-
-  useEffect(() => {
-    openSupportTicketModalRef.current = openSupportTicketModal;
-  }, [openSupportTicketModal]);
-
-  useEffect(() => {
-    return () => {
-      pendingSocketsRef.current.forEach((socket) => socket.disconnect());
-      pendingSocketsRef.current.clear();
-      sseRef.current.forEach((sse) => sse.disconnect());
-      sseRef.current.clear();
-      reportedIssuesSSERef.current?.disconnect();
-      reportedIssuesSSERef.current = null;
-      supportSocket?.disconnect();
-    };
-  }, [supportSocket]);
-
-  const applyReportedIssueUpdates = useCallback(
-    (nextIssues: ReportedIssue[], options?: { replayToChat?: boolean }) => {
-      const replayToChat = options?.replayToChat ?? true;
-
-      nextIssues.forEach((issue) => {
-        const history = Array.isArray(issue.statusHistory)
-          ? issue.statusHistory
-          : [];
-        history.forEach((entry) => {
-          if (!entry || typeof entry !== 'object') return;
-          const id = typeof entry.id === 'string' ? entry.id : null;
-          const message =
-            typeof entry.message === 'string' ? entry.message : null;
-          if (!id || !message) return;
-
-          if (seenReportedIssueUpdatesRef.current.has(id)) return;
-          seenReportedIssueUpdatesRef.current.add(id);
-
-          if (!replayToChat) return;
-
-          const entryTimestamp =
-            typeof entry.timestamp === 'string'
-              ? new Date(entry.timestamp).getTime()
-              : NaN;
-
-          setMessages((prev) => {
-            if (prev.some((msg) => msg.id === `reported-${id}`)) return prev;
-            return [
-              ...prev,
-              createAIMessage({
-                id: `reported-${id}`,
-                role: 'assistant',
-                content: message,
-                previewText: message,
-                timestamp: Number.isFinite(entryTimestamp)
-                  ? entryTimestamp
-                  : Date.now(),
-              }),
-            ];
-          });
-        });
-      });
-    },
-    []
-  );
+  }, [clearPendingConversationSave, conversationStore]);
 
   const getDeepestRouteName = useCallback((state: any): string | null => {
     if (!state || !Array.isArray(state.routes) || state.index == null) {
@@ -1536,17 +959,6 @@ export function AIAgent({
     resolveRawScreenName,
   ]);
 
-  const resolvedKnowledgeBase = useMemo(() => {
-    if (knowledgeBase) return knowledgeBase;
-    if (!analyticsKey) return undefined;
-
-    return createTwomiliaKnowledgeRetriever({
-      analyticsKey: analyticsKey,
-      baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
-      headers: analyticsProxyHeaders,
-    });
-  }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl, knowledgeBase]);
-
   const platformAdapter = useMemo(
     () =>
       new ReactNativePlatformAdapter({
@@ -1573,661 +985,76 @@ export function AIAgent({
     ]
   );
 
-  useEffect(() => {
-    if (!analyticsKey) {
-      setRemoteConfiguredActions([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    void fetchConfiguredActions({
-      analyticsKey,
-      baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
-      headers: analyticsProxyHeaders,
-    }).then((actions) => {
-      if (!cancelled) {
-        setRemoteConfiguredActions(actions);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [analyticsKey, analyticsProxyHeaders, analyticsProxyUrl]);
-
-  // ─── Auto-create Twomilia escalation tool ─────────────────────
-  // When analyticsKey is present and consumer hasn't provided their own
-  // escalate_to_human tool, auto-wire the Twomilia platform provider.
-  // Human replies from the dashboard inbox are injected into chat messages.
+  // ─── Escalation tool ───────────────────────────────────────────
+  // Created when supportMode.escalation.onEscalate is set and the app has not
+  // provided its own escalate_to_human tool. The handoff itself is the app's.
   const autoEscalateTool = useMemo(() => {
-    if (!analyticsKey) return null;
+    const escalation = supportMode?.escalation;
+    const onEscalate = escalation?.onEscalate;
+    if (!onEscalate) return null;
     if (customTools?.['escalate_to_human']) return null; // consumer overrides
     return createEscalateTool({
-      config: { provider: 'mobileai' },
-      analyticsKey,
+      config: {
+        ...escalation,
+        onEscalate: async (context) => {
+          telemetryRef.current?.track('escalation', {
+            reason: context.conversationSummary,
+            screen: context.currentScreen,
+            trigger: context.handoffTriggerType,
+          });
+          await onEscalate(context);
+        },
+      },
       getContext: () => ({
         currentScreen: getResolvedScreenName(),
-        originalQuery: '',
-        stepsBeforeEscalation: 0,
+        originalQuery:
+          messages.find((m) => m.role === 'user')?.previewText ?? '',
+        stepsBeforeEscalation: messages.reduce(
+          (count, m) => count + (m.result?.steps?.length ?? 0),
+          0
+        ),
       }),
       getHistory: () =>
         messages.map((m) => ({ role: m.role, content: m.previewText })),
-      getToolCalls: () => {
-        const toolCalls: Array<{
-          name: string;
-          input: Record<string, unknown>;
-          output: string;
-        }> = [];
-        messages.forEach((m) => {
-          if (m.result?.steps) {
-            m.result.steps.forEach((step) => {
-              if (
-                step.action &&
-                step.action.name !== 'done' &&
-                step.action.name !== 'agent_step' &&
-                step.action.name !== 'escalate_to_human'
-              ) {
-                toolCalls.push(step.action);
-              }
-            });
-          }
-        });
-        return toolCalls;
-      },
-      getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
-      userContext,
-      pushToken,
-      pushTokenType,
-      onEscalationStarted: (tid, socket) => {
-        logger.info(
-          'AIAgent',
-          '★★★ onEscalationStarted FIRED — ticketId:',
-          tid
-        );
-        // Cache the live socket so handleTicketSelect can reuse it without reconnecting
-        pendingSocketsRef.current.set(tid, socket);
-        // Open SSE for reliable ticket_closed delivery
-        openSSE(tid);
-
-        const currentScreen = getResolvedScreenName();
-        setTickets((prev) => {
-          if (prev.find((t) => t.id === tid)) {
-            logger.info('AIAgent', '★★★ Ticket already in list, skipping add');
-            return prev;
-          }
-          const newList = [
-            {
-              id: tid,
-              reason: 'Connecting to agent...',
-              screen: currentScreen,
-              status: 'open',
-              history: [],
-              createdAt: new Date().toISOString(),
-              wsUrl: '',
-            },
-            ...prev,
-          ];
-          logger.info(
-            'AIAgent',
-            '★★★ Tickets updated, new length:',
-            newList.length
-          );
-          return newList;
-        });
-
-        // Fetch real ticket data from backend to replace the placeholder
-        void (async () => {
-          try {
-            const res = await fetch(
-              `${ENDPOINTS.escalation}/api/v1/escalations/${tid}?analyticsKey=${encodeURIComponent(analyticsKey!)}`
-            );
-            if (res.ok) {
-              const data = await res.json();
-              setTickets((prev) =>
-                prev.map((t) => {
-                  if (t.id !== tid) return t;
-                  return {
-                    ...t,
-                    reason: data.reason || t.reason,
-                    screen: data.screen || t.screen,
-                    status: data.status || t.status,
-                    history: Array.isArray(data.history)
-                      ? data.history
-                      : t.history,
-                  };
-                })
-              );
-            }
-          } catch {
-            // Best-effort — placeholder is still usable
-          }
-        })();
-
-        // Switch to human mode so the ticket LIST is visible — do NOT auto-select
-        setMode('human');
-        setAutoExpandTrigger((prev) => {
-          const next = prev + 1;
-          logger.info('AIAgent', '★★★ autoExpandTrigger:', prev, '→', next);
-          return next;
-        });
-        logger.info(
-          'AIAgent',
-          '★★★ setMode("human") called from onEscalationStarted'
-        );
-      },
-      onHumanReply: (reply: string, ticketId?: string) => {
-        if (ticketId) {
-          if (!humanFrtFiredRef.current[ticketId]) {
-            humanFrtFiredRef.current[ticketId] = true;
-            telemetryRef.current?.track('human_first_response', {
-              canonical_type: 'human_first_response_sent',
-              ticketId,
-            });
-          }
-          appendIncomingSupportReply(ticketId, reply);
-        }
-      },
-      onTypingChange: (isTyping: boolean) => {
-        setIsLiveAgentTyping(isTyping);
-      },
-      onTicketClosed: (ticketId?: string) => {
-        logger.info('AIAgent', 'Ticket closed by agent — removing from list');
-        if (ticketId) {
-          setUnreadCounts((prev) => {
-            const next = { ...prev };
-            delete next[ticketId];
-            return next;
-          });
-        }
-        clearSupport(ticketId);
-      },
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    analyticsKey,
-    customTools,
-    getResolvedScreenName,
-    navRef,
-    openSSE,
-    userContext,
-    pushToken,
-    pushTokenType,
-    messages,
-    appendIncomingSupportReply,
-    clearSupport,
-  ]);
-
-  const autoReportIssueTool = useMemo(() => {
-    if (!analyticsKey) return null;
-    if (customTools?.['report_issue']) return null;
-    return createReportIssueTool({
-      analyticsKey,
-      getCurrentScreen: getResolvedScreenName,
-      getHistory: () =>
-        messages.map((m) => ({ role: m.role, content: m.previewText })),
+      getToolCalls: () =>
+        messages.flatMap((m) =>
+          (m.result?.steps ?? [])
+            .map((step) => step.action)
+            .filter(
+              (action) =>
+                action &&
+                action.name !== 'done' &&
+                action.name !== 'agent_step' &&
+                action.name !== 'escalate_to_human'
+            )
+        ),
       getScreenFlow: () => telemetryRef.current?.getScreenFlow() ?? [],
       userContext,
     });
-  }, [analyticsKey, customTools, getResolvedScreenName, messages, userContext]);
-
-  const autoOutboundCallTool = useMemo(() => {
-    if (!analyticsKey) return null;
-    if (outboundCalls?.enabled === false) return null;
-    if (customTools?.['start_ai_call']) return null;
-    return createOutboundCallTool({
-      analyticsKey,
-      config: outboundCalls,
-      getCurrentScreen: getResolvedScreenName,
-      getHistory: () =>
-        messages.map((m) => ({ role: m.role, content: m.previewText })),
-      userContext: (userContext as Record<string, unknown> | undefined) ?? {},
-      onStatusUpdate: setStatusText,
-    });
-  }, [analyticsKey, customTools, getResolvedScreenName, messages, outboundCalls, userContext]);
+  }, [customTools, getResolvedScreenName, messages, supportMode?.escalation, userContext]);
 
   // ─── Load conversation history on mount ─────────────────────────
   useEffect(() => {
-    if (!analyticsKey) return;
+    if (!conversationStore) return;
 
+    let cancelled = false;
     void (async () => {
-      try {
-        setIsLoadingHistory(true);
-        await initDeviceId();
-        const deviceId = getDeviceId();
-        const list = await ConversationService.fetchConversations({
-          analyticsKey,
-          userId: userContext?.userId,
-          deviceId: deviceId || undefined,
-        });
+      setIsLoadingHistory(true);
+      const deviceId = await initDeviceId();
+      const list = await ConversationService.listConversations({
+        store: conversationStore,
+        userId: userContext?.userId,
+        deviceId,
+      });
+      if (!cancelled) {
         setConversations(list);
-      } catch (err) {
-        logger.warn('AIAgent', 'Failed to load conversation history:', err);
-      } finally {
         setIsLoadingHistory(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsKey, userContext?.userId]);
-
-  // ─── Restore pending tickets on app start ──────────────────────
-  useEffect(() => {
-    if (!analyticsKey) return;
-
-    void (async () => {
-      try {
-        // Wait for the device ID to be initialised before reading it.
-        // getDeviceId() is synchronous but returns null on cold start until
-        // initDeviceId() resolves — awaiting here prevents an early bail-out
-        // that would leave the Human tab hidden after an app refresh.
-        await initDeviceId();
-        const deviceId = getDeviceId();
-
-        logger.info(
-          'AIAgent',
-          '★ Restore check — analyticsKey:',
-          !!analyticsKey,
-          'userId:',
-          userContext?.userId,
-          'pushToken:',
-          !!pushToken,
-          'deviceId:',
-          deviceId
-        );
-        if (!userContext?.userId && !pushToken && !deviceId) return;
-
-        const query = new URLSearchParams({ analyticsKey });
-        if (userContext?.userId) query.append('userId', userContext.userId);
-        if (pushToken) query.append('pushToken', pushToken);
-        if (deviceId) query.append('deviceId', deviceId);
-
-        const url = `${ENDPOINTS.escalation}/api/v1/escalations/mine?${query.toString()}`;
-        logger.info('AIAgent', '★ Restore — fetching:', url);
-        const res = await fetch(url);
-
-        logger.info('AIAgent', '★ Restore — response status:', res.status);
-        if (!res.ok) return;
-
-        const data = await res.json();
-        const fetchedTickets: import('../support/types').SupportTicket[] =
-          data.tickets ?? [];
-        logger.info(
-          'AIAgent',
-          '★ Restore — found',
-          fetchedTickets.length,
-          'active tickets'
-        );
-
-        if (fetchedTickets.length === 0) return;
-
-        // Initialize unread counts from backend (set together with tickets for instant badge)
-        const initialUnreadCounts: Record<string, number> = {};
-        for (const ticket of fetchedTickets) {
-          if (ticket.unreadCount && ticket.unreadCount > 0) {
-            initialUnreadCounts[ticket.id] = ticket.unreadCount;
-          }
-        }
-        setTickets(fetchedTickets);
-        setUnreadCounts(initialUnreadCounts);
-
-        // Make Human mode available, but do NOT auto-switch the user away from
-        // Text/Voice. The user explicitly chooses Human by tapping the tab.
-        setAutoExpandTrigger((prev) => prev + 1);
-
-        // Open SSE for every restored ticket — reliable ticket_closed delivery
-        for (const t of fetchedTickets) {
-          openSSE(t.id);
-          ensureBackgroundTicketSocket(t);
-        }
-
-        // Keep restored human conversations available, but only auto-open the
-        // modal when there is exactly one unread ticket that clearly contains a
-        // new incoming human message for the user.
-        const unreadTickets = fetchedTickets.filter(
-          (ticket) => (ticket.unreadCount ?? 0) > 0
-        );
-        if (unreadTickets.length === 1) {
-          const ticket = unreadTickets[0]!;
-          openSupportTicketModal(ticket.id, {
-            history: ticket.history,
-            wsUrl: ticket.wsUrl,
-          });
-          logger.info(
-            'AIAgent',
-            '★ Restored unread ticket auto-opened:',
-            ticket.id
-          );
-        }
-      } catch (err) {
-        logger.warn('AIAgent', '★ Failed to restore tickets:', err);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsKey, ensureBackgroundTicketSocket, openSSE, openSupportTicketModal]);
-
-  useEffect(() => {
-    if (!analyticsKey) return;
-
-    let isCancelled = false;
-
-    const syncIssues = async () => {
-      try {
-        await initDeviceId();
-        const deviceId = getDeviceId();
-        if (!userContext?.userId && !deviceId) return;
-
-        const query = new URLSearchParams({ analyticsKey });
-        if (userContext?.userId) query.append('userId', userContext.userId);
-        if (deviceId) query.append('deviceId', deviceId);
-
-        const res = await fetch(
-          `${ENDPOINTS.escalation}/api/v1/reported-issues/mine?${query.toString()}`
-        );
-        if (!res.ok || isCancelled) return;
-
-        const data = await res.json();
-        const nextIssues: ReportedIssue[] = Array.isArray(data.issues)
-          ? data.issues
-          : [];
-        applyReportedIssueUpdates(nextIssues, { replayToChat: false });
-      } catch (error) {
-        logger.warn('AIAgent', 'Failed to sync reported issues:', error);
-      }
-    };
-
-    void syncIssues();
-
-    void (async () => {
-      await initDeviceId();
-      const deviceId = getDeviceId();
-      if (!userContext?.userId && !deviceId) return;
-
-      const query = new URLSearchParams({ analyticsKey });
-      if (userContext?.userId) query.append('userId', userContext.userId);
-      if (deviceId) query.append('deviceId', deviceId);
-
-      reportedIssuesSSERef.current?.disconnect();
-      const sse = new ReportedIssueEventSource({
-        url: `${ENDPOINTS.escalation}/api/v1/reported-issues/events?${query.toString()}`,
-        onIssueUpdate: (issue) => {
-          applyReportedIssueUpdates([issue], { replayToChat: true });
-        },
-        onError: (error) => {
-          logger.warn('AIAgent', 'Reported issue SSE error:', error.message);
-        },
-      });
-      sse.connect();
-      reportedIssuesSSERef.current = sse;
-    })();
-
     return () => {
-      isCancelled = true;
-      reportedIssuesSSERef.current?.disconnect();
-      reportedIssuesSSERef.current = null;
+      cancelled = true;
     };
-  }, [analyticsKey, applyReportedIssueUpdates, userContext?.userId]);
-
-  // ─── Ticket selection handlers ────────────────────────────────
-  const handleTicketSelect = useCallback(
-    async (ticketId: string) => {
-      const ticket = tickets.find((t) => t.id === ticketId);
-      if (!ticket) return;
-
-      // Cache (not disconnect!) the previous ticket's socket so it keeps
-      // receiving messages in the background and can update unread counts.
-      if (supportSocket && selectedTicketId && selectedTicketId !== ticketId) {
-        pendingSocketsRef.current.set(selectedTicketId, supportSocket);
-        setSupportSocket(null);
-      }
-
-      setSelectedTicketId(ticketId);
-      setMode('human');
-
-      // Clear unread count when user opens a ticket
-      setUnreadCounts((prev) => {
-        if (!prev[ticketId]) return prev;
-        const next = { ...prev };
-        delete next[ticketId];
-        return next;
-      });
-
-      // Mark ticket as read on backend (source of truth)
-      (async () => {
-        try {
-          await fetch(
-            `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}/read?analyticsKey=${analyticsKey}`,
-            { method: 'POST' }
-          );
-          logger.info('AIAgent', '★ Marked ticket as read:', ticketId);
-        } catch (err) {
-          logger.warn('AIAgent', '★ Failed to mark ticket as read:', err);
-        }
-      })();
-
-      // Trigger scroll to bottom when modal opens
-      setChatScrollTrigger((prev) => prev + 1);
-
-      // Capture the fresh wsUrl returned by the server — it is the canonical value.
-      // The local `ticket` snapshot may have an empty wsUrl if it was a placeholder
-      // created before the WS URL was known (e.g. via onEscalationStarted).
-      let freshWsUrl = ticket.wsUrl;
-
-      // Fetch latest history from server — this is the source of truth and catches
-      // any messages that arrived while the socket was disconnected (modal closed,
-      // app backgrounded, etc.)
-      try {
-        const res = await fetch(
-          `${ENDPOINTS.escalation}/api/v1/escalations/${ticketId}?analyticsKey=${analyticsKey}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data.wsUrl) {
-            freshWsUrl = data.wsUrl; // always prefer the live server value
-          }
-          const serverHistory: Array<{
-            role: string;
-            content: string;
-            timestamp?: string;
-          }> = Array.isArray(data.history) ? data.history : [];
-          const mergedHistory = mergeSupportHistory(
-            serverHistory,
-            ticket.history || []
-          );
-          const restored: AIMessage[] = mergedHistory.map((entry, i) =>
-            createAIMessage({
-              id: `restored-${ticketId}-${i}`,
-              role: (entry.role === 'live_agent'
-                ? 'assistant'
-                : entry.role) as any,
-              content: entry.content,
-              previewText: entry.content,
-              timestamp: entry.timestamp
-                ? new Date(entry.timestamp).getTime()
-                : Date.now(),
-            })
-          );
-          setSupportMessages(restored);
-          // Update ticket in local list with fresh history + wsUrl
-          if (data.wsUrl) {
-            setTickets((prev) =>
-              prev.map((t) =>
-                t.id === ticketId
-                  ? { ...t, history: mergedHistory, wsUrl: data.wsUrl }
-                  : t
-              )
-            );
-          } else {
-            setTickets((prev) =>
-              prev.map((t) =>
-                t.id === ticketId ? { ...t, history: mergedHistory } : t
-              )
-            );
-          }
-        } else {
-          // Fallback to local ticket history
-          if (ticket.history?.length) {
-            const restored: AIMessage[] = ticket.history.map(
-              (
-                entry: { role: string; content: string; timestamp?: string },
-                i: number
-              ) =>
-                createAIMessage({
-                  id: `restored-${ticketId}-${i}`,
-                  role: (entry.role === 'live_agent'
-                    ? 'assistant'
-                    : entry.role) as any,
-                  content: entry.content,
-                  previewText: entry.content,
-                  timestamp: entry.timestamp
-                    ? new Date(entry.timestamp).getTime()
-                    : Date.now(),
-                })
-            );
-            setSupportMessages(restored);
-          } else {
-            setSupportMessages([]);
-          }
-        }
-      } catch (err) {
-        logger.warn(
-          'AIAgent',
-          '★ Failed to fetch ticket history, using local:',
-          err
-        );
-        if (ticket.history?.length) {
-          const restored: AIMessage[] = ticket.history.map(
-            (
-              entry: { role: string; content: string; timestamp?: string },
-              i: number
-            ) =>
-              createAIMessage({
-                id: `restored-${ticketId}-${i}`,
-                role: (entry.role === 'live_agent'
-                  ? 'assistant'
-                  : entry.role) as any,
-                content: entry.content,
-                previewText: entry.content,
-                timestamp: entry.timestamp
-                  ? new Date(entry.timestamp).getTime()
-                  : Date.now(),
-              })
-          );
-          setSupportMessages(restored);
-        } else {
-          setSupportMessages([]);
-        }
-      }
-
-      // Reuse the already-connected socket if escalation just happened,
-      // otherwise create a fresh connection from the ticket's stored wsUrl.
-      const cached = pendingSocketsRef.current.get(ticketId);
-      if (cached) {
-        // If the socket errored (not just cleanly disconnected), discard it and
-        // fall through to create a fresh one — reusing an errored socket causes
-        // sendText to silently return false → "Connection lost" on every message.
-        if (cached.hasErrored) {
-          logger.warn(
-            'AIAgent',
-            '★ Cached socket errored — discarding and creating fresh socket for ticket:',
-            ticketId
-          );
-          cached.disconnect();
-          pendingSocketsRef.current.delete(ticketId);
-          // Fall through to fresh socket creation below
-        } else {
-          pendingSocketsRef.current.delete(ticketId);
-          // If the cached socket was created before wsUrl was available (e.g. during
-          // on-mount restore), it may never have connected. Reconnect it now.
-          if (!cached.isConnected && freshWsUrl) {
-            logger.info(
-              'AIAgent',
-              '★ Cached socket not connected — reconnecting with wsUrl:',
-              freshWsUrl
-            );
-            cached.connect(freshWsUrl);
-          }
-          setSupportSocket(cached);
-          logger.info(
-            'AIAgent',
-            '★ Reusing cached escalation socket for ticket:',
-            ticketId
-          );
-          return;
-        }
-      }
-
-      const socket = new EscalationSocket({
-        onReply: (reply: string) => {
-          appendIncomingSupportReply(ticketId, reply);
-        },
-        onTypingChange: setIsLiveAgentTyping,
-        onTicketClosed: (closedTicketId?: string) => {
-          if (closedTicketId) {
-            setUnreadCounts((prev) => {
-              const next = { ...prev };
-              delete next[closedTicketId];
-              return next;
-            });
-          }
-          clearSupport(ticketId);
-        },
-        onError: (err) =>
-          logger.warn('AIAgent', '★ Socket error on select:', err),
-      });
-      if (freshWsUrl) {
-        socket.connect(freshWsUrl);
-      } else {
-        logger.warn(
-          'AIAgent',
-          '★ Ticket has no wsUrl — skipping socket connect for ticket:',
-          ticketId
-        );
-      }
-      setSupportSocket(socket);
-    },
-    [tickets, supportSocket, selectedTicketId, analyticsKey, clearSupport]
-  );
-
-  const handleBackToTickets = useCallback(() => {
-    // Cache socket in pendingSocketsRef instead of disconnecting —
-    // keeps the WS alive so new messages update unreadCounts in real time.
-    const currentTicketId = selectedTicketIdRef.current;
-    // Use functional setter to read + cache the current socket without closure dependency
-    setSupportSocket((prev) => {
-      if (prev && currentTicketId) {
-        pendingSocketsRef.current.set(currentTicketId, prev);
-        logger.info(
-          'AIAgent',
-          '★ Socket cached for ticket:',
-          currentTicketId,
-          '— stays alive for badge updates'
-        );
-      }
-      return null;
-    });
-    logger.info('AIAgent', '★ Back to tickets');
-    setSelectedTicketId(null);
-    setSupportMessages([]);
-    setIsLiveAgentTyping(false);
-  }, []); // No dependencies — uses refs/functional setters
-
-  const remoteActionInstructions = useMemo(() => {
-    if (remoteConfiguredActions.length === 0) return "";
-
-    const lines = remoteConfiguredActions.map((action) => {
-      const modeLabel =
-        action.executionType === "webhook"
-          ? "executes directly in Twomilia"
-          : "executes in app code after Twomilia authorization";
-      return `- Tool \`${action.name}\` (${modeLabel}): ${action.triggerHint}`;
-    });
-
-    return [
-      "### Twomilia Configured Actions",
-      "Only use the configured actions below. Do not invent or call unconfigured app actions.",
-      ...lines,
-    ].join("\n");
-  }, [remoteConfiguredActions]);
+  }, [conversationStore, userContext?.userId]);
 
   const registeredDataInstructions = useMemo(() => {
     const sources = dataRegistry.getAll();
@@ -2251,7 +1078,7 @@ export function AIAgent({
     });
 
     return [
-      "### Twomilia Registered Data Sources",
+      "### Registered Data Sources",
       "The app exposes live data sources you can query with `query_data(source, query)`.",
       "Use them for recommendations, catalog lookup, live pricing, inventory, order status, or any structured data that is better fetched directly than inferred from the current screen.",
       ...lines,
@@ -2261,7 +1088,6 @@ export function AIAgent({
   const resolvedInstructions = useMemo(() => {
     const combinedSystem = [
       instructions?.system?.trim(),
-      remoteActionInstructions.trim(),
       registeredDataInstructions.trim(),
     ]
       .filter(Boolean)
@@ -2275,123 +1101,14 @@ export function AIAgent({
       ...instructions,
       system: combinedSystem || undefined,
     };
-  }, [instructions, remoteActionInstructions, registeredDataInstructions]);
-
-  const remoteActionTools = useMemo<Record<string, ToolDefinition>>(() => {
-    if (!analyticsKey || remoteConfiguredActions.length === 0) {
-      return {};
-    }
-
-    const toToolParameters = (
-      schema: Record<string, string | ActionParameterDef> | undefined
-    ) => {
-      const params: ToolDefinition["parameters"] = {};
-      if (!schema) return params;
-      for (const [key, value] of Object.entries(schema)) {
-        if (typeof value === "string") {
-          params[key] = {
-            type: "string",
-            description: value,
-            required: true,
-          };
-          continue;
-        }
-
-        params[key] = {
-          type: value.type,
-          description: value.description,
-          required: value.required !== false,
-          enum: value.enum,
-        };
-      }
-
-      return params;
-    };
-
-    const buildParameters = (actionName: string) =>
-      toToolParameters(actionRegistry.get(actionName)?.parameters);
-
-    return Object.fromEntries(
-      remoteConfiguredActions.map((action) => {
-        const description =
-          action.executionType === "webhook"
-            ? `${action.description} This action is fully configured in Twomilia and runs via webhook.`
-            : `${action.description} This action requires a matching useAction('${action.name}', ...) implementation in the app.`;
-
-        const tool: ToolDefinition = {
-          name: action.name,
-          description,
-          parameters:
-            action.executionType === "app_code"
-              ? buildParameters(action.name)
-              : // Webhook actions declare their schema in the dashboard (synced via
-                // /actions/sync). Surface it so the LLM knows which args to send.
-                toToolParameters(action.parameters),
-          execute: async (args) => {
-            const execution = await executeConfiguredAction({
-              analyticsKey,
-              actionName: action.name,
-              baseUrl: analyticsProxyUrl ?? ENDPOINTS.escalation,
-              headers: analyticsProxyHeaders,
-              args,
-              currentScreen: getResolvedScreenName(),
-              userContext: (userContext as Record<string, unknown> | undefined) ?? {},
-            });
-
-            if (!execution.allowed) {
-              return `❌ ${execution.error ?? `Action "${action.name}" is not allowed right now.`}`;
-            }
-
-            if (action.executionType === "webhook") {
-              return formatActionToolResult(
-                {
-                  success: true,
-                  message: execution.message,
-                  output: execution.output,
-                },
-                `✅ Action "${action.name}" executed successfully.`
-              );
-            }
-
-            const registeredAction = actionRegistry.get(action.name);
-            if (!registeredAction) {
-              return `❌ Action "${action.name}" is configured in Twomilia as app_code, but no matching useAction('${action.name}', ...) is mounted in the app.`;
-            }
-
-            try {
-              const result = await registeredAction.handler(args);
-              return formatActionToolResult(
-                result,
-                `✅ Action "${action.name}" executed successfully.`
-              );
-            } catch (error: any) {
-              return `❌ Action "${action.name}" failed: ${error.message}`;
-            }
-          },
-        };
-
-        return [action.name, tool];
-      })
-    );
-  }, [
-    analyticsKey,
-    analyticsProxyHeaders,
-    analyticsProxyUrl,
-    getResolvedScreenName,
-    remoteConfiguredActions,
-    registeredActionRevision,
-    userContext,
-  ]);
+  }, [instructions, registeredDataInstructions]);
 
   const mergedCustomTools = useMemo(() => {
     return {
-      ...remoteActionTools,
       ...(autoEscalateTool ? { escalate_to_human: autoEscalateTool } : {}),
-      ...(autoReportIssueTool ? { report_issue: autoReportIssueTool } : {}),
-      ...(autoOutboundCallTool ? { start_ai_call: autoOutboundCallTool } : {}),
       ...customTools,
     };
-  }, [autoEscalateTool, autoOutboundCallTool, autoReportIssueTool, customTools, remoteActionTools]);
+  }, [autoEscalateTool, customTools]);
 
   // ─── Voice/Live Mode State ──────────────────────────────────
   const [mode, setMode] = useState<AgentMode>('text');
@@ -2449,18 +1166,8 @@ export function AIAgent({
   const availableModes: AgentMode[] = useMemo(() => {
     const modes: AgentMode[] = ['text'];
     if (enableVoice) modes.push('voice');
-    if (tickets.length > 0) modes.push('human');
-    logger.info(
-      'AIAgent',
-      '★ availableModes recomputed:',
-      modes,
-      '| tickets:',
-      tickets.length,
-      '| ticketIds:',
-      tickets.map((t) => t.id)
-    );
     return modes;
-  }, [enableVoice, tickets]);
+  }, [enableVoice]);
 
   // Ref-based resolver for ask_user — stays alive across renders
   const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
@@ -2569,64 +1276,18 @@ export function AIAgent({
     setVoiceAISpeaking(false);
   }, [clearVoicePlaybackDrainTimer, setVoiceAISpeaking]);
 
-  const effectiveProxyHeaders = useMemo(() => {
-    if (!analyticsKey) return proxyHeaders;
-
-    const authToken = proxySessionToken || analyticsKey;
-    const deviceId = getDeviceId();
-    const isAuthMissing =
-      !proxyHeaders ||
-      !Object.keys(proxyHeaders).some(
-        (k) => k.toLowerCase() === 'authorization'
-      );
-
-    return {
-      ...proxyHeaders,
-      ...(isAuthMissing && { Authorization: `Bearer ${authToken}` }),
-      ...(deviceId && { 'X-MobileAI-Device-Id': deviceId }),
-    };
-  }, [proxyHeaders, analyticsKey, proxySessionToken]);
-
-  const effectiveVoiceProxyHeaders = useMemo(() => {
-    if (!analyticsKey) return voiceProxyHeaders;
-
-    const authToken = proxySessionToken || analyticsKey;
-    const deviceId = getDeviceId();
-    const isAuthMissing =
-      !voiceProxyHeaders ||
-      !Object.keys(voiceProxyHeaders).some(
-        (k) => k.toLowerCase() === 'authorization'
-      );
-
-    return {
-      ...voiceProxyHeaders,
-      ...(isAuthMissing && { Authorization: `Bearer ${authToken}` }),
-      ...(deviceId && { 'X-MobileAI-Device-Id': deviceId }),
-    };
-  }, [voiceProxyHeaders, analyticsKey, proxySessionToken]);
-
-  const resolvedProxyUrl = useMemo(() => {
-    if (proxyUrl) return proxyUrl;
-    if (analyticsKey) return ENDPOINTS.hostedTextProxy;
-    return undefined;
-  }, [proxyUrl, analyticsKey]);
-
-  const resolvedVoiceProxyUrl = useMemo(() => {
-    if (voiceProxyUrl) return voiceProxyUrl;
-    if (analyticsKey) return ENDPOINTS.hostedVoiceProxy;
-    return resolvedProxyUrl;
-  }, [voiceProxyUrl, analyticsKey, resolvedProxyUrl]);
+  // Model traffic goes to the provider with apiKey, or through the app's own proxy.
+  const resolvedVoiceProxyUrl = voiceProxyUrl ?? proxyUrl;
 
   // ─── Create Runtime ──────────────────────────────────────────
 
   const config: AgentConfig = useMemo(
     () => ({
       apiKey,
-      proxyUrl: resolvedProxyUrl,
+      proxyUrl,
       proxyHeaders,
       voiceProxyUrl: resolvedVoiceProxyUrl,
       voiceProxyHeaders,
-      outboundCalls,
       model,
       supportStyle,
       enableWebSearch,
@@ -2652,6 +1313,7 @@ export function AIAgent({
       pathname,
       interceptNativeAlerts,
       onStatusUpdate: setStatusText,
+      trackEvent: (type, data) => telemetryRef.current?.track(type, data),
       onInlineMessage: ({ text }) => {
         const trimmed = text.trim();
         if (!trimmed) return;
@@ -2678,13 +1340,9 @@ export function AIAgent({
         setAutoExpandTrigger((prev) => prev + 1);
       },
       onTokenUsage,
-      knowledgeBase: resolvedKnowledgeBase,
+      knowledgeBase,
       knowledgeMaxTokens,
       enableUIControl,
-      allowedActionNames:
-        analyticsKey && remoteConfiguredActions.length > 0
-          ? remoteConfiguredActions.map((action) => action.name)
-          : undefined,
       screenMap: useScreenMap ? screenMap : undefined,
       maxTokenBudget,
       maxCostUSD,
@@ -2816,7 +1474,7 @@ export function AIAgent({
     [
       mode,
       apiKey,
-      resolvedProxyUrl,
+      proxyUrl,
       proxyHeaders,
       resolvedVoiceProxyUrl,
       voiceProxyHeaders,
@@ -2838,11 +1496,9 @@ export function AIAgent({
       router,
       pathname,
       onTokenUsage,
-      resolvedKnowledgeBase,
+      knowledgeBase,
       knowledgeMaxTokens,
       enableUIControl,
-      analyticsKey,
-      remoteConfiguredActions,
       screenMap,
       useScreenMap,
       maxTokenBudget,
@@ -2867,11 +1523,11 @@ export function AIAgent({
         providerName,
         apiKey,
         model,
-        resolvedProxyUrl,
-        effectiveProxyHeaders,
+        proxyUrl,
+        proxyHeaders,
         enableWebSearch
       ),
-    [providerName, apiKey, model, resolvedProxyUrl, effectiveProxyHeaders, enableWebSearch]
+    [providerName, apiKey, model, proxyUrl, proxyHeaders, enableWebSearch]
   );
 
   const runtime = useMemo(
@@ -2889,19 +1545,19 @@ export function AIAgent({
   // ─── Telemetry ─────────────────────────────────────────────
 
   const telemetryRef = useRef<TelemetryService | null>(null);
+  // Latest app onEvent, read at emit time so a new callback never restarts telemetry.
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
-    if (!analyticsKey && !analyticsProxyUrl) {
-      bindTelemetryService(null);
-      return;
-    }
-
-    // Initialize persistent device ID before telemetry starts
+    // Telemetry is local: events feed proactive help and customer-success
+    // signals, then go to the app's onEvent callback when one is set.
+    let cancelled = false;
     initDeviceId().then(() => {
+      if (cancelled) return;
       const telemetry = new TelemetryService({
-        analyticsKey,
-        analyticsProxyUrl,
-        analyticsProxyHeaders,
         debug,
         onEvent: (event) => {
           // Proactive behavior triggers
@@ -2944,14 +1600,11 @@ export function AIAgent({
               }
             });
           }
+
+          onEventRef.current?.(event);
         },
       });
       telemetryRef.current = telemetry;
-      bindTelemetryService(telemetry);
-      // Forward provider config digest for quality metrics
-      if ((provider as any)?._cfgDigest) {
-        telemetry.setQualityDigest((provider as any)._cfgDigest);
-      }
       telemetry.start();
       // NavigationContainer is a child of AIAgent, so navRef may not be
       // ready yet when this effect runs. Poll briefly until it is.
@@ -2970,15 +1623,12 @@ export function AIAgent({
       };
       resolveInitialScreen();
     }); // initDeviceId
-  }, [
-    analyticsKey,
-    analyticsProxyUrl,
-    analyticsProxyHeaders,
-    bindTelemetryService,
-    debug,
-    navRef,
-    syncTelemetryScreen,
-  ]);
+    return () => {
+      cancelled = true;
+      telemetryRef.current?.stop();
+      telemetryRef.current = null;
+    };
+  }, [debug, navRef, syncTelemetryScreen]);
 
   // ─── Security warnings ──────────────────────────────────────
 
@@ -2988,16 +1638,16 @@ export function AIAgent({
       typeof __DEV__ !== 'undefined' &&
       !__DEV__ &&
       apiKey &&
-      !resolvedProxyUrl
+      !proxyUrl
     ) {
       logger.warn(
-        '[Twomilia] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
+        '[react-native-agentic-ai] ⚠️ SECURITY WARNING: You are using `apiKey` directly in a production build. ' +
           'This exposes your LLM provider key in the app binary. ' +
-          'Use `apiProxyUrl` to route requests through your backend instead. ' +
+          'Use `proxyUrl` to route requests through your backend instead. ' +
           'See docs for details.'
       );
     }
-  }, [apiKey, resolvedProxyUrl]);
+  }, [apiKey, proxyUrl]);
 
   // Track screen changes via navRef
   useEffect(() => {
@@ -3006,10 +1656,11 @@ export function AIAgent({
     const checkScreenMilestone = (screenName: string): void => {
       telemetryRef.current?.setScreen(screenName);
 
-      // Auto-capture wireframe snapshot for privacy-safe heatmaps.
+      // Auto-capture wireframe snapshot for privacy-safe heatmaps, only when
+      // the app listens to events (it includes a screenshot, so skip otherwise).
       // Deferred: wait for all animations/interactions to finish, then
-      // wait one more frame for layout to settle. Zero perf impact.
-      if (rootViewRef.current) {
+      // wait one more frame for layout to settle.
+      if (rootViewRef.current && onEventRef.current) {
         const handle = InteractionManager.runAfterInteractions(() => {
           requestAnimationFrame(() => {
             Promise.all([
@@ -3224,7 +1875,7 @@ export function AIAgent({
       voiceServiceRef.current = new VoiceService({
         apiKey,
         proxyUrl: resolvedVoiceProxyUrl,
-        proxyHeaders: effectiveVoiceProxyHeaders || effectiveProxyHeaders,
+        proxyHeaders: voiceProxyHeaders || proxyHeaders,
         systemPrompt: voicePrompt,
         tools: runtimeTools,
         language: 'en',
@@ -3716,8 +2367,8 @@ export function AIAgent({
     mode,
     apiKey,
     resolvedVoiceProxyUrl,
-    effectiveVoiceProxyHeaders,
-    effectiveProxyHeaders,
+    voiceProxyHeaders,
+    proxyHeaders,
     runtime,
     resolvedInstructions,
     supportStyle,
@@ -3804,10 +2455,7 @@ export function AIAgent({
       // ── Apple Guideline 5.1.2(i): Consent gate ──────────────────
       // If consent is required but not yet granted, show the consent dialog
       // instead of sending data to the AI provider.
-      // EXCEPTION: bypass consent when talking to a human agent —
-      // this is a person-to-person chat, not AI data processing.
-      const isHumanAgentChat = !!(selectedTicketId && supportSocket);
-      if (consentGateActive && !isHumanAgentChat) {
+      if (consentGateActive) {
         pendingConsentSendRef.current = {
           message: message.trim(),
           images,
@@ -3819,61 +2467,6 @@ export function AIAgent({
 
       logger.info('AIAgent', `User message: "${message}"`);
       setLastUserMessage(message.trim());
-
-      // Intercom-style transparent intercept:
-      // If we're connected to a human agent, all text input goes directly to them.
-      if (selectedTicketId && supportSocket) {
-        // Gate: do not allow sending if the ticket is closed/resolved.
-        const activeTicket = tickets.find((t) => t.id === selectedTicketId);
-        const CLOSED_STATUSES = ['closed', 'resolved'];
-        if (activeTicket && CLOSED_STATUSES.includes(activeTicket.status)) {
-          setLastResult({
-            success: false,
-            message: 'This conversation is closed. Please start a new request.',
-            steps: [],
-          });
-          return;
-        }
-
-        if (images?.length) {
-          for (const img of images) {
-            supportSocket.sendImage(img.base64, img.mimeType);
-          }
-        }
-        if (supportSocket.sendText(message)) {
-          const contentNodes: import('../core/types').AIRichNode[] = [];
-          if (images?.length) {
-            for (const img of images) {
-              contentNodes.push(createImageNode(`data:${img.mimeType};base64,${img.base64}`, img.mimeType, img.base64, `img-${Date.now()}-${Math.random()}`));
-            }
-          }
-          contentNodes.push({ type: 'text', content: message.trim(), id: `text-${Date.now()}` });
-          setSupportMessages((prev) => [
-            ...prev,
-            createAIMessage({
-              id: `user-${Date.now()}`,
-              role: 'user',
-              content: contentNodes,
-              previewText: message.trim() || '[Image]',
-              timestamp: Date.now(),
-            }),
-          ]);
-          setIsThinking(true);
-          setStatusText('Thinking...');
-          setTimeout(() => {
-            setIsThinking(false);
-            setStatusText('');
-          }, 800);
-        } else {
-          setLastResult({
-            success: false,
-            message:
-              'Failed to send message to support agent. Connection lost.',
-            steps: [],
-          });
-        }
-        return;
-      }
 
       // Append user message to AI thread (with image nodes if present)
       const userContentNodes: import('../core/types').AIRichNode[] = [];
@@ -4009,41 +2602,7 @@ export function AIAgent({
           })),
           images,
         );
-        let normalizedResult = normalizeExecutionResult(result);
-
-        const reportStep = result.steps?.find(
-          (step) => step.action.name === 'report_issue'
-        );
-        if (reportStep && typeof reportStep.action.output === 'string') {
-          const match = /^ISSUE_REPORTED:([^:]+):([^:]*):([\s\S]+)$/i.exec(
-            reportStep.action.output
-          );
-          if (match) {
-            const [, _issueId, historyId, customerMessage] = match;
-            const resolvedCustomerMessage =
-              customerMessage || reportStep.action.output;
-            if (historyId) {
-              seenReportedIssueUpdatesRef.current.add(historyId);
-            }
-            normalizedResult = {
-              ...normalizedResult,
-              message: resolvedCustomerMessage,
-              previewText: resolvedCustomerMessage,
-              reply: normalizeRichContent(resolvedCustomerMessage),
-              steps: result.steps.map((step) =>
-                step === reportStep
-                  ? {
-                      ...step,
-                      action: {
-                        ...step.action,
-                        output: resolvedCustomerMessage,
-                      },
-                    }
-                  : step
-              ),
-            };
-          }
-        }
+        const normalizedResult = normalizeExecutionResult(result);
 
         // Telemetry: track agent completion and per-step details
         if (telemetryRef.current) {
@@ -4097,22 +2656,12 @@ export function AIAgent({
           '| mode:',
           mode
         );
-        logger.info(
-          'AIAgent',
-          '★ handleSend — tickets:',
-          tickets.length,
-          'selectedTicketId:',
-          selectedTicketId
-        );
 
-        // Don't overwrite lastResult if escalation already switched us to human mode
-        // (mode in this closure is stale — the actual mode may have changed during async execution)
+        // No satisfaction survey after a handoff to a human.
         const stepsHadEscalation = normalizedResult.steps?.some(
           (s) => s.action.name === 'escalate_to_human'
         );
-        if (!stepsHadEscalation) {
-          setLastResult(normalizedResult);
-        }
+        setLastResult(normalizedResult);
 
         const assistantMsg: AIMessage = createAIMessage({
           id: Date.now().toString() + Math.random(),
@@ -4273,45 +2822,25 @@ export function AIAgent({
 
   const handleConversationSelect = useCallback(
     async (conversationId: string) => {
-      if (!analyticsKey) return;
-      try {
-        await initDeviceId();
-        const msgs = await ConversationService.fetchConversation({
-          conversationId,
-          analyticsKey,
-          userId: userContext?.userId,
-          deviceId: getDeviceId() || undefined,
-        });
-        if (msgs) {
-          clearPendingConversationSave();
-          conversationGenerationRef.current += 1;
-          activeConversationIdRef.current = conversationId;
-          lastSavedMessageCountRef.current = msgs.length;
-          setMessages(msgs);
-          setLastResult(null);
-        }
-      } catch (err) {
-        logger.warn('AIAgent', 'Failed to load conversation:', err);
-      }
+      const msgs = await ConversationService.loadConversation(
+        conversationStore,
+        conversationId
+      );
+      if (!msgs) return;
+      clearPendingConversationSave();
+      conversationGenerationRef.current += 1;
+      activeConversationIdRef.current = conversationId;
+      lastSavedMessageCountRef.current = msgs.length;
+      setMessages(msgs);
+      setLastResult(null);
     },
-    [analyticsKey, clearPendingConversationSave, userContext?.userId]
+    [conversationStore, clearPendingConversationSave]
   );
 
   const handleNewConversation = useCallback(() => {
-    if (activeConversationIdRef.current && analyticsKey) {
-      ConversationService.endConversation({
-        conversationId: activeConversationIdRef.current,
-        analyticsKey,
-      });
-    }
-    clearPendingConversationSave();
-    conversationGenerationRef.current += 1;
-    activeConversationIdRef.current = null;
-    lastSavedMessageCountRef.current = 0;
-    setMessages([]);
-    setLastResult(null);
+    clearMessages();
     setLastUserMessage(null);
-  }, [clearPendingConversationSave, analyticsKey]);
+  }, [clearMessages]);
 
   const handlePendingApprovalAction = useCallback(
     async (action: 'approve' | 'reject') => {
@@ -4512,10 +3041,13 @@ export function AIAgent({
       metadata={{
         conversationDuration: Date.now() - conversationStartRef.current,
         stepsCount: messages.filter((m) => m.role === 'assistant').length,
-        wasEscalated: tickets.length > 0,
+        wasEscalated: messages.some((m) =>
+          m.result?.steps?.some((step) => step.action.name === 'escalate_to_human')
+        ),
         screen: getResolvedScreenName(),
       }}
       onDismiss={() => setShowCSAT(false)}
+      onTrack={(type, data) => telemetryRef.current?.track(type, data)}
     />
   ) : null;
 
@@ -4654,17 +3186,12 @@ export function AIAgent({
                     mode,
                     '→',
                     newMode,
-                    '| tickets:',
-                    tickets.length,
-                    'selectedTicketId:',
-                    selectedTicketId
                   );
                   setMode(newMode);
                 }}
                 isMicActive={isMicActive}
                 isSpeakerMuted={isSpeakerMuted}
                 isAISpeaking={isAISpeaking}
-                isAgentTyping={isLiveAgentTyping}
                 onStopSession={stopVoiceSession}
                 isVoiceConnected={isVoiceConnected}
                 onMicToggle={(active) => {
@@ -4702,13 +3229,7 @@ export function AIAgent({
                     audioOutputRef.current?.unmute();
                   }
                 }}
-                tickets={tickets}
-                selectedTicketId={selectedTicketId}
-                onTicketSelect={handleTicketSelect}
-                onBackToTickets={handleBackToTickets}
                 autoExpandTrigger={autoExpandTrigger}
-                unreadCounts={unreadCounts}
-                totalUnread={totalUnread}
                 showDiscoveryTooltip={tooltipVisible}
                 discoveryTooltipMessage={discoveryTooltipMessage}
                 onTooltipDismiss={handleTooltipDismiss}
@@ -4782,17 +3303,12 @@ export function AIAgent({
                       mode,
                       '→',
                       newMode,
-                      '| tickets:',
-                      tickets.length,
-                      'selectedTicketId:',
-                      selectedTicketId
                     );
                     setMode(newMode);
                   }}
                   isMicActive={isMicActive}
                   isSpeakerMuted={isSpeakerMuted}
                   isAISpeaking={isAISpeaking}
-                  isAgentTyping={isLiveAgentTyping}
                   onStopSession={stopVoiceSession}
                   isVoiceConnected={isVoiceConnected}
                   onMicToggle={(active) => {
@@ -4833,13 +3349,7 @@ export function AIAgent({
                       audioOutputRef.current?.unmute();
                     }
                   }}
-                  tickets={tickets}
-                  selectedTicketId={selectedTicketId}
-                  onTicketSelect={handleTicketSelect}
-                  onBackToTickets={handleBackToTickets}
                   autoExpandTrigger={autoExpandTrigger}
-                  unreadCounts={unreadCounts}
-                  totalUnread={totalUnread}
                   showDiscoveryTooltip={tooltipVisible}
                   discoveryTooltipMessage={discoveryTooltipMessage}
                   onTooltipDismiss={handleTooltipDismiss}
@@ -4909,39 +3419,6 @@ export function AIAgent({
           />
         )}
 
-        {Platform.OS !== 'android' && (
-          <>
-            <SupportChatModal
-              visible={mode === 'human' && !!selectedTicketId}
-              messages={supportMessages}
-              onSend={handleSend}
-              onClose={handleBackToTickets}
-              isAgentTyping={isLiveAgentTyping}
-              isThinking={isThinking}
-              scrollToEndTrigger={chatScrollTrigger}
-              ticketStatus={
-                tickets.find((t) => t.id === selectedTicketId)?.status
-              }
-            />
-          </>
-        )}
-
-        {Platform.OS === 'android' && (
-          <>
-            <SupportChatModal
-              visible={mode === 'human' && !!selectedTicketId}
-              messages={supportMessages}
-              onSend={handleSend}
-              onClose={handleBackToTickets}
-              isAgentTyping={isLiveAgentTyping}
-              isThinking={isThinking}
-              scrollToEndTrigger={chatScrollTrigger}
-              ticketStatus={
-                tickets.find((t) => t.id === selectedTicketId)?.status
-              }
-            />
-          </>
-        )}
       </View>
         </ActionBridgeProvider>
       </RichUIProvider>

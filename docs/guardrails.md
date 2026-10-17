@@ -1,6 +1,6 @@
 # Guardrails
 
-MobileAI is designed as delegated assistance, not user impersonation. The assistant can propose actions, but the runtime owns enforcement.
+The agent is designed as delegated assistance, not user impersonation. The assistant can propose actions, but the runtime owns enforcement.
 
 ## Safety Layers
 
@@ -50,7 +50,7 @@ If the assistant tries to use a blocked UI-control tool, the runtime blocks it b
 ```tsx
 <AIAgent
   interactionMode="companion"
-  analyticsKey="mobileai_pub_xxxxxxxx"
+  proxyUrl="https://api.example.com/ai/chat"
   navRef={navRef}
 >
   {children}

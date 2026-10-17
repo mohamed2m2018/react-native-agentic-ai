@@ -15,12 +15,14 @@ import {
   StyleSheet,
 } from 'react-native';
 import type { CSATConfig, CSATRating } from './types';
-import { MobileAI } from '../services/telemetry';
+import type { TrackEvent } from '../services/telemetry';
 
 interface CSATSurveyProps {
   config: CSATConfig;
   metadata: CSATRating['metadata'];
   onDismiss: () => void;
+  /** Receives the csat/ces/nps_response and fcr_achieved events. */
+  onTrack?: TrackEvent;
   theme?: {
     primaryColor?: string;
     textColor?: string;
@@ -52,6 +54,7 @@ export function CSATSurvey({
   config,
   metadata,
   onDismiss,
+  onTrack,
   theme,
 }: CSATSurveyProps) {
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
@@ -89,9 +92,9 @@ export function CSATSurvey({
       : selectedScore >= 4 || (ratingType === 'thumbs' && selectedScore === 5);
     const eventName = surveyType === 'nps' ? 'nps_response' : surveyType === 'ces' ? 'ces_response' : 'csat_response';
     
-    MobileAI.track(eventName, { score: selectedScore, fcrAchieved, ticketId: metadata?.ticketId });
+    onTrack?.(eventName, { score: selectedScore, fcrAchieved, ticketId: metadata?.ticketId });
     if (fcrAchieved) {
-      MobileAI.track('fcr_achieved', { score: selectedScore, ticketId: metadata?.ticketId });
+      onTrack?.('fcr_achieved', { score: selectedScore, ticketId: metadata?.ticketId });
     }
 
     // Auto-dismiss after 1.5s

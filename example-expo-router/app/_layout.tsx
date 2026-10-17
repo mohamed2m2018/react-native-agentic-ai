@@ -6,9 +6,9 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { PaperProvider } from 'react-native-paper';
-import { AIAgent } from '@mobileai/react-native';
-import { buildSupportPrompt, createEscalateTool } from '@mobileai/react-native';
-import type { KnowledgeEntry } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
+import { buildSupportPrompt, createEscalateTool } from 'react-native-agentic-ai';
+import type { KnowledgeEntry } from 'react-native-agentic-ai';
 import screenMap from '../ai-screen-map.json';
 import { useColorScheme } from '@/components/useColorScheme';
 import { FoodDeliveryProvider, getSupportContext } from '@/app/lib/delivery-demo';
@@ -74,16 +74,9 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const navRef = useNavigationContainerRef();
   const pathname = usePathname();
-  const analyticsKey =
-    (__DEV__ ? process.env.EXPO_PUBLIC_MOBILEAI_DEV_KEY : undefined)
-    ?? process.env.EXPO_PUBLIC_MOBILEAI_KEY;
-  const mcpServerUrl = process.env.EXPO_PUBLIC_MOBILEAI_MCP_URL;
-
-  // 🔹 Feature flag sync on mount (requires api.twomilia.com — coming soon)
-  // useEffect(() => {
-  //   const chatEnabled = MobileAI.getFlag('chat_enabled', 'control');
-  //   console.log('[FeatureFlag] chat_enabled =', chatEnabled);
-  // }, []);
+  // Development only: production apps should use proxyUrl to their own backend.
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const mcpServerUrl = process.env.EXPO_PUBLIC_MCP_URL;
 
   // 🔹 Support mode
   const supportSystem = buildSupportPrompt({
@@ -115,7 +108,6 @@ function RootLayoutNav() {
         onEscalate: (ctx) => console.log('[DashBite Support] Escalating:', ctx.conversationSummary),
         escalationMessage: 'Connecting you to our live support specialist...',
       },
-      analyticsKey,
       getContext: () => {
         const supportContext = getSupportContext();
         return {
@@ -128,7 +120,6 @@ function RootLayoutNav() {
         };
       },
       getHistory: () => [],
-      onEscalationStarted: () => {},
       getScreenFlow: () => [],
     }
   );
@@ -150,7 +141,7 @@ function RootLayoutNav() {
               debug={true}
               screenMap={screenMap as any}
               accentColor="#F97316"
-              analyticsKey={analyticsKey}
+              apiKey={apiKey}
               supportStyle="wow-service"
               proactiveHelp={{
                 enabled: true,

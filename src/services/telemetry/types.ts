@@ -1,9 +1,7 @@
 /**
- * Telemetry types for the Twomilia analytics module.
+ * Telemetry event types emitted through the onEvent callback.
  *
- * Events are split into two categories:
- * 1. Auto-captured: SDK captures these without consumer code
- * 2. Consumer-tracked: via MobileAI.track() API
+ * All events are captured by the SDK; the app receives them via onEvent.
  */
 
 // ─── Event Types ──────────────────────────────────────────────
@@ -65,36 +63,14 @@ export interface TelemetryEvent {
 
 // ─── Batch Payload (sent to cloud) ────────────────────────────
 
-export interface TelemetryBatch {
-  /** Publishable analytics key */
-  analyticsKey: string;
-  /** App identifier (bundle ID / package name) */
-  appId: string;
-  /** Hashed user/device identifier */
-  deviceId: string;
-  /** SDK version */
-  sdkVersion: string;
-  /** Internal quality metrics digest */
-  _qm?: string;
-  /** Batch of events */
-  events: TelemetryEvent[];
-}
-
 // ─── Configuration ────────────────────────────────────────────
 
+/** Emits one SDK event (wired to TelemetryService.track by AIAgent). */
+export type TrackEvent = (type: string, data?: Record<string, unknown>) => void;
+
 export interface TelemetryConfig {
-  /** Publishable analytics key (twomilia_pub_xxx) */
-  analyticsKey?: string;
-  /** Proxy URL for enterprise customers (replaces direct cloud API) */
-  analyticsProxyUrl?: string;
-  /** Custom headers for proxy requests */
-  analyticsProxyHeaders?: Record<string, string>;
-  /** Flush interval in ms (default: 30000) */
-  flushIntervalMs?: number;
-  /** Max events before auto-flush (default: 50) */
-  maxBatchSize?: number;
-  /** Enable debug logging for telemetry (default: false) */
+  /** Receives every SDK event. Telemetry is off when this is not set. */
+  onEvent?: (event: TelemetryEvent) => void;
+  /** Log each event to the console (default: false) */
   debug?: boolean;
-  /** Callback fired locally whenever an event is tracked (useful for reacting to rage_tap) */
-  onEvent?: (event: import('./types').TelemetryEvent) => void;
 }

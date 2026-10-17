@@ -1,5 +1,5 @@
 /**
- * @mobileai/react-native
+ * react-native-agentic-ai
  *
  * Zero-wrapper AI agent for React Native.
  * Auto-detects interactive elements via React Fiber tree traversal.
@@ -46,16 +46,6 @@ export { VoiceService } from './services/VoiceService';
 export { AudioInputService } from './services/AudioInputService';
 export { AudioOutputService } from './services/AudioOutputService';
 export { KnowledgeBaseService } from './services/KnowledgeBaseService';
-export { createTwomiliaKnowledgeRetriever } from './services/TwomiliaKnowledgeRetriever';
-export { startOutboundAiCall } from './services/OutboundCallService';
-export type {
-  OutboundCallConfig,
-  OutboundCallRequest,
-  StartOutboundCallResult,
-} from './services/OutboundCallService';
-
-// ─── Analytics ───────────────────────────────────────────────
-export { MobileAI } from './services/telemetry';
 
 // ─── Utilities ───────────────────────────────────────────────
 export { logger } from './utils/logger';
@@ -100,10 +90,10 @@ export type {
   ScreenMapEntry,
   InteractionMode,
   ConversationSummary,
+  ConversationMessage,
+  ConversationStore,
 } from './core/types';
 export type { RichUITheme, RichUIThemeOverride } from './theme/RichUITheme';
-
-export type { TwomiliaKnowledgeRetrieverOptions } from './services/TwomiliaKnowledgeRetriever';
 
 export type { AIConsentConfig } from './components/AIConsentDialog';
 
@@ -113,34 +103,27 @@ export type {
   VoiceStatus,
 } from './services/VoiceService';
 
-export type { TelemetryConfig, TelemetryEvent } from './services/telemetry';
+export type { TelemetryEvent, TrackEvent } from './services/telemetry';
 
 // ─── Support Mode ────────────────────────────────────────────
-// CSATSurvey and buildSupportPrompt work standalone (no backend)
-// createEscalateTool works with provider='custom' (no backend)
-// EscalationSocket and provider='mobileai' require api.twomilia.com
+// Everything here runs in the app; escalation hands off through onEscalate.
 export {
   CSATSurvey,
   QuickActionsSheet,
   HelpArticleView,
   buildSupportPrompt,
   createEscalateTool,
-  EscalationSocket,
 } from './support';
-export { createReportIssueTool } from './support';
 
 export type {
   SupportModeConfig,
   QuickReply,
   EscalationConfig,
   EscalationContext,
+  EscalationUserContext,
   CSATConfig,
   CSATRating,
   BusinessHoursConfig,
-  SupportTicket,
-  ReportedIssue,
-  ReportedIssueCustomerStatus,
-  ReportedIssueStatusUpdate,
   QuickActionsConfig,
   HelpTopic,
   HelpArticle,

@@ -9,7 +9,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { MobileAI } from './telemetry/MobileAI';
+import type { TrackEvent } from './telemetry/types';
 import type {
   KnowledgeEntry,
   KnowledgeRetriever,
@@ -28,7 +28,11 @@ export class KnowledgeBaseService {
   private retriever: KnowledgeRetriever;
   private maxChars: number;
 
-  constructor(config: KnowledgeBaseConfig, maxTokens?: number) {
+  constructor(
+    config: KnowledgeBaseConfig,
+    maxTokens?: number,
+    private readonly onTrack?: TrackEvent
+  ) {
     this.maxChars = (maxTokens ?? DEFAULT_MAX_TOKENS) * CHARS_PER_TOKEN;
 
     // Normalize: array → built-in keyword retriever, object → use as-is
@@ -62,7 +66,7 @@ export class KnowledgeBaseService {
       const entries = await this.retriever.retrieve(query, screenName);
 
       if (!entries || entries.length === 0) {
-        MobileAI.track('knowledge_miss', { query, screen: screenName });
+        this.onTrack?.('knowledge_miss', { query, screen: screenName });
         return 'No relevant knowledge found for this query. Answer based on what is visible on screen, or let the user know you don\'t have that information.';
       }
 

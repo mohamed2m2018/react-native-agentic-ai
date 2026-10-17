@@ -1,31 +1,26 @@
 # Security Policy
 
-We take the security of the MobileAI Agent SDK and the hosted control plane seriously. This document describes how to report vulnerabilities and what to expect in response.
+We take the security of the `react-native-agentic-ai` SDK seriously. This document describes how to report vulnerabilities and what to expect in response.
 
 ## Supported versions
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.9.x   | :white_check_mark: |
-| < 0.9   | :x:                |
+| 0.10.x  | :white_check_mark: |
+| < 0.10  | :x:                |
 
-The 0.9.x line receives security fixes until 1.0 GA. Older releases will not be patched — please upgrade.
+The 0.10.x line receives security fixes until 1.0 GA. Older releases will not be patched — please upgrade.
 
 ## Reporting a vulnerability
 
-Please email **security@mobileai.cloud**.
-
-If the report contains sensitive details, encrypt it with our PGP key.
-
-- PGP fingerprint: _(published in repository — see `SECURITY.asc`, coming soon)_
-- Subject line: `[SECURITY] <short title>`
+Report privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability** (GitHub private vulnerability reporting).
 
 Include in your report:
 
 - A description of the issue and its potential impact.
 - Steps to reproduce, ideally a minimal proof of concept.
 - Affected SDK version(s) and platform (iOS, Android, web).
-- Whether the issue affects the hosted control plane (`mobileai.cloud`) or the SDK only.
+- Whether the issue affects the SDK, the MCP server, or both.
 - Your name / handle for credit (or tell us you prefer to remain anonymous).
 
 Please **do not** open a public GitHub issue, post to social media, or share the details with third parties before we have had a chance to fix the issue.
@@ -41,9 +36,8 @@ Please **do not** open a public GitHub issue, post to social media, or share the
 
 In scope:
 
-- The SDK package on npm (`@mobileai/react-native`, alias `experimental-stuff`).
-- The hosted control plane at `mobileai.cloud` (web + APIs).
-- The `mcp-server/` integration shipped from this repository.
+- The SDK package on npm (`react-native-agentic-ai`).
+- The MCP server shipped inside the package (`mcp-server/`).
 - Sample applications under `example-*` directories, where a defect would mislead users into an unsafe integration.
 
 Out of scope:

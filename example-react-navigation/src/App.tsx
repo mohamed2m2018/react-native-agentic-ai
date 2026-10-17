@@ -5,9 +5,9 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
-import { AIAgent } from '@mobileai/react-native';
+import { AIAgent } from 'react-native-agentic-ai';
 import screenMap from '../ai-screen-map.json';
-import type { ExecutionResult, TokenUsage } from '@mobileai/react-native';
+import type { ExecutionResult, TokenUsage } from 'react-native-agentic-ai';
 import { CartProvider } from './CartContext';
 import { AuthProvider } from './AuthContext';
 import type { MenuItem } from './menuData';
@@ -473,7 +473,7 @@ export default function App() {
       <CartProvider>
         <AIAgent
           provider="gemini"
-          analyticsKey={process.env.EXPO_PUBLIC_MOBILEAI_KEY || ''}
+          apiKey={process.env.EXPO_PUBLIC_GEMINI_API_KEY} // development only
           navRef={navRef}
           screenMap={screenMap}
           maxSteps={40}
@@ -486,11 +486,9 @@ export default function App() {
             email: 'demo@example.com',
             plan: 'Premium',
           }}
-          pushToken="dummy_fcm_token_123"
-          pushTokenType="fcm"
           instructions={{
             system:
-              'You are a helpful food delivery assistant. Always be polite. Treat billing, payment, charge, refund, and order questions as investigations first: inspect app data, navigate relevant screens, query knowledge, and explain what you find. Use report_issue for verified problems that can be reviewed asynchronously. Only escalate to a human when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required. For outbound AI call testing, the Basil & Brick trusted contact is targetType merchant and targetId restaurant_basil_brick.',
+              'You are a helpful food delivery assistant. Always be polite. Treat billing, payment, charge, refund, and order questions as investigations first: inspect app data, navigate relevant screens, query knowledge, and explain what you find. Only escalate to a human when the user explicitly asks for a human, you cannot investigate or resolve with available tools, or direct customer follow-up is required.',
             getScreenInstructions: (screenName: string) => {
               if (screenName === 'Cart') {
                 return 'SECURITY GUARD: You are on the Cart screen. Before using the "checkout" action, briefly summarize the order total. Do not ask_user separately for checkout because the action itself presents the final confirmation alert.';
